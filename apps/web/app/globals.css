@@ -22,6 +22,13 @@
   box-sizing: border-box;
 }
 
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
 html,
 body {
   margin: 0;
@@ -43,6 +50,20 @@ body {
 
 a {
   color: inherit;
+}
+
+a,
+button {
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.55);
+  outline-offset: 2px;
 }
 
 .gc-shell-header {
@@ -231,6 +252,7 @@ a {
   font-size: 13px;
   font-weight: 700;
   color: var(--gc-text-primary);
+  cursor: pointer;
 }
 
 .gc-pill-btn:disabled {
@@ -277,6 +299,7 @@ a {
   padding: 0 14px;
   font-size: 14px;
   font-weight: 700;
+  cursor: pointer;
 }
 
 .gc-primary-btn:disabled {
@@ -366,6 +389,7 @@ a {
   font-size: 14px;
   font-weight: 700;
   padding: 0 14px;
+  cursor: pointer;
 }
 
 .gc-action-btn:disabled {
@@ -592,6 +616,10 @@ a {
   vertical-align: top;
 }
 
+.gc-admin-table tbody tr:hover {
+  background: #fbfdff;
+}
+
 .gc-inline-actions {
   display: flex;
   gap: 6px;
@@ -761,6 +789,7 @@ a {
   font-size: 14px;
   font-weight: 700;
   text-decoration: none;
+  cursor: pointer;
 }
 
 .gc-btn-primary {
@@ -772,6 +801,16 @@ a {
   background: var(--gc-surface);
   border-color: var(--gc-border);
   color: var(--gc-text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 @media (max-width: 760px) {
