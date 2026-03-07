@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { resolveLocale, t, type SupportedLocale } from "@genius/i18n";
 import { parseLocaleCookie, setUiLocaleCookie } from "../../lib/ui-locale";
 
@@ -12,6 +13,7 @@ type SessionInfo = {
 };
 
 export default function AuthPage() {
+  const searchParams = useSearchParams();
   const [uiLocale, setUiLocale] = useState<SupportedLocale>("it");
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
@@ -25,7 +27,7 @@ export default function AuthPage() {
   const [checkingSession, setCheckingSession] = useState(true);
 
   useEffect(() => {
-    const requestedFromQuery = new URLSearchParams(window.location.search).get("locale");
+    const requestedFromQuery = searchParams.get("locale");
     const requestedFromCookie = parseLocaleCookie(document.cookie);
     setUiLocale(
       resolveLocale({
@@ -33,7 +35,7 @@ export default function AuthPage() {
         tenantDefault: "it"
       })
     );
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     setUiLocaleCookie(uiLocale);

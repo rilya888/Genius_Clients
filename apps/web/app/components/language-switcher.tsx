@@ -12,9 +12,16 @@ export function LanguageSwitcher({ locale }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const currentLocale = (() => {
+    const queryLocale = searchParams.get("locale");
+    if (queryLocale === "it" || queryLocale === "en") {
+      return queryLocale;
+    }
+    return locale;
+  })();
 
   function applyLocale(nextLocale: SupportedLocale) {
-    if (nextLocale === locale) {
+    if (nextLocale === currentLocale) {
       return;
     }
 
@@ -23,8 +30,7 @@ export function LanguageSwitcher({ locale }: Props) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("locale", nextLocale);
     const suffix = params.toString();
-    router.replace(suffix ? `${pathname}?${suffix}` : pathname);
-    router.refresh();
+    router.replace(suffix ? `${pathname}?${suffix}` : pathname, { scroll: false });
   }
 
   return (
@@ -32,16 +38,16 @@ export function LanguageSwitcher({ locale }: Props) {
       <button
         type="button"
         onClick={() => applyLocale("it")}
-        disabled={locale === "it"}
+        disabled={currentLocale === "it"}
         style={{
           border: "1px solid #d1d5db",
-          background: locale === "it" ? "#e5e7eb" : "#ffffff",
+          background: currentLocale === "it" ? "#e5e7eb" : "#ffffff",
           color: "#111827",
           borderRadius: 6,
           fontSize: 12,
           fontWeight: 600,
           padding: "4px 8px",
-          cursor: locale === "it" ? "default" : "pointer"
+          cursor: currentLocale === "it" ? "default" : "pointer"
         }}
       >
         IT
@@ -49,16 +55,16 @@ export function LanguageSwitcher({ locale }: Props) {
       <button
         type="button"
         onClick={() => applyLocale("en")}
-        disabled={locale === "en"}
+        disabled={currentLocale === "en"}
         style={{
           border: "1px solid #d1d5db",
-          background: locale === "en" ? "#e5e7eb" : "#ffffff",
+          background: currentLocale === "en" ? "#e5e7eb" : "#ffffff",
           color: "#111827",
           borderRadius: 6,
           fontSize: 12,
           fontWeight: 600,
           padding: "4px 8px",
-          cursor: locale === "en" ? "default" : "pointer"
+          cursor: currentLocale === "en" ? "default" : "pointer"
         }}
       >
         EN
@@ -66,4 +72,3 @@ export function LanguageSwitcher({ locale }: Props) {
     </div>
   );
 }
-

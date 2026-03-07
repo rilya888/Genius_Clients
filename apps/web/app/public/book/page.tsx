@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { formatDateTime, t } from "@genius/i18n";
 import { getBrowserLocale, parseLocaleCookie, setUiLocaleCookie } from "../../../lib/ui-locale";
 
@@ -9,6 +10,7 @@ type ServiceItem = { id: string; displayName: string; durationMinutes: number };
 type SlotItem = { masterId: string; startAt: string; endAt: string; displayTime: string };
 
 export default function PublicBookingPage() {
+  const searchParams = useSearchParams();
   const [masters, setMasters] = useState<MasterItem[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [slots, setSlots] = useState<SlotItem[]>([]);
@@ -30,7 +32,7 @@ export default function PublicBookingPage() {
     Boolean(csrfToken);
 
   useEffect(() => {
-    const requestedFromQuery = new URLSearchParams(window.location.search).get("locale");
+    const requestedFromQuery = searchParams.get("locale");
     const requestedFromCookie = parseLocaleCookie(document.cookie);
     if (requestedFromQuery === "it" || requestedFromQuery === "en") {
       setClientLocale(requestedFromQuery);
@@ -41,7 +43,7 @@ export default function PublicBookingPage() {
       return;
     }
     setClientLocale(getBrowserLocale());
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     setUiLocaleCookie(clientLocale);
