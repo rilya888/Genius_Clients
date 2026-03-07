@@ -31,6 +31,7 @@ After alert setup changes:
 1. Trigger a staging redeploy.
 2. Confirm alert delivery for failure/success transitions.
 3. Record confirmation timestamp in work report.
+4. Run `pnpm railway:audit-alerts` (or `bash scripts/release/audit-railway-alerts.sh <projectId...>`).
 
 ## Applied rules (2026-03-07)
 

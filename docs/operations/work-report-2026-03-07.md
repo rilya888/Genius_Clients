@@ -62,3 +62,19 @@
 5. Applied explicit notification rules:
    - `Genius_Clients` rule id: `bd04fb90-0622-409e-aae2-ef52ae10d12a`
    - `Genius_Clients_Staging` rule id: `80e170f8-8f14-4dc1-9fc4-899e66c04c2b`
+
+## Update - Quality and release guardrails
+
+1. Stabilized TS test execution in non-interactive environments:
+   - switched i18n tests and parity check from `tsx` CLI to `node --import tsx`.
+2. Added shared package unit tests:
+   - `packages/shared/src/slug.test.ts`
+   - `packages/shared/src/validation.test.ts`
+3. Expanded quality gates:
+   - root `pnpm test` now includes `@genius/i18n` and `@genius/shared`.
+   - `predeploy:quality` now runs tests.
+   - CI workflow now includes explicit `Tests` step.
+4. Added Railway alert audit automation:
+   - `scripts/release/audit-railway-alerts.sh`
+   - `pnpm railway:audit-alerts`
+   - release checklist and alert docs updated with audit command.

@@ -9,8 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "check:parity": "tsx src/check-parity.ts",
-    "test": "tsx --test src/*.test.ts"
+    "check:parity": "node --import tsx src/check-parity.ts",
+    "test": "node --import tsx --test src/*.test.ts"
   },
   "devDependencies": {
     "tsx": "4.20.5"

@@ -6,6 +6,7 @@ const steps = [
   ["pnpm", ["lint"]],
   ["pnpm", ["typecheck"]],
   ["pnpm", ["i18n:check"]],
+  ["pnpm", ["test"]],
   ["pnpm", ["build"]]
 ];
 

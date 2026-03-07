@@ -32,6 +32,8 @@
 ## 5. Alerts and monitoring
 
 - Configure Railway service alerts (restart spikes / deployment failures) for `web`, `api`, `bot`, `worker`.
+- Run `pnpm railway:audit-alerts` for the default project in `railway.json`.
+- For multiple projects run: `bash scripts/release/audit-railway-alerts.sh <projectId...>`.
 - Confirm Sentry DSN and runtime error reporting are enabled where applicable.
 
 ## 6. Go/No-Go
