@@ -258,6 +258,7 @@ button {
 .gc-pill-btn:disabled {
   background: var(--gc-pastel-primary);
   border-color: #c8dbff;
+  cursor: not-allowed;
 }
 
 .gc-form-card {
@@ -394,6 +395,7 @@ button {
 
 .gc-action-btn:disabled {
   opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .gc-slot-list {
@@ -442,7 +444,7 @@ button {
 }
 
 .gc-admin-shell {
-  width: min(1100px, calc(100% - 32px));
+  width: min(1200px, calc(100% - 24px));
   margin: 0 auto;
 }
 
@@ -517,8 +519,8 @@ button {
 }
 
 .gc-admin-page {
-  width: min(1100px, calc(100% - 32px));
-  margin: 0 auto;
+  width: 100%;
+  margin: 0;
   padding: 24px 0 34px;
 }
 
@@ -801,6 +803,12 @@ button {
   background: var(--gc-surface);
   border-color: var(--gc-border);
   color: var(--gc-text-primary);
+}
+
+.gc-btn[aria-disabled="true"],
+.gc-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 @media (prefers-reduced-motion: reduce) {
