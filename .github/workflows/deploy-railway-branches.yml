@@ -109,7 +109,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm i -g @railway/cli@4.6.1
+          npm i -g @railway/cli@latest
           railway up \
             --ci \
             --detach \
