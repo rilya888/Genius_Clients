@@ -134,10 +134,10 @@ export default function WorkingHoursPage() {
   }
 
   return (
-    <main style={{ maxWidth: 1080, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ marginTop: 0 }}>Working Hours</h1>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px 120px auto", gap: 8, marginBottom: 12 }}>
-        <select value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+    <main className="gc-admin-page">
+      <h1 className="gc-admin-title">Working Hours</h1>
+      <div className="gc-working-hours-create-grid">
+        <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
           <option value="">Global (all masters)</option>
           {masters.map((item) => (
             <option key={item.id} value={item.id}>
@@ -145,84 +145,106 @@ export default function WorkingHoursPage() {
             </option>
           ))}
         </select>
-        <input value={dayOfWeek} onChange={(e) => setDayOfWeek(e.target.value)} placeholder="Day 0-6" />
-        <input value={startMinute} onChange={(e) => setStartMinute(e.target.value)} placeholder="Start min" />
-        <input value={endMinute} onChange={(e) => setEndMinute(e.target.value)} placeholder="End min" />
-        <button onClick={() => void createWorkingHours()}>Create</button>
+        <input
+          className="gc-input"
+          value={dayOfWeek}
+          onChange={(e) => setDayOfWeek(e.target.value)}
+          placeholder="Day 0-6"
+        />
+        <input
+          className="gc-input"
+          value={startMinute}
+          onChange={(e) => setStartMinute(e.target.value)}
+          placeholder="Start min"
+        />
+        <input
+          className="gc-input"
+          value={endMinute}
+          onChange={(e) => setEndMinute(e.target.value)}
+          placeholder="End min"
+        />
+        <button className="gc-action-btn" onClick={() => void createWorkingHours()}>
+          Create
+        </button>
       </div>
 
-      <p style={{ color: "#4b5563", minHeight: 20 }}>{status}</p>
+      <p className="gc-muted-line">{status}</p>
 
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          background: "#fff",
-          border: "1px solid #e5e7eb"
-        }}
-      >
-        <thead>
-          <tr>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Master</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Day</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Start</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>End</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Active</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={item.id}>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <select
-                  value={editing[item.id]?.masterId ?? ""}
-                  onChange={(e) => updateEdit(item.id, { masterId: e.target.value })}
-                >
-                  <option value="">GLOBAL</option>
-                  {masters.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.displayName}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  value={editing[item.id]?.dayOfWeek ?? String(item.dayOfWeek)}
-                  onChange={(e) => updateEdit(item.id, { dayOfWeek: e.target.value })}
-                  style={{ width: 70 }}
-                />
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  value={editing[item.id]?.startMinute ?? String(item.startMinute)}
-                  onChange={(e) => updateEdit(item.id, { startMinute: e.target.value })}
-                  style={{ width: 90 }}
-                />
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  value={editing[item.id]?.endMinute ?? String(item.endMinute)}
-                  onChange={(e) => updateEdit(item.id, { endMinute: e.target.value })}
-                  style={{ width: 90 }}
-                />
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  type="checkbox"
-                  checked={editing[item.id]?.isActive ?? item.isActive}
-                  onChange={(e) => updateEdit(item.id, { isActive: e.target.checked })}
-                />
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6", display: "flex", gap: 8 }}>
-                <button onClick={() => void saveWorkingHours(item.id)}>Save</button>
-                <button onClick={() => void removeWorkingHours(item.id)}>Delete</button>
-              </td>
+      <div className="gc-admin-table-wrap">
+        <table className="gc-admin-table">
+          <thead>
+            <tr>
+              <th>Master</th>
+              <th>Day</th>
+              <th>Start</th>
+              <th>End</th>
+              <th>Active</th>
+              <th>Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id}>
+                <td>
+                  <select
+                    className="gc-select"
+                    value={editing[item.id]?.masterId ?? ""}
+                    onChange={(e) => updateEdit(item.id, { masterId: e.target.value })}
+                  >
+                    <option value="">GLOBAL</option>
+                    {masters.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <input
+                    className="gc-input"
+                    value={editing[item.id]?.dayOfWeek ?? String(item.dayOfWeek)}
+                    onChange={(e) => updateEdit(item.id, { dayOfWeek: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <input
+                    className="gc-input"
+                    value={editing[item.id]?.startMinute ?? String(item.startMinute)}
+                    onChange={(e) => updateEdit(item.id, { startMinute: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <input
+                    className="gc-input"
+                    value={editing[item.id]?.endMinute ?? String(item.endMinute)}
+                    onChange={(e) => updateEdit(item.id, { endMinute: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <label className="gc-consent gc-mt-0">
+                    <input
+                      type="checkbox"
+                      checked={editing[item.id]?.isActive ?? item.isActive}
+                      onChange={(e) => updateEdit(item.id, { isActive: e.target.checked })}
+                    />
+                    active
+                  </label>
+                </td>
+                <td>
+                  <div className="gc-inline-actions">
+                    <button className="gc-pill-btn" onClick={() => void saveWorkingHours(item.id)}>
+                      Save
+                    </button>
+                    <button className="gc-pill-btn" onClick={() => void removeWorkingHours(item.id)}>
+                      Delete
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

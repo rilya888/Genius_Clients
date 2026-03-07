@@ -128,10 +128,10 @@ export default function MasterServicesPage() {
   }
 
   return (
-    <main style={{ maxWidth: 1080, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ marginTop: 0 }}>Master Services</h1>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 160px auto", gap: 8, marginBottom: 12 }}>
-        <select value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+    <main className="gc-admin-page">
+      <h1 className="gc-admin-title">Master Services</h1>
+      <div className="gc-master-services-create-grid">
+        <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
           <option value="">Select master</option>
           {masters.map((item) => (
             <option key={item.id} value={item.id}>
@@ -139,7 +139,7 @@ export default function MasterServicesPage() {
             </option>
           ))}
         </select>
-        <select value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
+        <select className="gc-select" value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
           <option value="">Select service</option>
           {services.map((item) => (
             <option key={item.id} value={item.id}>
@@ -148,71 +148,77 @@ export default function MasterServicesPage() {
           ))}
         </select>
         <input
+          className="gc-input"
           placeholder="Override min"
           value={durationOverride}
           onChange={(e) => setDurationOverride(e.target.value)}
         />
-        <button onClick={() => void createLink()}>Create Link</button>
+        <button className="gc-action-btn" onClick={() => void createLink()}>
+          Create Link
+        </button>
       </div>
-      <p style={{ color: "#4b5563", minHeight: 20 }}>{status}</p>
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          background: "#fff",
-          border: "1px solid #e5e7eb"
-        }}
-      >
-        <thead>
-          <tr>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Master</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Service</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Override</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={item.id}>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <select
-                  value={editing[item.id]?.masterId ?? item.masterId}
-                  onChange={(e) => updateEdit(item.id, { masterId: e.target.value })}
-                >
-                  {masters.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.displayName}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <select
-                  value={editing[item.id]?.serviceId ?? item.serviceId}
-                  onChange={(e) => updateEdit(item.id, { serviceId: e.target.value })}
-                >
-                  {services.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.displayName}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  value={editing[item.id]?.duration ?? ""}
-                  onChange={(e) => updateEdit(item.id, { duration: e.target.value })}
-                  style={{ width: 120 }}
-                />
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6", display: "flex", gap: 8 }}>
-                <button onClick={() => void saveLink(item.id)}>Save</button>
-                <button onClick={() => void removeLink(item.id)}>Delete</button>
-              </td>
+      <p className="gc-muted-line">{status}</p>
+      <div className="gc-admin-table-wrap">
+        <table className="gc-admin-table">
+          <thead>
+            <tr>
+              <th>Master</th>
+              <th>Service</th>
+              <th>Override</th>
+              <th>Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id}>
+                <td>
+                  <select
+                    className="gc-select"
+                    value={editing[item.id]?.masterId ?? item.masterId}
+                    onChange={(e) => updateEdit(item.id, { masterId: e.target.value })}
+                  >
+                    {masters.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <select
+                    className="gc-select"
+                    value={editing[item.id]?.serviceId ?? item.serviceId}
+                    onChange={(e) => updateEdit(item.id, { serviceId: e.target.value })}
+                  >
+                    {services.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <input
+                    className="gc-input"
+                    value={editing[item.id]?.duration ?? ""}
+                    onChange={(e) => updateEdit(item.id, { duration: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <div className="gc-inline-actions">
+                    <button className="gc-pill-btn" onClick={() => void saveLink(item.id)}>
+                      Save
+                    </button>
+                    <button className="gc-pill-btn" onClick={() => void removeLink(item.id)}>
+                      Delete
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

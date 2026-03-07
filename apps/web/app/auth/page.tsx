@@ -174,118 +174,105 @@ export default function AuthPage() {
 
   if (checkingSession) {
     return (
-      <main style={{ maxWidth: 720, margin: "0 auto", padding: 24 }}>
-        <p style={{ color: "#374151", marginTop: 0 }}>Checking session...</p>
+      <main className="gc-auth-page">
+        <p className="gc-status-text gc-mt-0">
+          Checking session...
+        </p>
       </main>
     );
   }
 
   return (
-    <main style={{ maxWidth: 720, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ marginTop: 0 }}>{t("auth.title", { locale: uiLocale })}</h1>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        <button onClick={() => setMode("login")} disabled={mode === "login"}>
+    <main className="gc-auth-page">
+      <h1 className="gc-auth-title">{t("auth.title", { locale: uiLocale })}</h1>
+      <div className="gc-auth-toolbar">
+        <button className="gc-pill-btn" onClick={() => setMode("login")} disabled={mode === "login"}>
           {t("auth.login", { locale: uiLocale })}
         </button>
-        <button onClick={() => setMode("register")} disabled={mode === "register"}>
+        <button
+          className="gc-pill-btn"
+          onClick={() => setMode("register")}
+          disabled={mode === "register"}
+        >
           {t("auth.register", { locale: uiLocale })}
         </button>
-        <button onClick={logout}>{t("auth.logout", { locale: uiLocale })}</button>
+        <button className="gc-pill-btn" onClick={logout}>
+          {t("auth.logout", { locale: uiLocale })}
+        </button>
       </div>
 
-      <div
-        style={{
-          background: "#fff",
-          border: "1px solid #e5e7eb",
-          borderRadius: 8,
-          padding: 16,
-          display: "grid",
-          gap: 10
-        }}
-      >
-        <label>
+      <div className="gc-card gc-form-card">
+        <label className="gc-form-label">
           {t("auth.email", { locale: uiLocale })}
-          <input value={email} onChange={(e) => setEmail(e.target.value)} style={{ width: "100%" }} />
+          <input
+            className="gc-form-input"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
         </label>
-        <label>
+        <label className="gc-form-label">
           {t("auth.password", { locale: uiLocale })}
           <input
+            className="gc-form-input"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            style={{ width: "100%" }}
           />
         </label>
 
         {mode === "register" ? (
           <>
-            <label>
+            <label className="gc-form-label">
               {t("auth.businessName", { locale: uiLocale })}
               <input
+                className="gc-form-input"
                 value={businessName}
                 onChange={(e) => setBusinessName(e.target.value)}
-                style={{ width: "100%" }}
               />
             </label>
-            <label>
+            <label className="gc-form-label">
               {t("auth.slugOptional", { locale: uiLocale })}
-              <input value={slug} onChange={(e) => setSlug(e.target.value)} style={{ width: "100%" }} />
+              <input className="gc-form-input" value={slug} onChange={(e) => setSlug(e.target.value)} />
             </label>
           </>
         ) : null}
 
-        <button disabled={!canSubmit} onClick={submit}>
+        <button className="gc-primary-btn" disabled={!canSubmit} onClick={submit}>
           {mode === "login"
             ? t("auth.login", { locale: uiLocale })
             : t("auth.register", { locale: uiLocale })}
         </button>
       </div>
 
-      <div
-        style={{
-          background: "#fff",
-          border: "1px solid #e5e7eb",
-          borderRadius: 8,
-          padding: 16,
-          display: "grid",
-          gap: 10,
-          marginTop: 12
-        }}
-      >
-        <label>
+      <div className="gc-card gc-form-card gc-mt-12">
+        <label className="gc-form-label">
           {t("auth.email", { locale: uiLocale })}
           <input
+            className="gc-form-input"
             value={verificationEmail}
             onChange={(e) => setVerificationEmail(e.target.value)}
-            style={{ width: "100%" }}
           />
         </label>
-        <button onClick={requestEmailVerification}>
+        <button className="gc-primary-btn" onClick={requestEmailVerification}>
           {t("auth.requestVerification", { locale: uiLocale })}
         </button>
 
-        <label>
+        <label className="gc-form-label">
           {t("auth.verificationToken", { locale: uiLocale })}
           <input
+            className="gc-form-input"
             value={verificationToken}
             onChange={(e) => setVerificationToken(e.target.value)}
-            style={{ width: "100%" }}
           />
         </label>
-        <button onClick={verifyEmail}>{t("auth.verifyEmail", { locale: uiLocale })}</button>
+        <button className="gc-primary-btn" onClick={verifyEmail}>
+          {t("auth.verifyEmail", { locale: uiLocale })}
+        </button>
       </div>
 
-      <p style={{ color: "#374151", marginTop: 12 }}>{status}</p>
+      <p className="gc-status-text">{status}</p>
       {session ? (
-        <pre
-          style={{
-            background: "#111827",
-            color: "#f9fafb",
-            borderRadius: 8,
-            padding: 12,
-            overflowX: "auto"
-          }}
-        >
+        <pre className="gc-debug-box">
           {JSON.stringify(session, null, 2)}
         </pre>
       ) : null}

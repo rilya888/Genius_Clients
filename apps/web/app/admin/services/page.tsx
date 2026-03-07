@@ -151,101 +151,111 @@ export default function ServicesPage() {
   }
 
   return (
-    <main style={{ maxWidth: 1080, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ marginTop: 0 }}>Services</h1>
+    <main className="gc-admin-page">
+      <h1 className="gc-admin-title">Services</h1>
       <p>
         <a href="/admin/service-translations">Open service translations</a>
       </p>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 120px 140px 120px auto",
-          gap: 8,
-          marginBottom: 12
-        }}
-      >
+      <div className="gc-services-create-grid">
         <input
+          className="gc-input"
           placeholder="Display name"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
         />
         <input
+          className="gc-input"
           placeholder="Duration"
           value={durationMinutes}
           onChange={(e) => setDurationMinutes(e.target.value)}
         />
-        <input placeholder="Price cents" value={priceCents} onChange={(e) => setPriceCents(e.target.value)} />
-        <input placeholder="Sort order" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} />
-        <button onClick={() => void createService()}>Create</button>
+        <input
+          className="gc-input"
+          placeholder="Price cents"
+          value={priceCents}
+          onChange={(e) => setPriceCents(e.target.value)}
+        />
+        <input
+          className="gc-input"
+          placeholder="Sort order"
+          value={sortOrder}
+          onChange={(e) => setSortOrder(e.target.value)}
+        />
+        <button className="gc-action-btn" onClick={() => void createService()}>
+          Create
+        </button>
       </div>
-      <p style={{ color: "#4b5563", minHeight: 20 }}>{status}</p>
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          background: "#fff",
-          border: "1px solid #e5e7eb"
-        }}
-      >
-        <thead>
-          <tr>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: 8 }}>Name</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: 8 }}>Duration</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: 8 }}>Price</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: 8 }}>Sort</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: 8 }}>Active</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: 8 }}>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={item.id}>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  value={editing[item.id]?.displayName ?? item.displayName}
-                  onChange={(e) => updateEdit(item.id, { displayName: e.target.value })}
-                  style={{ width: "100%" }}
-                />
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  value={editing[item.id]?.durationMinutes ?? String(item.durationMinutes)}
-                  onChange={(e) => updateEdit(item.id, { durationMinutes: e.target.value })}
-                  style={{ width: 90 }}
-                />
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  value={editing[item.id]?.priceCents ?? ""}
-                  onChange={(e) => updateEdit(item.id, { priceCents: e.target.value })}
-                  style={{ width: 120 }}
-                />
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  value={editing[item.id]?.sortOrder ?? String(item.sortOrder)}
-                  onChange={(e) => updateEdit(item.id, { sortOrder: e.target.value })}
-                  style={{ width: 90 }}
-                />
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <input
-                    type="checkbox"
-                    checked={editing[item.id]?.isActive ?? item.isActive}
-                    onChange={(e) => updateEdit(item.id, { isActive: e.target.checked })}
-                  />
-                  active
-                </label>
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6", display: "flex", gap: 8 }}>
-                <button onClick={() => void saveService(item.id)}>Save</button>
-                {item.isActive ? <button onClick={() => void deactivateService(item.id)}>Deactivate</button> : null}
-              </td>
+      <p className="gc-muted-line">{status}</p>
+      <div className="gc-admin-table-wrap">
+        <table className="gc-admin-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Duration</th>
+              <th>Price</th>
+              <th>Sort</th>
+              <th>Active</th>
+              <th>Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id}>
+                <td>
+                  <input
+                    className="gc-input"
+                    value={editing[item.id]?.displayName ?? item.displayName}
+                    onChange={(e) => updateEdit(item.id, { displayName: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <input
+                    className="gc-input"
+                    value={editing[item.id]?.durationMinutes ?? String(item.durationMinutes)}
+                    onChange={(e) => updateEdit(item.id, { durationMinutes: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <input
+                    className="gc-input"
+                    value={editing[item.id]?.priceCents ?? ""}
+                    onChange={(e) => updateEdit(item.id, { priceCents: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <input
+                    className="gc-input"
+                    value={editing[item.id]?.sortOrder ?? String(item.sortOrder)}
+                    onChange={(e) => updateEdit(item.id, { sortOrder: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <label className="gc-consent gc-mt-0">
+                    <input
+                      type="checkbox"
+                      checked={editing[item.id]?.isActive ?? item.isActive}
+                      onChange={(e) => updateEdit(item.id, { isActive: e.target.checked })}
+                    />
+                    active
+                  </label>
+                </td>
+                <td>
+                  <div className="gc-inline-actions">
+                    <button className="gc-pill-btn" onClick={() => void saveService(item.id)}>
+                      Save
+                    </button>
+                    {item.isActive ? (
+                      <button className="gc-pill-btn" onClick={() => void deactivateService(item.id)}>
+                        Deactivate
+                      </button>
+                    ) : null}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

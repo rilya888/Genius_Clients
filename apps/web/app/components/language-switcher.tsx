@@ -34,21 +34,13 @@ export function LanguageSwitcher({ locale }: Props) {
   }
 
   return (
-    <div style={{ marginLeft: "auto", display: "inline-flex", gap: 6 }}>
+    <div className="gc-language-switcher">
       <button
         type="button"
         onClick={() => applyLocale("it")}
         disabled={currentLocale === "it"}
-        style={{
-          border: "1px solid #d1d5db",
-          background: currentLocale === "it" ? "#e5e7eb" : "#ffffff",
-          color: "#111827",
-          borderRadius: 6,
-          fontSize: 12,
-          fontWeight: 600,
-          padding: "4px 8px",
-          cursor: currentLocale === "it" ? "default" : "pointer"
-        }}
+        className="gc-lang-btn"
+        aria-pressed={currentLocale === "it"}
       >
         IT
       </button>
@@ -56,16 +48,8 @@ export function LanguageSwitcher({ locale }: Props) {
         type="button"
         onClick={() => applyLocale("en")}
         disabled={currentLocale === "en"}
-        style={{
-          border: "1px solid #d1d5db",
-          background: currentLocale === "en" ? "#e5e7eb" : "#ffffff",
-          color: "#111827",
-          borderRadius: 6,
-          fontSize: 12,
-          fontWeight: 600,
-          padding: "4px 8px",
-          cursor: currentLocale === "en" ? "default" : "pointer"
-        }}
+        className="gc-lang-btn"
+        aria-pressed={currentLocale === "en"}
       >
         EN
       </button>

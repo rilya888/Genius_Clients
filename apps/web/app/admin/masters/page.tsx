@@ -107,64 +107,72 @@ export default function MastersPage() {
   }
 
   return (
-    <main style={{ maxWidth: 980, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ marginTop: 0 }}>Masters</h1>
+    <main className="gc-admin-page">
+      <h1 className="gc-admin-title">Masters</h1>
       <p>
         <a href="/admin/master-translations">Open master translations</a>
       </p>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      <div className="gc-admin-filters">
         <input
+          className="gc-input"
           placeholder="Display name"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
         />
-        <button onClick={() => void createMaster()}>Create</button>
-        <button onClick={() => void load()}>Refresh</button>
+        <button className="gc-action-btn" onClick={() => void createMaster()}>
+          Create
+        </button>
+        <button className="gc-action-btn" onClick={() => void load()}>
+          Refresh
+        </button>
       </div>
-      <p style={{ color: "#4b5563", minHeight: 20 }}>{status}</p>
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          background: "#fff",
-          border: "1px solid #e5e7eb"
-        }}
-      >
-        <thead>
-          <tr>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: 8 }}>Name</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: 8 }}>Active</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: 8 }}>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={item.id}>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  value={editing[item.id]?.displayName ?? item.displayName}
-                  onChange={(e) => updateEdit(item.id, { displayName: e.target.value })}
-                  style={{ width: "100%" }}
-                />
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <input
-                    type="checkbox"
-                    checked={editing[item.id]?.isActive ?? item.isActive}
-                    onChange={(e) => updateEdit(item.id, { isActive: e.target.checked })}
-                  />
-                  active
-                </label>
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6", display: "flex", gap: 8 }}>
-                <button onClick={() => void saveMaster(item.id)}>Save</button>
-                {item.isActive ? <button onClick={() => void deactivateMaster(item.id)}>Deactivate</button> : null}
-              </td>
+      <p className="gc-muted-line">{status}</p>
+      <div className="gc-admin-table-wrap">
+        <table className="gc-admin-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Active</th>
+              <th>Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id}>
+                <td>
+                  <input
+                    className="gc-input"
+                    value={editing[item.id]?.displayName ?? item.displayName}
+                    onChange={(e) => updateEdit(item.id, { displayName: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <label className="gc-consent gc-mt-0">
+                    <input
+                      type="checkbox"
+                      checked={editing[item.id]?.isActive ?? item.isActive}
+                      onChange={(e) => updateEdit(item.id, { isActive: e.target.checked })}
+                    />
+                    active
+                  </label>
+                </td>
+                <td>
+                  <div className="gc-inline-actions">
+                    <button className="gc-pill-btn" onClick={() => void saveMaster(item.id)}>
+                      Save
+                    </button>
+                    {item.isActive ? (
+                      <button className="gc-pill-btn" onClick={() => void deactivateMaster(item.id)}>
+                        Deactivate
+                      </button>
+                    ) : null}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

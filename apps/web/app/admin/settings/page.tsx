@@ -82,76 +82,71 @@ export default function TenantSettingsPage() {
   }
 
   return (
-    <main style={{ maxWidth: 760, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ marginTop: 0 }}>Tenant Settings</h1>
+    <main className="gc-settings-page">
+      <h1 className="gc-admin-title">Tenant Settings</h1>
       {role && role !== "owner" ? (
-        <p style={{ color: "#b45309" }}>Current role: {role}. Settings update requires owner role.</p>
+        <p className="gc-warning-text">Current role: {role}. Settings update requires owner role.</p>
       ) : null}
-      <div
-        style={{
-          background: "#fff",
-          border: "1px solid #e5e7eb",
-          borderRadius: 8,
-          padding: 16,
-          display: "grid",
-          gap: 12
-        }}
-      >
-        <label>
+      <div className="gc-card gc-form-card">
+        <label className="gc-form-label">
           Default Locale
-          <select value={defaultLocale} onChange={(e) => setDefaultLocale(e.target.value as "it" | "en")}>
+          <select
+            className="gc-select"
+            value={defaultLocale}
+            onChange={(e) => setDefaultLocale(e.target.value as "it" | "en")}
+          >
             <option value="it">it</option>
             <option value="en">en</option>
           </select>
         </label>
 
-        <label>
+        <label className="gc-form-label">
           Timezone
-          <input value={timezone} onChange={(e) => setTimezone(e.target.value)} style={{ width: "100%" }} />
+          <input className="gc-input" value={timezone} onChange={(e) => setTimezone(e.target.value)} />
         </label>
 
-        <label>
+        <label className="gc-form-label">
           Booking Horizon Days
           <input
+            className="gc-input"
             value={bookingHorizonDays}
             onChange={(e) => setBookingHorizonDays(e.target.value)}
-            style={{ width: "100%" }}
           />
         </label>
 
-        <label>
+        <label className="gc-form-label">
           Min Advance Minutes
           <input
+            className="gc-input"
             value={bookingMinAdvanceMinutes}
             onChange={(e) => setBookingMinAdvanceMinutes(e.target.value)}
-            style={{ width: "100%" }}
           />
         </label>
 
-        <label>
+        <label className="gc-form-label">
           Buffer Minutes
           <input
+            className="gc-input"
             value={bookingBufferMinutes}
             onChange={(e) => setBookingBufferMinutes(e.target.value)}
-            style={{ width: "100%" }}
           />
         </label>
 
-        <label>
+        <label className="gc-form-label">
           Admin Notification Email
           <input
+            className="gc-input"
             value={adminNotificationEmail}
             onChange={(e) => setAdminNotificationEmail(e.target.value)}
-            style={{ width: "100%" }}
           />
         </label>
 
-        <button onClick={save} disabled={role !== "owner"}>
+        <button className="gc-action-btn" onClick={save} disabled={role !== "owner"}>
           Save
         </button>
       </div>
 
-      <p style={{ color: "#4b5563", minHeight: 20 }}>{status}</p>
+      <p className="gc-muted-line">{status}</p>
     </main>
   );
 }

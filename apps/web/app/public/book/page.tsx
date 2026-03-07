@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { formatDateTime, t } from "@genius/i18n";
 import { getBrowserLocale, parseLocaleCookie, setUiLocaleCookie } from "../../../lib/ui-locale";
 
@@ -10,6 +10,7 @@ type ServiceItem = { id: string; displayName: string; durationMinutes: number };
 type SlotItem = { masterId: string; startAt: string; endAt: string; displayTime: string };
 
 export default function PublicBookingPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [masters, setMasters] = useState<MasterItem[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
@@ -135,6 +136,13 @@ export default function PublicBookingPage() {
         params: { bookingId: payload?.data?.bookingId ?? "ok" }
       })
     );
+
+    const params = new URLSearchParams();
+    params.set("locale", clientLocale);
+    if (payload?.data?.bookingId) {
+      params.set("bookingId", String(payload.data.bookingId));
+    }
+    router.push(`/public/booking-success?${params.toString()}`);
   }
 
   const selectedMasterName = useMemo(() => {
@@ -145,103 +153,106 @@ export default function PublicBookingPage() {
   }, [masters, selectedSlot]);
 
   return (
-    <main style={{ maxWidth: 1080, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ marginTop: 0 }}>{t("public.booking.title", { locale: clientLocale })}</h1>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 160px auto", gap: 8 }}>
-        <select value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
-          <option value="">{t("public.booking.selectService", { locale: clientLocale })}</option>
-          {services.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.displayName} ({item.durationMinutes}m)
-            </option>
-          ))}
-        </select>
-        <select value={masterId} onChange={(e) => setMasterId(e.target.value)}>
-          <option value="">{t("public.booking.anyMaster", { locale: clientLocale })}</option>
-          {masters.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.displayName}
-            </option>
-          ))}
-        </select>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        <button onClick={() => void loadSlots()}>
-          {t("public.booking.findSlots", { locale: clientLocale })}
-        </button>
-      </div>
-
-      <h3>{t("public.booking.slots", { locale: clientLocale })}</h3>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", minHeight: 44 }}>
-        {slots.map((slot) => (
-          <button
-            key={`${slot.masterId}-${slot.startAt}`}
-            onClick={() => setSelectedSlot(slot)}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 6,
-              border: "1px solid #d1d5db",
-              background:
-                selectedSlot?.startAt === slot.startAt && selectedSlot.masterId === slot.masterId
-                  ? "#dbeafe"
-                  : "#fff"
-            }}
-          >
-            {slot.displayTime}
+    <main className="gc-book-page">
+      <h1 className="gc-book-title">{t("public.booking.title", { locale: clientLocale })}</h1>
+      <div className="gc-card gc-form-card">
+        <div className="gc-book-grid-top">
+          <select className="gc-select" value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
+            <option value="">{t("public.booking.selectService", { locale: clientLocale })}</option>
+            {services.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.displayName} ({item.durationMinutes}m)
+              </option>
+            ))}
+          </select>
+          <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+            <option value="">{t("public.booking.anyMaster", { locale: clientLocale })}</option>
+            {masters.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.displayName}
+              </option>
+            ))}
+          </select>
+          <input className="gc-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <button className="gc-action-btn" onClick={() => void loadSlots()}>
+            {t("public.booking.findSlots", { locale: clientLocale })}
           </button>
-        ))}
-      </div>
+        </div>
 
-      <h3>{t("public.booking.clientSection", { locale: clientLocale })}</h3>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 90px auto", gap: 8 }}>
-        <input
-          placeholder={t("public.booking.namePlaceholder", { locale: clientLocale })}
-          value={clientName}
-          onChange={(e) => setClientName(e.target.value)}
-        />
-        <input
-          placeholder={t("public.booking.phonePlaceholder", { locale: clientLocale })}
-          value={clientPhoneE164}
-          onChange={(e) => setClientPhoneE164(e.target.value)}
-        />
-        <input
-          placeholder={t("public.booking.emailPlaceholder", { locale: clientLocale })}
-          value={clientEmail}
-          onChange={(e) => setClientEmail(e.target.value)}
-        />
-        <select value={clientLocale} onChange={(e) => setClientLocale(e.target.value as "it" | "en")}>
-          <option value="it">it</option>
-          <option value="en">en</option>
-        </select>
-        <button disabled={!canBook} onClick={() => void createBooking()}>
-          {t("public.booking.bookAction", { locale: clientLocale })}
-        </button>
-      </div>
-      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8 }}>
-        <input
-          type="checkbox"
-          checked={clientConsent}
-          onChange={(e) => setClientConsent(e.target.checked)}
-        />
-        {t("public.booking.consent", { locale: clientLocale })}
-      </label>
-      {!phoneValid && clientPhoneE164 ? (
-        <p style={{ color: "#b91c1c", marginTop: 6 }}>
-          {t("public.booking.phoneInvalid", { locale: clientLocale })}
-        </p>
-      ) : null}
+        <h3 className="gc-book-section-title">{t("public.booking.slots", { locale: clientLocale })}</h3>
+        <div className="gc-slot-list">
+          {slots.map((slot) => (
+            <button
+              className="gc-slot-btn"
+              key={`${slot.masterId}-${slot.startAt}`}
+              onClick={() => setSelectedSlot(slot)}
+              aria-pressed={
+                selectedSlot?.startAt === slot.startAt && selectedSlot.masterId === slot.masterId
+              }
+            >
+              {slot.displayTime}
+            </button>
+          ))}
+        </div>
 
-      <p style={{ color: "#4b5563", minHeight: 20 }}>{status}</p>
-      {selectedSlot ? (
-        <p style={{ color: "#1f2937" }}>
-          {t("public.booking.selected", {
-            locale: clientLocale,
-            params: {
-              dateTime: formatDateTime(selectedSlot.startAt, { locale: clientLocale }),
-              masterName: selectedMasterName
-            }
-          })}
-        </p>
-      ) : null}
+        <h3 className="gc-book-section-title">{t("public.booking.clientSection", { locale: clientLocale })}</h3>
+        <div className="gc-book-grid-bottom">
+          <input
+            className="gc-input"
+            placeholder={t("public.booking.namePlaceholder", { locale: clientLocale })}
+            value={clientName}
+            onChange={(e) => setClientName(e.target.value)}
+          />
+          <input
+            className="gc-input"
+            placeholder={t("public.booking.phonePlaceholder", { locale: clientLocale })}
+            value={clientPhoneE164}
+            onChange={(e) => setClientPhoneE164(e.target.value)}
+          />
+          <input
+            className="gc-input"
+            placeholder={t("public.booking.emailPlaceholder", { locale: clientLocale })}
+            value={clientEmail}
+            onChange={(e) => setClientEmail(e.target.value)}
+          />
+          <select
+            className="gc-select"
+            value={clientLocale}
+            onChange={(e) => setClientLocale(e.target.value as "it" | "en")}
+          >
+            <option value="it">it</option>
+            <option value="en">en</option>
+          </select>
+          <button className="gc-action-btn" disabled={!canBook} onClick={() => void createBooking()}>
+            {t("public.booking.bookAction", { locale: clientLocale })}
+          </button>
+        </div>
+
+        <label className="gc-consent">
+          <input
+            type="checkbox"
+            checked={clientConsent}
+            onChange={(e) => setClientConsent(e.target.checked)}
+          />
+          {t("public.booking.consent", { locale: clientLocale })}
+        </label>
+        {!phoneValid && clientPhoneE164 ? (
+          <p className="gc-error-text">{t("public.booking.phoneInvalid", { locale: clientLocale })}</p>
+        ) : null}
+
+        <p className="gc-muted-line">{status}</p>
+        {selectedSlot ? (
+          <p className="gc-selected-line">
+            {t("public.booking.selected", {
+              locale: clientLocale,
+              params: {
+                dateTime: formatDateTime(selectedSlot.startAt, { locale: clientLocale }),
+                masterName: selectedMasterName
+              }
+            })}
+          </p>
+        ) : null}
+      </div>
     </main>
   );
 }

@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { cookies } from "next/headers";
+import Link from "next/link";
 import { resolveLocale } from "@genius/i18n";
 import { LanguageSwitcher } from "./components/language-switcher";
 import { parseLocaleCookie } from "../lib/ui-locale";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Genius Clients",
@@ -19,29 +21,23 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
 
   return (
     <html lang={locale}>
-      <body style={{ margin: 0, fontFamily: "Arial, sans-serif", background: "#f6f7fb" }}>
-        <header
-          style={{
-            borderBottom: "1px solid #e5e7eb",
-            background: "#ffffff",
-            padding: "12px 20px",
-            display: "flex",
-            gap: 12,
-            alignItems: "center"
-          }}
-        >
-          <a href="/" style={{ textDecoration: "none", color: "#111827", fontWeight: 700 }}>
-            Genius Clients
-          </a>
-          <a href="/auth" style={{ textDecoration: "none", color: "#374151", fontSize: 14 }}>
-            Auth
-          </a>
-          <a href="/admin" style={{ textDecoration: "none", color: "#374151", fontSize: 14 }}>
-            Admin
-          </a>
-          <a href="/public/book" style={{ textDecoration: "none", color: "#374151", fontSize: 14 }}>
-            Public Book
-          </a>
+      <body>
+        <header className="gc-shell-header">
+          <Link href="/" className="gc-brand-link">
+            <span className="gc-brand-mark" aria-hidden />
+            <span>Genius Clients</span>
+          </Link>
+          <nav className="gc-nav">
+            <Link href="/auth" className="gc-nav-link">
+              Auth
+            </Link>
+            <Link href="/admin" className="gc-nav-link">
+              Admin
+            </Link>
+            <Link href="/public/book" className="gc-nav-link">
+              Public Book
+            </Link>
+          </nav>
           <LanguageSwitcher locale={locale} />
         </header>
         {children}

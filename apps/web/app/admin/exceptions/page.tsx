@@ -161,10 +161,10 @@ export default function ExceptionsPage() {
   }
 
   return (
-    <main style={{ maxWidth: 1080, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ marginTop: 0 }}>Schedule Exceptions</h1>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 150px 140px 140px 1fr auto", gap: 8, marginBottom: 8 }}>
-        <select value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+    <main className="gc-admin-page">
+      <h1 className="gc-admin-title">Schedule Exceptions</h1>
+      <div className="gc-exceptions-create-grid">
+        <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
           <option value="">Global (all masters)</option>
           {masters.map((item) => (
             <option key={item.id} value={item.id}>
@@ -172,96 +172,114 @@ export default function ExceptionsPage() {
             </option>
           ))}
         </select>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        <input placeholder="Start min" value={startMinute} onChange={(e) => setStartMinute(e.target.value)} />
-        <input placeholder="End min" value={endMinute} onChange={(e) => setEndMinute(e.target.value)} />
-        <input placeholder="Note" value={note} onChange={(e) => setNote(e.target.value)} />
-        <button onClick={() => void createException()}>Create</button>
+        <input className="gc-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <input
+          className="gc-input"
+          placeholder="Start min"
+          value={startMinute}
+          onChange={(e) => setStartMinute(e.target.value)}
+        />
+        <input
+          className="gc-input"
+          placeholder="End min"
+          value={endMinute}
+          onChange={(e) => setEndMinute(e.target.value)}
+        />
+        <input className="gc-input" placeholder="Note" value={note} onChange={(e) => setNote(e.target.value)} />
+        <button className="gc-action-btn" onClick={() => void createException()}>
+          Create
+        </button>
       </div>
-      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+      <label className="gc-consent gc-mb-12">
         <input type="checkbox" checked={isClosed} onChange={(e) => setIsClosed(e.target.checked)} />
         Closed day
       </label>
-      <p style={{ color: "#4b5563", minHeight: 20 }}>{status}</p>
+      <p className="gc-muted-line">{status}</p>
 
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          background: "#fff",
-          border: "1px solid #e5e7eb"
-        }}
-      >
-        <thead>
-          <tr>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Master</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Date</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Closed</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Start</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>End</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Note</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={item.id}>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <select
-                  value={editing[item.id]?.masterId ?? ""}
-                  onChange={(e) => updateEdit(item.id, { masterId: e.target.value })}
-                >
-                  <option value="">GLOBAL</option>
-                  {masters.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.displayName}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  type="date"
-                  value={editing[item.id]?.date ?? item.date}
-                  onChange={(e) => updateEdit(item.id, { date: e.target.value })}
-                />
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  type="checkbox"
-                  checked={editing[item.id]?.isClosed ?? item.isClosed}
-                  onChange={(e) => updateEdit(item.id, { isClosed: e.target.checked })}
-                />
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  value={editing[item.id]?.startMinute ?? ""}
-                  onChange={(e) => updateEdit(item.id, { startMinute: e.target.value })}
-                  style={{ width: 90 }}
-                />
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  value={editing[item.id]?.endMinute ?? ""}
-                  onChange={(e) => updateEdit(item.id, { endMinute: e.target.value })}
-                  style={{ width: 90 }}
-                />
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <input
-                  value={editing[item.id]?.note ?? ""}
-                  onChange={(e) => updateEdit(item.id, { note: e.target.value })}
-                  style={{ width: "100%" }}
-                />
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6", display: "flex", gap: 8 }}>
-                <button onClick={() => void saveException(item.id)}>Save</button>
-                <button onClick={() => void removeException(item.id)}>Delete</button>
-              </td>
+      <div className="gc-admin-table-wrap">
+        <table className="gc-admin-table">
+          <thead>
+            <tr>
+              <th>Master</th>
+              <th>Date</th>
+              <th>Closed</th>
+              <th>Start</th>
+              <th>End</th>
+              <th>Note</th>
+              <th>Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id}>
+                <td>
+                  <select
+                    className="gc-select"
+                    value={editing[item.id]?.masterId ?? ""}
+                    onChange={(e) => updateEdit(item.id, { masterId: e.target.value })}
+                  >
+                    <option value="">GLOBAL</option>
+                    {masters.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <input
+                    className="gc-date"
+                    type="date"
+                    value={editing[item.id]?.date ?? item.date}
+                    onChange={(e) => updateEdit(item.id, { date: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <label className="gc-consent gc-mt-0">
+                    <input
+                      type="checkbox"
+                      checked={editing[item.id]?.isClosed ?? item.isClosed}
+                      onChange={(e) => updateEdit(item.id, { isClosed: e.target.checked })}
+                    />
+                    closed
+                  </label>
+                </td>
+                <td>
+                  <input
+                    className="gc-input"
+                    value={editing[item.id]?.startMinute ?? ""}
+                    onChange={(e) => updateEdit(item.id, { startMinute: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <input
+                    className="gc-input"
+                    value={editing[item.id]?.endMinute ?? ""}
+                    onChange={(e) => updateEdit(item.id, { endMinute: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <input
+                    className="gc-input"
+                    value={editing[item.id]?.note ?? ""}
+                    onChange={(e) => updateEdit(item.id, { note: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <div className="gc-inline-actions">
+                    <button className="gc-pill-btn" onClick={() => void saveException(item.id)}>
+                      Save
+                    </button>
+                    <button className="gc-pill-btn" onClick={() => void removeException(item.id)}>
+                      Delete
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

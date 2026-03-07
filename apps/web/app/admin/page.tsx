@@ -56,50 +56,50 @@ export default function AdminPage() {
   }, [bookings]);
 
   return (
-    <main style={{ maxWidth: 1080, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ marginTop: 0 }}>Admin Dashboard</h1>
-      <p style={{ color: "#4b5563" }}>
+    <main className="gc-admin-page">
+      <h1 className="gc-admin-title">Admin Dashboard</h1>
+      <p className="gc-admin-subtitle">
         Quick links and live counters from `/api/v1/admin/*`.
       </p>
-      <p style={{ color: "#4b5563", minHeight: 20 }}>{status}</p>
+      <p className="gc-muted-line">{status}</p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 14 }}>
-          <div style={{ color: "#6b7280", fontSize: 13 }}>Masters</div>
-          <div style={{ fontSize: 24, fontWeight: 700 }}>{mastersCount}</div>
+      <div className="gc-admin-grid-3">
+        <div className="gc-card gc-admin-stat">
+          <div className="gc-admin-stat-label">Masters</div>
+          <div className="gc-admin-stat-value">{mastersCount}</div>
         </div>
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 14 }}>
-          <div style={{ color: "#6b7280", fontSize: 13 }}>Services</div>
-          <div style={{ fontSize: 24, fontWeight: 700 }}>{servicesCount}</div>
+        <div className="gc-card gc-admin-stat">
+          <div className="gc-admin-stat-label">Services</div>
+          <div className="gc-admin-stat-value">{servicesCount}</div>
         </div>
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 14 }}>
-          <div style={{ color: "#6b7280", fontSize: 13 }}>Bookings (loaded)</div>
-          <div style={{ fontSize: 24, fontWeight: 700 }}>{bookings.length}</div>
+        <div className="gc-card gc-admin-stat">
+          <div className="gc-admin-stat-label">Bookings (loaded)</div>
+          <div className="gc-admin-stat-value">{bookings.length}</div>
         </div>
       </div>
 
-      <h2 style={{ marginTop: 22 }}>Booking Status</h2>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 14 }}>
-          <div style={{ color: "#6b7280", fontSize: 13 }}>Pending</div>
-          <div style={{ fontSize: 24, fontWeight: 700 }}>{stats.pending}</div>
+      <h2 className="gc-admin-section">Booking Status</h2>
+      <div className="gc-admin-grid-4">
+        <div className="gc-card gc-admin-stat">
+          <div className="gc-admin-stat-label">Pending</div>
+          <div className="gc-admin-stat-value">{stats.pending}</div>
         </div>
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 14 }}>
-          <div style={{ color: "#6b7280", fontSize: 13 }}>Confirmed</div>
-          <div style={{ fontSize: 24, fontWeight: 700 }}>{stats.confirmed}</div>
+        <div className="gc-card gc-admin-stat">
+          <div className="gc-admin-stat-label">Confirmed</div>
+          <div className="gc-admin-stat-value">{stats.confirmed}</div>
         </div>
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 14 }}>
-          <div style={{ color: "#6b7280", fontSize: 13 }}>Completed</div>
-          <div style={{ fontSize: 24, fontWeight: 700 }}>{stats.completed}</div>
+        <div className="gc-card gc-admin-stat">
+          <div className="gc-admin-stat-label">Completed</div>
+          <div className="gc-admin-stat-value">{stats.completed}</div>
         </div>
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 14 }}>
-          <div style={{ color: "#6b7280", fontSize: 13 }}>Cancelled</div>
-          <div style={{ fontSize: 24, fontWeight: 700 }}>{stats.cancelled}</div>
+        <div className="gc-card gc-admin-stat">
+          <div className="gc-admin-stat-label">Cancelled</div>
+          <div className="gc-admin-stat-value">{stats.cancelled}</div>
         </div>
       </div>
 
-      <h2 style={{ marginTop: 22 }}>Sections</h2>
-      <ul>
+      <h2 className="gc-admin-section">Sections</h2>
+      <ul className="gc-admin-links">
         <li>
           <a href="/admin/masters">Masters</a>
         </li>
@@ -132,8 +132,8 @@ export default function AdminPage() {
         </li>
       </ul>
 
-      <h2 style={{ marginTop: 22 }}>Integrations Status</h2>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
+      <h2 className="gc-admin-section">Integrations Status</h2>
+      <div className="gc-admin-grid-4">
         {(
           [
             ["redis", integrations?.redis],
@@ -145,12 +145,9 @@ export default function AdminPage() {
             ["email", integrations?.email]
           ] as Array<[string, boolean | undefined]>
         ).map(([name, enabled]) => (
-          <div
-            key={name}
-            style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 10 }}
-          >
-            <div style={{ color: "#6b7280", fontSize: 12 }}>{name}</div>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>{enabled ? "configured" : "missing"}</div>
+          <div key={name} className="gc-card gc-status-card-small">
+            <div className="gc-status-name">{name}</div>
+            <div className="gc-status-value">{enabled ? "configured" : "missing"}</div>
           </div>
         ))}
       </div>

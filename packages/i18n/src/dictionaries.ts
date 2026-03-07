@@ -57,7 +57,11 @@ const publicIt: Dictionary = {
   "public.booking.loadSlotsFailed": "Impossibile caricare le disponibilita.",
   "public.booking.createFailed": "Impossibile creare la prenotazione.",
   "public.booking.created": "Prenotazione creata: {bookingId}",
-  "public.booking.selected": "Selezionato: {dateTime} con {masterName}"
+  "public.booking.selected": "Selezionato: {dateTime} con {masterName}",
+  "public.booking.successTitle": "Prenotazione confermata",
+  "public.booking.successText": "Grazie. La richiesta e stata registrata correttamente.",
+  "public.booking.bookAnother": "Nuova prenotazione",
+  "public.booking.backHome": "Torna alla home"
 };
 
 const publicEn: Dictionary = {
@@ -77,7 +81,11 @@ const publicEn: Dictionary = {
   "public.booking.loadSlotsFailed": "Failed to load slots.",
   "public.booking.createFailed": "Failed to create booking.",
   "public.booking.created": "Booking created: {bookingId}",
-  "public.booking.selected": "Selected: {dateTime} with {masterName}"
+  "public.booking.selected": "Selected: {dateTime} with {masterName}",
+  "public.booking.successTitle": "Booking confirmed",
+  "public.booking.successText": "Thank you. Your request has been recorded successfully.",
+  "public.booking.bookAnother": "Book another",
+  "public.booking.backHome": "Back to home"
 };
 
 const authIt: Dictionary = {

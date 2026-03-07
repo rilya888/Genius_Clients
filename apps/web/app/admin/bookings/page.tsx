@@ -84,59 +84,60 @@ export default function BookingsPage() {
   }
 
   return (
-    <main style={{ maxWidth: 1080, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ marginTop: 0 }}>Bookings</h1>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+    <main className="gc-admin-page">
+      <h1 className="gc-admin-title">Bookings</h1>
+      <div className="gc-admin-filters">
+        <select className="gc-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="">All statuses</option>
           <option value="pending">pending</option>
           <option value="confirmed">confirmed</option>
           <option value="completed">completed</option>
           <option value="cancelled">cancelled</option>
         </select>
-        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-        <button onClick={() => void load()}>Refresh</button>
+        <input className="gc-date" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+        <input className="gc-date" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+        <button className="gc-action-btn" onClick={() => void load()}>
+          Refresh
+        </button>
       </div>
-      <p style={{ color: "#4b5563", minHeight: 20 }}>{status}</p>
+      <p className="gc-muted-line">{status}</p>
 
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          background: "#fff",
-          border: "1px solid #e5e7eb"
-        }}
-      >
-        <thead>
-          <tr>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: 8 }}>Client</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: 8 }}>Phone</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: 8 }}>Start</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: 8 }}>Status</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: 8 }}>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={item.id}>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>{item.clientName}</td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>{item.clientPhoneE164}</td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                {new Date(item.startAt).toLocaleString()}
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>{item.status}</td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6", display: "flex", gap: 6 }}>
-                {nextActions(item).map((nextStatus) => (
-                  <button key={nextStatus} onClick={() => void changeStatus(item.id, nextStatus)}>
-                    {nextStatus}
-                  </button>
-                ))}
-              </td>
+      <div className="gc-admin-table-wrap">
+        <table className="gc-admin-table">
+          <thead>
+            <tr>
+              <th>Client</th>
+              <th>Phone</th>
+              <th>Start</th>
+              <th>Status</th>
+              <th>Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id}>
+                <td>{item.clientName}</td>
+                <td>{item.clientPhoneE164}</td>
+                <td>{new Date(item.startAt).toLocaleString()}</td>
+                <td>{item.status}</td>
+                <td>
+                  <div className="gc-inline-actions">
+                    {nextActions(item).map((nextStatus) => (
+                      <button
+                        key={nextStatus}
+                        className="gc-pill-btn"
+                        onClick={() => void changeStatus(item.id, nextStatus)}
+                      >
+                        {nextStatus}
+                      </button>
+                    ))}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

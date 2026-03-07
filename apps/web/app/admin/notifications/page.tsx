@@ -89,79 +89,74 @@ export default function NotificationsPage() {
   }, []);
 
   return (
-    <main style={{ maxWidth: 1080, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ marginTop: 0 }}>Notification Deliveries</h1>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <button onClick={() => void load()}>Refresh</button>
-        {role === "owner" ? <button onClick={() => void retryFailed()}>Retry failed</button> : null}
+    <main className="gc-admin-page">
+      <h1 className="gc-admin-title">Notification Deliveries</h1>
+      <div className="gc-admin-filters">
+        <button className="gc-action-btn" onClick={() => void load()}>
+          Refresh
+        </button>
+        {role === "owner" ? (
+          <button className="gc-action-btn" onClick={() => void retryFailed()}>
+            Retry failed
+          </button>
+        ) : null}
       </div>
-      <p style={{ color: "#4b5563", minHeight: 20 }}>{status}</p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 8, marginBottom: 12 }}>
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 10 }}>
-          <div style={{ color: "#6b7280", fontSize: 12 }}>Total</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>{summary.total}</div>
+      <p className="gc-muted-line">{status}</p>
+      <div className="gc-notifications-summary-grid">
+        <div className="gc-card gc-status-card-small">
+          <div className="gc-status-name">Total</div>
+          <div className="gc-status-value">{summary.total}</div>
         </div>
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 10 }}>
-          <div style={{ color: "#6b7280", fontSize: 12 }}>Queued</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>{summary.queued}</div>
+        <div className="gc-card gc-status-card-small">
+          <div className="gc-status-name">Queued</div>
+          <div className="gc-status-value">{summary.queued}</div>
         </div>
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 10 }}>
-          <div style={{ color: "#6b7280", fontSize: 12 }}>Sent</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>{summary.sent}</div>
+        <div className="gc-card gc-status-card-small">
+          <div className="gc-status-name">Sent</div>
+          <div className="gc-status-value">{summary.sent}</div>
         </div>
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 10 }}>
-          <div style={{ color: "#6b7280", fontSize: 12 }}>Failed</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>{summary.failed}</div>
+        <div className="gc-card gc-status-card-small">
+          <div className="gc-status-name">Failed</div>
+          <div className="gc-status-value">{summary.failed}</div>
         </div>
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 10 }}>
-          <div style={{ color: "#6b7280", fontSize: 12 }}>Dead Letter</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>{summary.deadLetter}</div>
+        <div className="gc-card gc-status-card-small">
+          <div className="gc-status-name">Dead Letter</div>
+          <div className="gc-status-value">{summary.deadLetter}</div>
         </div>
       </div>
 
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          background: "#fff",
-          border: "1px solid #e5e7eb"
-        }}
-      >
-        <thead>
-          <tr>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Created</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Type</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Channel</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Recipient</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Status</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Attempts</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Sent At</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Error</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={item.id}>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                {new Date(item.createdAt).toLocaleString()}
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>{item.notificationType}</td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>{item.channel}</td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>{item.recipient}</td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>{item.status}</td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                {item.attemptCount}/{item.maxAttempts}
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                {item.sentAt ? new Date(item.sentAt).toLocaleString() : "-"}
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                {item.errorCode ?? item.errorMessage ?? "-"}
-              </td>
+      <div className="gc-admin-table-wrap">
+        <table className="gc-admin-table">
+          <thead>
+            <tr>
+              <th>Created</th>
+              <th>Type</th>
+              <th>Channel</th>
+              <th>Recipient</th>
+              <th>Status</th>
+              <th>Attempts</th>
+              <th>Sent At</th>
+              <th>Error</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id}>
+                <td>{new Date(item.createdAt).toLocaleString()}</td>
+                <td>{item.notificationType}</td>
+                <td>{item.channel}</td>
+                <td>{item.recipient}</td>
+                <td>{item.status}</td>
+                <td>
+                  {item.attemptCount}/{item.maxAttempts}
+                </td>
+                <td>{item.sentAt ? new Date(item.sentAt).toLocaleString() : "-"}</td>
+                <td>{item.errorCode ?? item.errorMessage ?? "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

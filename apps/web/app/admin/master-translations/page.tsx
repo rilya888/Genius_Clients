@@ -80,10 +80,10 @@ export default function MasterTranslationsPage() {
   const masterNameById = Object.fromEntries(masters.map((item) => [item.id, item.displayName]));
 
   return (
-    <main style={{ maxWidth: 1080, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ marginTop: 0 }}>Master Translations</h1>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 1fr 1fr auto", gap: 8 }}>
-        <select value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+    <main className="gc-admin-page">
+      <h1 className="gc-admin-title">Master Translations</h1>
+      <div className="gc-translations-create-grid">
+        <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
           <option value="">Select master</option>
           {masters.map((m) => (
             <option key={m.id} value={m.id}>
@@ -91,50 +91,52 @@ export default function MasterTranslationsPage() {
             </option>
           ))}
         </select>
-        <select value={locale} onChange={(e) => setLocale(e.target.value as "it" | "en")}>
+        <select className="gc-select" value={locale} onChange={(e) => setLocale(e.target.value as "it" | "en")}>
           <option value="it">it</option>
           <option value="en">en</option>
         </select>
-        <input placeholder="Display name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-        <input placeholder="Bio" value={bio} onChange={(e) => setBio(e.target.value)} />
-        <button onClick={() => void upsert()}>Save</button>
+        <input
+          className="gc-input"
+          placeholder="Display name"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+        />
+        <input className="gc-input" placeholder="Bio" value={bio} onChange={(e) => setBio(e.target.value)} />
+        <button className="gc-action-btn" onClick={() => void upsert()}>
+          Save
+        </button>
       </div>
 
-      <p style={{ color: "#4b5563", minHeight: 20 }}>{status}</p>
+      <p className="gc-muted-line">{status}</p>
 
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          background: "#fff",
-          border: "1px solid #e5e7eb"
-        }}
-      >
-        <thead>
-          <tr>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Master</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Locale</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Display Name</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Bio</th>
-            <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }} />
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={`${item.masterId}-${item.locale}`}>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                {masterNameById[item.masterId] ?? item.masterId}
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>{item.locale}</td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>{item.displayName}</td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>{item.bio ?? "-"}</td>
-              <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
-                <button onClick={() => void remove(item.masterId, item.locale)}>Delete</button>
-              </td>
+      <div className="gc-admin-table-wrap">
+        <table className="gc-admin-table">
+          <thead>
+            <tr>
+              <th>Master</th>
+              <th>Locale</th>
+              <th>Display Name</th>
+              <th>Bio</th>
+              <th />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={`${item.masterId}-${item.locale}`}>
+                <td>{masterNameById[item.masterId] ?? item.masterId}</td>
+                <td>{item.locale}</td>
+                <td>{item.displayName}</td>
+                <td>{item.bio ?? "-"}</td>
+                <td>
+                  <button className="gc-pill-btn" onClick={() => void remove(item.masterId, item.locale)}>
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

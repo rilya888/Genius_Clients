@@ -6,6 +6,9 @@ export function LogoutButton() {
     window.location.href = "/auth";
   }
 
-  return <button onClick={logout}>Logout</button>;
+  return (
+    <button className="gc-pill-btn" onClick={logout}>
+      Logout
+    </button>
+  );
 }
-
