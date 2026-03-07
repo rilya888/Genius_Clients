@@ -45,6 +45,8 @@ After setup, deploys happen natively in Railway from pushes to each `deploy/*` b
 To sync all deploy branches from `main` with branch-specific config:
 
 - `pnpm deploy:sync-branches`
+- `pnpm deploy:wait-success` (wait until all 4 services are SUCCESS)
+- `pnpm deploy:sync-and-wait` (sync + wait)
 
 This command:
 
@@ -52,3 +54,12 @@ This command:
 2. Sets branch-specific root `Dockerfile`.
 3. Sets branch-specific root `scripts.start` in `package.json`.
 4. Force-pushes deploy branches with lease.
+
+`deploy:wait-success` defaults:
+
+- timeout: `900s`
+- poll interval: `10s`
+
+Optional custom values:
+
+- `bash scripts/release/wait-railway-success.sh <timeoutSeconds> <pollSeconds>`

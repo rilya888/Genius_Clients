@@ -19,6 +19,8 @@
     "predeploy:env": "node scripts/validate-env.mjs all",
     "predeploy:quality": "node scripts/release/predeploy.mjs",
     "deploy:sync-branches": "bash scripts/release/sync-deploy-branches.sh",
+    "deploy:wait-success": "bash scripts/release/wait-railway-success.sh",
+    "deploy:sync-and-wait": "pnpm deploy:sync-branches && pnpm deploy:wait-success",
     "smoke:local": "node scripts/smoke/local-smoke.mjs",
     "predeploy": "pnpm predeploy:env && pnpm predeploy:quality"
   },
