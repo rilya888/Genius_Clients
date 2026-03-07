@@ -110,11 +110,13 @@ jobs:
         run: |
           set -euo pipefail
           npm i -g @railway/cli@latest
+          railway link \
+            --project "${RAILWAY_PROJECT_ID}" \
+            --environment "${{ steps.target.outputs.environment }}" \
+            --service "${{ steps.target.outputs.service_id }}"
           railway up \
             --ci \
             --detach \
-            --project "${RAILWAY_PROJECT_ID}" \
-            --environment "${{ steps.target.outputs.environment }}" \
-            --service "${{ steps.target.outputs.service_id }}" \
             --message "GitHub ${GITHUB_SHA} (${GITHUB_REF_NAME})" \
+            --path-as-root \
             .
