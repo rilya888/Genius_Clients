@@ -9,7 +9,14 @@ export async function POST(req: Request) {
     body
   });
 
-  const payload = await response.json();
+  const payload = await response
+    .json()
+    .catch(async () => ({
+      error: {
+        code: "UPSTREAM_INVALID_RESPONSE",
+        message: await response.text().catch(() => "Internal Server Error")
+      }
+    }));
   const outgoing = NextResponse.json(payload, { status: response.status });
   const session = payload?.data?.session;
 

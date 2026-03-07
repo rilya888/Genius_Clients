@@ -96,15 +96,22 @@ export default function AuthPage() {
         ? { email, password }
         : { email, password, businessName, slug: slug || undefined };
 
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body)
-    });
-    const payload = await response.json();
+    let response: Response;
+    let payload: any = null;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      payload = await response.json().catch(() => null);
+    } catch {
+      setStatus(t("common.errors.generic", { locale: uiLocale }));
+      return;
+    }
 
     if (!response.ok) {
-      setStatus(payload?.error?.message ?? "Request failed");
+      setStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
       return;
     }
 
