@@ -27,11 +27,7 @@ fi
 services=("web" "api" "bot" "worker")
 current_branch="$(git rev-parse --abbrev-ref HEAD)"
 
-fetch_targets=("main")
-for service in "${services[@]}"; do
-  fetch_targets+=("${BRANCH_PREFIX}/${service}")
-done
-git fetch origin "${fetch_targets[@]}"
+git fetch origin main
 
 for service in "${services[@]}"; do
   branch="${BRANCH_PREFIX}/${service}"
