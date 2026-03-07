@@ -42,3 +42,23 @@
 - Staging services in current Railway project still deploy from `deploy/*` source branches.
   In this project layout source branch appears shared at service level across environments.
   If strict branch isolation is required, use a separate Railway project for staging.
+
+## Update - Dedicated staging project and alerts
+
+1. Created a dedicated Railway project:
+   - `Genius_Clients_Staging` (`29e89fdc-8d04-4455-ae9a-3c5e0f0271ca`)
+2. Configured service repo triggers to staging branches:
+   - `web -> staging/web`
+   - `api -> staging/api`
+   - `bot -> staging/bot`
+   - `worker -> staging/worker`
+3. Confirmed deployment status:
+   - `web/api/bot/worker/postgres/redis` all `SUCCESS`
+4. Smoke on dedicated staging project domains passed:
+   - `web`: `https://web-production-62a5b.up.railway.app/api/health` (200)
+   - `api`: `https://api-production-4765.up.railway.app/api/v1/health` (200)
+   - `bot`: `https://bot-production-8962.up.railway.app/health` (200)
+   - `worker`: `https://worker-production-f8b3.up.railway.app/health` (200)
+5. Applied explicit notification rules:
+   - `Genius_Clients` rule id: `bd04fb90-0622-409e-aae2-ef52ae10d12a`
+   - `Genius_Clients_Staging` rule id: `80e170f8-8f14-4dc1-9fc4-899e66c04c2b`
