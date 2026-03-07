@@ -10,6 +10,10 @@ Isolate deployments by service using Railway native GitHub integration, so a cha
 - `deploy/api` -> deploy only `api`
 - `deploy/bot` -> deploy only `bot`
 - `deploy/worker` -> deploy only `worker`
+- `staging/web` -> staging deploy for `web`
+- `staging/api` -> staging deploy for `api`
+- `staging/bot` -> staging deploy for `bot`
+- `staging/worker` -> staging deploy for `worker`
 
 ## Service mapping
 
@@ -42,18 +46,21 @@ After setup, deploys happen natively in Railway from pushes to each `deploy/*` b
 
 ## Branch sync command
 
-To sync all deploy branches from `main` with branch-specific config:
+To sync all service branches from `main` with branch-specific config:
 
 - `pnpm deploy:sync-branches`
+- `pnpm staging:sync-branches`
 - `pnpm deploy:wait-success` (wait until all 4 services are SUCCESS)
 - `pnpm deploy:sync-and-wait` (sync + wait)
 
 This command:
 
-1. Recreates `deploy/web`, `deploy/api`, `deploy/bot`, `deploy/worker` from `origin/main`.
+1. Recreates `<prefix>/web`, `<prefix>/api`, `<prefix>/bot`, `<prefix>/worker` from `origin/main`.
 2. Sets branch-specific root `Dockerfile`.
 3. Sets branch-specific root `scripts.start` in `package.json`.
 4. Force-pushes deploy branches with lease.
+
+`pnpm staging:sync-branches` uses prefix `staging`.
 
 `deploy:wait-success` defaults:
 
@@ -63,3 +70,14 @@ This command:
 Optional custom values:
 
 - `bash scripts/release/wait-railway-success.sh <timeoutSeconds> <pollSeconds>`
+
+## Staging environment
+
+1. Create staging from production clone:
+   - `railway environment new staging --duplicate production`
+2. Point staging services to `staging/*` branches:
+   - web -> `staging/web`
+   - api -> `staging/api`
+   - bot -> `staging/bot`
+   - worker -> `staging/worker`
+3. Keep production mapped to `deploy/*`.

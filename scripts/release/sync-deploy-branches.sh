@@ -9,6 +9,12 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
+BRANCH_PREFIX="${1:-deploy}"
+if [[ ! "$BRANCH_PREFIX" =~ ^[a-z0-9._/-]+$ ]]; then
+  echo "Invalid branch prefix: ${BRANCH_PREFIX}" >&2
+  exit 1
+fi
+
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Working tree is not clean. Commit or stash changes first." >&2
   exit 1
@@ -21,10 +27,14 @@ fi
 services=("web" "api" "bot" "worker")
 current_branch="$(git rev-parse --abbrev-ref HEAD)"
 
-git fetch origin main deploy/web deploy/api deploy/bot deploy/worker
+fetch_targets=("main")
+for service in "${services[@]}"; do
+  fetch_targets+=("${BRANCH_PREFIX}/${service}")
+done
+git fetch origin "${fetch_targets[@]}"
 
 for service in "${services[@]}"; do
-  branch="deploy/${service}"
+  branch="${BRANCH_PREFIX}/${service}"
   dockerfile_path="apps/${service}/Dockerfile"
   case "$service" in
     web) start_cmd="pnpm --filter @genius/web run start" ;;
@@ -45,7 +55,7 @@ for service in "${services[@]}"; do
   if git diff --cached --quiet; then
     echo "No deploy sync changes for ${branch}"
   else
-    git commit -m "chore(deploy): sync ${service} branch config" >/dev/null
+    git commit -m "chore(deploy): sync ${service} branch config (${BRANCH_PREFIX})" >/dev/null
     git push origin "$branch" --force-with-lease
     echo "Synced ${branch}"
   fi

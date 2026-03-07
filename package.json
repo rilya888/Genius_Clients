@@ -19,9 +19,13 @@
     "predeploy:env": "node scripts/validate-env.mjs all",
     "predeploy:quality": "node scripts/release/predeploy.mjs",
     "deploy:sync-branches": "bash scripts/release/sync-deploy-branches.sh",
+    "staging:sync-branches": "bash scripts/release/sync-deploy-branches.sh staging",
     "deploy:wait-success": "bash scripts/release/wait-railway-success.sh",
     "deploy:sync-and-wait": "pnpm deploy:sync-branches && pnpm deploy:wait-success",
     "smoke:local": "node scripts/smoke/local-smoke.mjs",
+    "smoke:production": "node scripts/smoke/production-smoke.mjs",
+    "railway:audit-env": "bash scripts/release/audit-railway-env.sh production",
+    "railway:audit-env:staging": "bash scripts/release/audit-railway-env.sh staging",
     "predeploy": "pnpm predeploy:env && pnpm predeploy:quality"
   },
   "devDependencies": {
