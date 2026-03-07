@@ -1,8 +1,8 @@
-# Railway Deploy by Service Branch
+# Railway Native Deploy by Service Branch
 
 ## Goal
 
-Isolate deployments by service, so a change in one service does not trigger deployment of all services.
+Isolate deployments by service using Railway native GitHub integration, so a change in one service does not trigger deployment of all services.
 
 ## Branches
 
@@ -11,29 +11,31 @@ Isolate deployments by service, so a change in one service does not trigger depl
 - `deploy/bot` -> deploy only `bot`
 - `deploy/worker` -> deploy only `worker`
 
-Workflow file: `.github/workflows/deploy-railway-branches.yml`
+## Service mapping
 
-## Required GitHub configuration
+- `web` -> repo `rilya888/Genius_Clients`, branch `deploy/web`, Dockerfile `apps/web/Dockerfile`
+- `api` -> repo `rilya888/Genius_Clients`, branch `deploy/api`, Dockerfile `apps/api/Dockerfile`
+- `bot` -> repo `rilya888/Genius_Clients`, branch `deploy/bot`, Dockerfile `apps/bot/Dockerfile`
+- `worker` -> repo `rilya888/Genius_Clients`, branch `deploy/worker`, Dockerfile `apps/worker/Dockerfile`
 
-### Secret
+## Required GitHub app access
 
-- `RAILWAY_TOKEN` (Railway API token with deploy permissions)
+Before connecting services, Railway must have access to this repo.
 
-### Repository Variables
+1. Railway Dashboard -> `Account Settings` -> `Integrations` -> `GitHub`.
+2. Open Railway GitHub app installation settings.
+3. Include repo `rilya888/Genius_Clients` in allowed repositories.
+4. Return to Railway project and connect each service source.
 
-- `RAILWAY_PROJECT_ID` = `de86fcc6-4858-489b-ae1a-7b5330ee7b22`
-- `RAILWAY_ENVIRONMENT` = `production`
-- `RAILWAY_SERVICE_WEB` = `079bec85-312a-4d1a-a71c-6782d13b26e2`
-- `RAILWAY_SERVICE_API` = `0fb4e2e0-0538-4abd-b3af-4473d1200f43`
-- `RAILWAY_SERVICE_BOT` = `88bade30-0a6c-4259-9f51-1969e2917f05`
-- `RAILWAY_SERVICE_WORKER` = `163eacbb-dc69-44f4-b5e3-fc35f701e5cf`
+## Railway service setup checklist
 
-## How it works
+For each service (`web`, `api`, `bot`, `worker`):
 
-1. Push to one of the deploy branches.
-2. Workflow resolves target service from branch name.
-3. Matching Dockerfile (`apps/<service>/Dockerfile`) is copied to root as `Dockerfile`.
-4. `railway up` deploys only the mapped Railway service ID.
+1. Service -> `Settings` -> `Source` -> `Connect Repo`.
+2. Repo: `rilya888/Genius_Clients`.
+3. Branch: the mapped branch from the table above.
+4. Root Directory: repository root.
+5. Builder: `Dockerfile`.
+6. Dockerfile Path: mapped Dockerfile path from the table above.
 
-This approach does not require linking Railway services to a GitHub repo source in Railway UI.
-Deployment source remains CI-driven from this repository.
+After setup, deploys happen natively in Railway from pushes to each `deploy/*` branch.

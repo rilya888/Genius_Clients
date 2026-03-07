@@ -44,7 +44,7 @@ Monorepo for a multi-tenant booking platform with web, api, bot, and worker serv
 - `deploy/api` (api only)
 - `deploy/bot` (bot only)
 - `deploy/worker` (worker only)
-- Details: `docs/operations/railway-branch-deploy.md`
+- Details (Railway native GitHub deploy): `docs/operations/railway-branch-deploy.md`
 
 ## Docker Baseline
 
