@@ -5,11 +5,13 @@ RUN corepack enable
 COPY package.json pnpm-workspace.yaml tsconfig.base.json tsconfig.json ./
 COPY apps/bot/package.json apps/bot/package.json
 COPY packages/i18n/package.json packages/i18n/package.json
+COPY packages/shared/package.json packages/shared/package.json
 
 RUN pnpm install --no-frozen-lockfile
 
 COPY . .
 RUN pnpm --filter @genius/i18n run build
+RUN pnpm --filter @genius/shared run build
 RUN pnpm --filter @genius/bot run build
 
 FROM node:22-alpine
