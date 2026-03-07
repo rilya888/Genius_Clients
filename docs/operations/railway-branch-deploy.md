@@ -39,3 +39,16 @@ For each service (`web`, `api`, `bot`, `worker`):
 6. Dockerfile Path: mapped Dockerfile path from the table above.
 
 After setup, deploys happen natively in Railway from pushes to each `deploy/*` branch.
+
+## Branch sync command
+
+To sync all deploy branches from `main` with branch-specific config:
+
+- `pnpm deploy:sync-branches`
+
+This command:
+
+1. Recreates `deploy/web`, `deploy/api`, `deploy/bot`, `deploy/worker` from `origin/main`.
+2. Sets branch-specific root `Dockerfile`.
+3. Sets branch-specific root `scripts.start` in `package.json`.
+4. Force-pushes deploy branches with lease.
