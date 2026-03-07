@@ -25,4 +25,4 @@ COPY --from=base /app/packages /app/packages
 
 ENV NODE_ENV=production
 EXPOSE 3003
-CMD ["node", "apps/worker/dist/index.js"]
+CMD ["pnpm", "--filter", "@genius/worker", "run", "start:runtime"]

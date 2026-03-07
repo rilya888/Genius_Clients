@@ -25,4 +25,4 @@ COPY --from=base /app/packages /app/packages
 
 ENV NODE_ENV=production
 EXPOSE 3002
-CMD ["node", "apps/bot/dist/index.js"]
+CMD ["pnpm", "--filter", "@genius/bot", "run", "start:runtime"]
