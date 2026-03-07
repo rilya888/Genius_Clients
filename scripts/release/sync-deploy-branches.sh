@@ -49,7 +49,20 @@ for service in "${services[@]}"; do
 
   git add Dockerfile package.json
   if git diff --cached --quiet; then
-    echo "No deploy sync changes for ${branch}"
+    remote_ref="origin/${branch}"
+    if git show-ref --verify --quiet "refs/remotes/${remote_ref}"; then
+      remote_sha="$(git rev-parse "${remote_ref}")"
+    else
+      remote_sha=""
+    fi
+    local_sha="$(git rev-parse HEAD)"
+
+    if [[ "$local_sha" != "$remote_sha" ]]; then
+      git push origin "$branch" --force-with-lease
+      echo "Synced ${branch} (main updates only)"
+    else
+      echo "No deploy sync changes for ${branch}"
+    fi
   else
     git commit -m "chore(deploy): sync ${service} branch config (${BRANCH_PREFIX})" >/dev/null
     git push origin "$branch" --force-with-lease
