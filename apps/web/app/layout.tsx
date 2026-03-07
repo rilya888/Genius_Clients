@@ -1,14 +1,24 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { cookies } from "next/headers";
+import { resolveLocale } from "@genius/i18n";
+import { LanguageSwitcher } from "./components/language-switcher";
+import { parseLocaleCookie } from "../lib/ui-locale";
 
 export const metadata: Metadata = {
   title: "Genius Clients",
   description: "Multi-tenant booking platform"
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const cookieStore = await cookies();
+  const locale = resolveLocale({
+    requested: parseLocaleCookie(cookieStore.toString()),
+    fallback: "it"
+  });
+
   return (
-    <html lang="en">
+    <html lang={locale}>
       <body style={{ margin: 0, fontFamily: "Arial, sans-serif", background: "#f6f7fb" }}>
         <header
           style={{
@@ -32,6 +42,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <a href="/public/book" style={{ textDecoration: "none", color: "#374151", fontSize: 14 }}>
             Public Book
           </a>
+          <LanguageSwitcher locale={locale} />
         </header>
         {children}
       </body>

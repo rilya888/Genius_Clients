@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { resolveLocale, t, type SupportedLocale } from "@genius/i18n";
+import { parseLocaleCookie, setUiLocaleCookie } from "../../lib/ui-locale";
 
 type SessionInfo = {
   userId: string;
@@ -24,8 +25,19 @@ export default function AuthPage() {
   const [checkingSession, setCheckingSession] = useState(true);
 
   useEffect(() => {
-    setUiLocale(resolveLocale({ requested: navigator.language.toLowerCase(), tenantDefault: "it" }));
+    const requestedFromQuery = new URLSearchParams(window.location.search).get("locale");
+    const requestedFromCookie = parseLocaleCookie(document.cookie);
+    setUiLocale(
+      resolveLocale({
+        requested: requestedFromQuery ?? requestedFromCookie ?? window.navigator.language.toLowerCase(),
+        tenantDefault: "it"
+      })
+    );
   }, []);
+
+  useEffect(() => {
+    setUiLocaleCookie(uiLocale);
+  }, [uiLocale]);
 
   useEffect(() => {
     let mounted = true;

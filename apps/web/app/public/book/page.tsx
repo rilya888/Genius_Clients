@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { formatDateTime, t } from "@genius/i18n";
+import { getBrowserLocale, parseLocaleCookie, setUiLocaleCookie } from "../../../lib/ui-locale";
 
 type MasterItem = { id: string; displayName: string };
 type ServiceItem = { id: string; displayName: string; durationMinutes: number };
@@ -27,6 +28,24 @@ export default function PublicBookingPage() {
   const canBook =
     Boolean(serviceId && selectedSlot && clientName.trim() && phoneValid && clientConsent) &&
     Boolean(csrfToken);
+
+  useEffect(() => {
+    const requestedFromQuery = new URLSearchParams(window.location.search).get("locale");
+    const requestedFromCookie = parseLocaleCookie(document.cookie);
+    if (requestedFromQuery === "it" || requestedFromQuery === "en") {
+      setClientLocale(requestedFromQuery);
+      return;
+    }
+    if (requestedFromCookie) {
+      setClientLocale(requestedFromCookie);
+      return;
+    }
+    setClientLocale(getBrowserLocale());
+  }, []);
+
+  useEffect(() => {
+    setUiLocaleCookie(clientLocale);
+  }, [clientLocale]);
 
   useEffect(() => {
     async function bootstrap() {
