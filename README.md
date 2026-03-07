@@ -38,6 +38,14 @@ Monorepo for a multi-tenant booking platform with web, api, bot, and worker serv
 - `pnpm predeploy`
 - `pnpm smoke:local`
 
+## Railway Deploy Branches
+
+- `deploy/web` (web only)
+- `deploy/api` (api only)
+- `deploy/bot` (bot only)
+- `deploy/worker` (worker only)
+- Details: `docs/operations/railway-branch-deploy.md`
+
 ## Docker Baseline
 
 - `apps/web/Dockerfile`

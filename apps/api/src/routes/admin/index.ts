@@ -56,7 +56,9 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       throw appError("AUTH_FORBIDDEN", { reason: "owner_role_required" });
     }
 
-    const body = await c.req.json<{ limit?: number }>().catch(() => ({}));
+    const body = await c.req
+      .json<{ limit?: number }>()
+      .catch((): { limit?: number } => ({}));
     const data = await adminService.retryFailedNotificationDeliveries({
       tenantId,
       limit: body.limit,
@@ -130,14 +132,15 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       sortOrder?: number;
       isActive?: boolean;
     }>();
-    if (!body.displayName || !Number.isInteger(body.durationMinutes)) {
+    const durationMinutes = Number(body.durationMinutes);
+    if (!body.displayName || !Number.isInteger(durationMinutes)) {
       throw appError("VALIDATION_ERROR", { required: ["displayName", "durationMinutes"] });
     }
 
     const item = await adminService.createService({
       tenantId,
       displayName: body.displayName,
-      durationMinutes: body.durationMinutes,
+      durationMinutes,
       priceCents: body.priceCents,
       sortOrder: body.sortOrder,
       isActive: body.isActive
@@ -156,11 +159,9 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       isActive?: boolean;
     }>();
 
-    if (
-      !body.displayName ||
-      !Number.isInteger(body.durationMinutes) ||
-      !Number.isInteger(body.sortOrder)
-    ) {
+    const durationMinutes = Number(body.durationMinutes);
+    const sortOrder = Number(body.sortOrder);
+    if (!body.displayName || !Number.isInteger(durationMinutes) || !Number.isInteger(sortOrder)) {
       throw appError("VALIDATION_ERROR", { required: ["displayName", "durationMinutes", "sortOrder"] });
     }
 
@@ -168,9 +169,9 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       tenantId,
       serviceId,
       displayName: body.displayName,
-      durationMinutes: body.durationMinutes,
+      durationMinutes,
       priceCents: body.priceCents ?? null,
-      sortOrder: body.sortOrder,
+      sortOrder,
       isActive: body.isActive ?? true
     });
 
@@ -361,20 +362,19 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       endMinute?: number;
       isActive?: boolean;
     }>();
-    if (
-      !Number.isInteger(body.dayOfWeek) ||
-      !Number.isInteger(body.startMinute) ||
-      !Number.isInteger(body.endMinute)
-    ) {
+    const dayOfWeek = Number(body.dayOfWeek);
+    const startMinute = Number(body.startMinute);
+    const endMinute = Number(body.endMinute);
+    if (!Number.isInteger(dayOfWeek) || !Number.isInteger(startMinute) || !Number.isInteger(endMinute)) {
       throw appError("VALIDATION_ERROR", { required: ["dayOfWeek", "startMinute", "endMinute"] });
     }
 
     const item = await adminService.createWorkingHours({
       tenantId,
       masterId: body.masterId,
-      dayOfWeek: body.dayOfWeek,
-      startMinute: body.startMinute,
-      endMinute: body.endMinute,
+      dayOfWeek,
+      startMinute,
+      endMinute,
       isActive: body.isActive
     });
 
@@ -390,11 +390,10 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       endMinute?: number;
       isActive?: boolean;
     }>();
-    if (
-      !Number.isInteger(body.dayOfWeek) ||
-      !Number.isInteger(body.startMinute) ||
-      !Number.isInteger(body.endMinute)
-    ) {
+    const dayOfWeek = Number(body.dayOfWeek);
+    const startMinute = Number(body.startMinute);
+    const endMinute = Number(body.endMinute);
+    if (!Number.isInteger(dayOfWeek) || !Number.isInteger(startMinute) || !Number.isInteger(endMinute)) {
       throw appError("VALIDATION_ERROR", { required: ["dayOfWeek", "startMinute", "endMinute"] });
     }
 
@@ -402,9 +401,9 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       tenantId,
       id,
       masterId: body.masterId ?? null,
-      dayOfWeek: body.dayOfWeek,
-      startMinute: body.startMinute,
-      endMinute: body.endMinute,
+      dayOfWeek,
+      startMinute,
+      endMinute,
       isActive: body.isActive ?? true
     });
 

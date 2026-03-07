@@ -1,4 +1,5 @@
 import type { Context, Next } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { captureException } from "@genius/shared";
 import { AppError } from "../lib/http";
 import type { ApiAppEnv } from "../lib/hono-env";
@@ -10,6 +11,7 @@ export async function errorHandlerMiddleware(c: Context<ApiAppEnv>, next: Next) 
     const requestId = c.get("requestId") as string | undefined;
 
     if (error instanceof AppError) {
+      const status = error.status as ContentfulStatusCode;
       return c.json(
         {
           error: {
@@ -21,7 +23,7 @@ export async function errorHandlerMiddleware(c: Context<ApiAppEnv>, next: Next) 
             requestId
           }
         },
-        error.status
+        status
       );
     }
 

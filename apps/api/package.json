@@ -14,6 +14,7 @@
     "@genius/db": "workspace:*",
     "@genius/shared": "workspace:*",
     "@hono/node-server": "1.19.0",
+    "drizzle-orm": "0.44.5",
     "hono": "4.9.7",
     "ioredis": "5.7.0",
     "pg": "8.16.3"

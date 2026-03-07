@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { callInternalApi } from "../../../../lib/internal-api";
 
-type Params = { params: { path?: string[] } | Promise<{ path?: string[] }> };
+type RouteContext = { params: Promise<{ path: string[] }> };
 type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 function toInternalPath(path: string[] | undefined, query: string): string {
@@ -10,9 +10,8 @@ function toInternalPath(path: string[] | undefined, query: string): string {
   return `/api/v1/public/${cleanPath}${suffix}`;
 }
 
-async function proxy(req: Request, params: Params, method: Method) {
-  const resolvedParams = await Promise.resolve(params.params);
-  const { path } = resolvedParams;
+async function proxy(req: Request, context: RouteContext, method: Method) {
+  const { path } = await context.params;
   const url = new URL(req.url);
   const query = url.searchParams.toString();
   const internalPath = toInternalPath(path, query);
@@ -34,22 +33,22 @@ async function proxy(req: Request, params: Params, method: Method) {
   return NextResponse.json(payload, { status: response.status });
 }
 
-export async function GET(req: Request, params: Params) {
-  return proxy(req, params, "GET");
+export async function GET(req: Request, context: RouteContext) {
+  return proxy(req, context, "GET");
 }
 
-export async function POST(req: Request, params: Params) {
-  return proxy(req, params, "POST");
+export async function POST(req: Request, context: RouteContext) {
+  return proxy(req, context, "POST");
 }
 
-export async function PUT(req: Request, params: Params) {
-  return proxy(req, params, "PUT");
+export async function PUT(req: Request, context: RouteContext) {
+  return proxy(req, context, "PUT");
 }
 
-export async function PATCH(req: Request, params: Params) {
-  return proxy(req, params, "PATCH");
+export async function PATCH(req: Request, context: RouteContext) {
+  return proxy(req, context, "PATCH");
 }
 
-export async function DELETE(req: Request, params: Params) {
-  return proxy(req, params, "DELETE");
+export async function DELETE(req: Request, context: RouteContext) {
+  return proxy(req, context, "DELETE");
 }

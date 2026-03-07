@@ -151,7 +151,13 @@ export default function ExceptionsPage() {
       note: string;
     }>
   ) {
-    setEditing((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+    setEditing((prev) => {
+      const current = prev[id];
+      if (!current) {
+        return prev;
+      }
+      return { ...prev, [id]: { ...current, ...patch } };
+    });
   }
 
   return (

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { callInternalApi } from "../../../../../lib/internal-api";
+import { callInternalApi } from "../../../../lib/internal-api";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));

@@ -132,6 +132,9 @@ export class BookingService {
       startAt,
       endAt
     });
+    if (!booking) {
+      throw appError("INTERNAL_ERROR", { reason: "booking_create_failed" });
+    }
 
     const responseBody = {
       bookingId: booking.id,

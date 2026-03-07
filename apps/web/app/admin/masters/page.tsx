@@ -97,7 +97,13 @@ export default function MastersPage() {
   }
 
   function updateEdit(id: string, patch: Partial<{ displayName: string; isActive: boolean }>) {
-    setEditing((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+    setEditing((prev) => {
+      const current = prev[id];
+      if (!current) {
+        return prev;
+      }
+      return { ...prev, [id]: { ...current, ...patch } };
+    });
   }
 
   return (

@@ -52,11 +52,15 @@ export const authRoutes = new Hono<ApiAppEnv>()
     return c.json({ data: await authService.login(body) });
   })
   .post("/refresh", async (c) => {
-    const body = await c.req.json<{ refreshToken?: string }>().catch(() => ({}));
+    const body = await c.req
+      .json<{ refreshToken?: string }>()
+      .catch((): { refreshToken?: string } => ({}));
     return c.json({ data: await authService.refresh({ refreshToken: body.refreshToken }) });
   })
   .post("/logout", async (c) => {
-    const body = await c.req.json<{ refreshToken?: string }>().catch(() => ({}));
+    const body = await c.req
+      .json<{ refreshToken?: string }>()
+      .catch((): { refreshToken?: string } => ({}));
     return c.json({ data: await authService.logout({ refreshToken: body.refreshToken }) });
   })
   .post("/forgot-password", async (c) => {
