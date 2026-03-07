@@ -1,0 +1,23 @@
+{
+  "name": "@genius/bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@genius/i18n": "workspace:*",
+    "@genius/shared": "workspace:*",
+    "@hono/node-server": "1.19.0",
+    "hono": "4.9.7",
+    "ioredis": "5.7.0"
+  },
+  "devDependencies": {
+    "tsx": "4.20.5"
+  }
+}

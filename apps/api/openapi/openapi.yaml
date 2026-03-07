@@ -1,0 +1,19 @@
+openapi: 3.1.0
+info:
+  title: Genius Clients API
+  version: 0.1.0
+servers:
+  - url: https://api.yourapp.com
+paths:
+  /api/v1/health:
+    get:
+      summary: API liveness probe
+      responses:
+        '200':
+          description: OK
+  /api/v1/ready:
+    get:
+      summary: API readiness probe
+      responses:
+        '200':
+          description: Ready

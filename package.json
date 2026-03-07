@@ -1,0 +1,28 @@
+{
+  "name": "genius_clients",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.16.1",
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter ./apps/* run build && pnpm -r --filter ./packages/* run build",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "pnpm -r run lint",
+    "dev:web": "pnpm --filter @genius/web run dev",
+    "dev:api": "pnpm --filter @genius/api run dev",
+    "dev:bot": "pnpm --filter @genius/bot run dev",
+    "dev:worker": "pnpm --filter @genius/worker run dev",
+    "i18n:check": "pnpm --filter @genius/i18n run check:parity",
+    "test": "pnpm --filter @genius/i18n run test",
+    "predeploy:env": "node scripts/validate-env.mjs all",
+    "predeploy:quality": "node scripts/release/predeploy.mjs",
+    "smoke:local": "node scripts/smoke/local-smoke.mjs",
+    "predeploy": "pnpm predeploy:env && pnpm predeploy:quality"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "typescript": "5.9.2"
+  }
+}

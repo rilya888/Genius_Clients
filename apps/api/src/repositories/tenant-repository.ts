@@ -1,0 +1,66 @@
+import { eq } from "drizzle-orm";
+import { tenants } from "@genius/db";
+import { getDb } from "../lib/db";
+
+export class TenantRepository {
+  async create(input: {
+    slug: string;
+    name: string;
+    defaultLocale?: string;
+    timezone?: string;
+  }) {
+    const db = getDb();
+    const [tenant] = await db
+      .insert(tenants)
+      .values({
+        slug: input.slug,
+        name: input.name,
+        defaultLocale: input.defaultLocale ?? "it",
+        timezone: input.timezone ?? "Europe/Rome"
+      })
+      .returning();
+
+    return tenant;
+  }
+
+  async findBySlug(slug: string) {
+    const db = getDb();
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.slug, slug)).limit(1);
+    return tenant ?? null;
+  }
+
+  async findById(id: string) {
+    const db = getDb();
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, id)).limit(1);
+    return tenant ?? null;
+  }
+
+  async updateSettings(input: {
+    tenantId: string;
+    defaultLocale?: string;
+    timezone?: string;
+    bookingHorizonDays?: number;
+    bookingMinAdvanceMinutes?: number;
+    bookingBufferMinutes?: number;
+    adminNotificationEmail?: string | null;
+    adminNotificationTelegramChatId?: number | null;
+  }) {
+    const db = getDb();
+    const [tenant] = await db
+      .update(tenants)
+      .set({
+        defaultLocale: input.defaultLocale,
+        timezone: input.timezone,
+        bookingHorizonDays: input.bookingHorizonDays,
+        bookingMinAdvanceMinutes: input.bookingMinAdvanceMinutes,
+        bookingBufferMinutes: input.bookingBufferMinutes,
+        adminNotificationEmail: input.adminNotificationEmail,
+        adminNotificationTelegramChatId: input.adminNotificationTelegramChatId,
+        updatedAt: new Date()
+      })
+      .where(eq(tenants.id, input.tenantId))
+      .returning();
+
+    return tenant ?? null;
+  }
+}

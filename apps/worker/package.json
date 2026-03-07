@@ -1,0 +1,22 @@
+{
+  "name": "@genius/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@genius/db": "workspace:*",
+    "@genius/shared": "workspace:*",
+    "drizzle-orm": "0.44.5",
+    "ioredis": "5.7.0"
+  },
+  "devDependencies": {
+    "tsx": "4.20.5"
+  }
+}
