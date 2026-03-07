@@ -18,13 +18,6 @@ if ! git rev-parse --verify origin/main >/dev/null 2>&1; then
   git fetch origin main
 fi
 
-declare -A START_COMMANDS=(
-  ["web"]="pnpm --filter @genius/web run start"
-  ["api"]="pnpm --filter @genius/api run start:runtime"
-  ["bot"]="node apps/bot/dist/index.js"
-  ["worker"]="node apps/worker/dist/index.js"
-)
-
 services=("web" "api" "bot" "worker")
 current_branch="$(git rev-parse --abbrev-ref HEAD)"
 
@@ -33,7 +26,13 @@ git fetch origin main deploy/web deploy/api deploy/bot deploy/worker
 for service in "${services[@]}"; do
   branch="deploy/${service}"
   dockerfile_path="apps/${service}/Dockerfile"
-  start_cmd="${START_COMMANDS[$service]}"
+  case "$service" in
+    web) start_cmd="pnpm --filter @genius/web run start" ;;
+    api) start_cmd="pnpm --filter @genius/api run start:runtime" ;;
+    bot) start_cmd="node apps/bot/dist/index.js" ;;
+    worker) start_cmd="node apps/worker/dist/index.js" ;;
+    *) echo "Unsupported service: ${service}" >&2; exit 1 ;;
+  esac
 
   git checkout -B "$branch" origin/main >/dev/null
 
