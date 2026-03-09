@@ -24,7 +24,14 @@ async function proxy(req: Request, context: RouteContext, method: Method) {
           .catch(() => ({}));
 
   const response = await callInternalApi(internalPath, { method, body });
-  const payload = await response.json();
+  const payload = await response
+    .json()
+    .catch(async () => ({
+      error: {
+        code: "UPSTREAM_INVALID_RESPONSE",
+        message: await response.text().catch(() => "Internal Server Error")
+      }
+    }));
   return NextResponse.json(payload, { status: response.status });
 }
 
