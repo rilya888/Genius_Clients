@@ -16,16 +16,6 @@ type MinuteRange = {
 
 export class SlotService {
   private readonly slotRepository = new SlotRepository();
-  private readonly timezonePartsFormatter = new Intl.DateTimeFormat("en-GB", {
-    timeZoneName: "shortOffset",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false
-  });
 
   private overlaps(a: MinuteRange, b: MinuteRange): boolean {
     return a.startMinute < b.endMinute && a.endMinute > b.startMinute;
@@ -61,7 +51,17 @@ export class SlotService {
   }
 
   private getTimezoneOffsetMs(at: Date, timezone: string): number {
-    const parts = this.timezonePartsFormatter.formatToParts(at);
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: timezone,
+      timeZoneName: "shortOffset",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    }).formatToParts(at);
     const timezoneName = parts.find((part) => part.type === "timeZoneName")?.value ?? "";
     const offsetMatch = /GMT([+-]\d{1,2})(?::?(\d{2}))?/.exec(timezoneName);
     if (!offsetMatch) {
