@@ -152,29 +152,31 @@ export class SlotService {
         .filter((b) => b.masterId === master.masterId)
         .map((b) => ({
           startMinute: Math.floor((b.startAt.getTime() - dayStartUtc.getTime()) / 60000),
-          endMinute: Math.ceil((b.endAt.getTime() - dayStartUtc.getTime()) / 60000)
+          endMinute:
+            Math.ceil((b.endAt.getTime() - dayStartUtc.getTime()) / 60000) + tenant.bookingBufferMinutes
         }));
       const slotStepMinutes = master.durationMinutesOverride ?? service.durationMinutes;
-      const totalDuration =
-        (master.durationMinutesOverride ?? service.durationMinutes) + tenant.bookingBufferMinutes;
+      const serviceDurationMinutes = master.durationMinutesOverride ?? service.durationMinutes;
 
       for (const window of workingForMaster) {
         for (
           let startMinute = window.startMinute;
-          startMinute + totalDuration <= window.endMinute;
+          startMinute + serviceDurationMinutes <= window.endMinute;
           startMinute += slotStepMinutes
         ) {
-          const endMinute = startMinute + totalDuration;
-          const candidateRange = { startMinute, endMinute };
+          const serviceEndMinute = startMinute + serviceDurationMinutes;
+          const occupiedEndMinute = serviceEndMinute + tenant.bookingBufferMinutes;
+          const candidateServiceRange = { startMinute, endMinute: serviceEndMinute };
+          const candidateOccupiedRange = { startMinute, endMinute: occupiedEndMinute };
           if (
-            blockedRanges.some((range) => this.overlaps(range, candidateRange)) ||
-            busyRanges.some((range) => this.overlaps(range, candidateRange))
+            blockedRanges.some((range) => this.overlaps(range, candidateServiceRange)) ||
+            busyRanges.some((range) => this.overlaps(range, candidateOccupiedRange))
           ) {
             continue;
           }
 
           const startAt = new Date(dayStartUtc.getTime() + startMinute * 60 * 1000);
-          const endAt = new Date(dayStartUtc.getTime() + endMinute * 60 * 1000);
+          const endAt = new Date(dayStartUtc.getTime() + serviceEndMinute * 60 * 1000);
           if (startAt < minAllowedStart) {
             continue;
           }
