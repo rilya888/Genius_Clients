@@ -8,6 +8,12 @@ const UUID_V4_OR_V7_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function tenantContextMiddleware(c: Context<ApiAppEnv>, next: Next) {
+  const existingTenantId = c.get("tenantId");
+  if (existingTenantId && UUID_V4_OR_V7_REGEX.test(existingTenantId)) {
+    await next();
+    return;
+  }
+
   const tenantId = c.req.header("x-internal-tenant-id");
   const tenantSlug = c.req.header("x-internal-tenant-slug");
 

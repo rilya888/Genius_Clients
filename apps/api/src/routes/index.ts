@@ -68,8 +68,8 @@ export function createApiV1Routes() {
 
   apiV1.use("/admin/*", rateLimitMiddleware);
   apiV1.use("/admin/*", internalAuthMiddleware);
-  apiV1.use("/admin/*", tenantContextMiddleware);
   apiV1.use("/admin/*", sessionAuthMiddleware);
+  apiV1.use("/admin/*", tenantContextMiddleware);
   apiV1.use("/admin/*", csrfMiddleware);
   apiV1.route("/admin", adminRoutes);
 

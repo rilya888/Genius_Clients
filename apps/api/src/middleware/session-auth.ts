@@ -37,7 +37,7 @@ export async function sessionAuthMiddleware(c: Context<ApiAppEnv>, next: Next) {
   }
 
   const tenantId = c.get("tenantId");
-  if (tenantId !== user.tenantId) {
+  if (tenantId && tenantId !== user.tenantId) {
     throw appError("AUTH_FORBIDDEN", { reason: "request_tenant_mismatch" });
   }
 
@@ -45,6 +45,7 @@ export async function sessionAuthMiddleware(c: Context<ApiAppEnv>, next: Next) {
     throw appError("AUTH_FORBIDDEN", { reason: "user_role_not_allowed" });
   }
 
+  c.set("tenantId", user.tenantId);
   c.set("userId", user.id);
   c.set("userRole", user.role);
   await next();
