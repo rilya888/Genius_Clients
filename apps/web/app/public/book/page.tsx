@@ -82,6 +82,7 @@ export default function PublicBookingPage() {
     const query = new URLSearchParams();
     query.set("serviceId", serviceId);
     query.set("date", date);
+    query.set("debug", "1");
     if (masterId) {
       query.set("masterId", masterId);
     }
