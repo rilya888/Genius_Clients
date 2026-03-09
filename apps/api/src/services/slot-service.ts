@@ -215,7 +215,7 @@ export class SlotService {
 
     slots.sort((a, b) => a.startAt.localeCompare(b.startAt) || a.masterId.localeCompare(b.masterId));
     if (input.debug) {
-      console.log("[slot-debug]", {
+      const debugPayload = {
         tenantId: input.tenantId,
         serviceId: input.serviceId,
         date: input.date,
@@ -230,7 +230,9 @@ export class SlotService {
           startAt: slot.startAt
         })),
         masters: debugRows
-      });
+      };
+      console.log("[slot-debug]", debugPayload);
+      console.log("[slot-debug-json]", JSON.stringify(debugPayload));
     }
     return slots;
   }
