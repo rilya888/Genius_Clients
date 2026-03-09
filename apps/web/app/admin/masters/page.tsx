@@ -113,12 +113,15 @@ export default function MastersPage() {
         <a href="/admin/master-translations">Open master translations</a>
       </p>
       <div className="gc-admin-filters">
-        <input
-          className="gc-input"
-          placeholder="Display name"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-        />
+        <div className="gc-field">
+          <span className="gc-field-label">Master display name</span>
+          <input
+            className="gc-input"
+            placeholder="e.g. Maria Rossi"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+        </div>
         <button className="gc-action-btn" onClick={() => void createMaster()}>
           Create
         </button>

@@ -83,25 +83,37 @@ export default function MasterTranslationsPage() {
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Master Translations</h1>
       <div className="gc-translations-create-grid">
-        <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
-          <option value="">Select master</option>
-          {masters.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.displayName}
-            </option>
-          ))}
-        </select>
-        <select className="gc-select" value={locale} onChange={(e) => setLocale(e.target.value as "it" | "en")}>
-          <option value="it">it</option>
-          <option value="en">en</option>
-        </select>
-        <input
-          className="gc-input"
-          placeholder="Display name"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-        />
-        <input className="gc-input" placeholder="Bio" value={bio} onChange={(e) => setBio(e.target.value)} />
+        <div className="gc-field">
+          <span className="gc-field-label">Master</span>
+          <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+            <option value="">Select master</option>
+            {masters.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.displayName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Locale</span>
+          <select className="gc-select" value={locale} onChange={(e) => setLocale(e.target.value as "it" | "en")}>
+            <option value="it">it</option>
+            <option value="en">en</option>
+          </select>
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Display name</span>
+          <input
+            className="gc-input"
+            placeholder="Localized master name"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Bio (optional)</span>
+          <input className="gc-input" placeholder="Short bio" value={bio} onChange={(e) => setBio(e.target.value)} />
+        </div>
         <button className="gc-action-btn" onClick={() => void upsert()}>
           Save
         </button>

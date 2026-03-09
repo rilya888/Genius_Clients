@@ -275,6 +275,18 @@ button {
   color: var(--gc-text-primary);
 }
 
+.gc-field {
+  display: grid;
+  gap: 6px;
+}
+
+.gc-field-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gc-text-secondary);
+  letter-spacing: 0.01em;
+}
+
 .gc-form-input {
   width: 100%;
   min-height: 42px;

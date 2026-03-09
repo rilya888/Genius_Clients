@@ -164,28 +164,48 @@ export default function ExceptionsPage() {
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Schedule Exceptions</h1>
       <div className="gc-exceptions-create-grid">
-        <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
-          <option value="">Global (all masters)</option>
-          {masters.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.displayName}
-            </option>
-          ))}
-        </select>
-        <input className="gc-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        <input
-          className="gc-input"
-          placeholder="Start min"
-          value={startMinute}
-          onChange={(e) => setStartMinute(e.target.value)}
-        />
-        <input
-          className="gc-input"
-          placeholder="End min"
-          value={endMinute}
-          onChange={(e) => setEndMinute(e.target.value)}
-        />
-        <input className="gc-input" placeholder="Note" value={note} onChange={(e) => setNote(e.target.value)} />
+        <div className="gc-field">
+          <span className="gc-field-label">Master scope</span>
+          <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+            <option value="">Global (all masters)</option>
+            {masters.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.displayName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Exception date</span>
+          <input className="gc-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Start minute (optional)</span>
+          <input
+            className="gc-input"
+            placeholder="e.g. 540"
+            value={startMinute}
+            onChange={(e) => setStartMinute(e.target.value)}
+          />
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">End minute (optional)</span>
+          <input
+            className="gc-input"
+            placeholder="e.g. 1020"
+            value={endMinute}
+            onChange={(e) => setEndMinute(e.target.value)}
+          />
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Note (optional)</span>
+          <input
+            className="gc-input"
+            placeholder="Reason or note"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </div>
         <button className="gc-action-btn" onClick={() => void createException()}>
           Create
         </button>

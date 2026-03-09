@@ -137,32 +137,44 @@ export default function WorkingHoursPage() {
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Working Hours</h1>
       <div className="gc-working-hours-create-grid">
-        <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
-          <option value="">Global (all masters)</option>
-          {masters.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.displayName}
-            </option>
-          ))}
-        </select>
-        <input
-          className="gc-input"
-          value={dayOfWeek}
-          onChange={(e) => setDayOfWeek(e.target.value)}
-          placeholder="Day 0-6"
-        />
-        <input
-          className="gc-input"
-          value={startMinute}
-          onChange={(e) => setStartMinute(e.target.value)}
-          placeholder="Start min"
-        />
-        <input
-          className="gc-input"
-          value={endMinute}
-          onChange={(e) => setEndMinute(e.target.value)}
-          placeholder="End min"
-        />
+        <div className="gc-field">
+          <span className="gc-field-label">Master scope</span>
+          <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+            <option value="">Global (all masters)</option>
+            {masters.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.displayName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Day of week (0-6)</span>
+          <input
+            className="gc-input"
+            value={dayOfWeek}
+            onChange={(e) => setDayOfWeek(e.target.value)}
+            placeholder="e.g. 1 for Monday"
+          />
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Start minute</span>
+          <input
+            className="gc-input"
+            value={startMinute}
+            onChange={(e) => setStartMinute(e.target.value)}
+            placeholder="e.g. 540 (09:00)"
+          />
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">End minute</span>
+          <input
+            className="gc-input"
+            value={endMinute}
+            onChange={(e) => setEndMinute(e.target.value)}
+            placeholder="e.g. 1020 (17:00)"
+          />
+        </div>
         <button className="gc-action-btn" onClick={() => void createWorkingHours()}>
           Create
         </button>

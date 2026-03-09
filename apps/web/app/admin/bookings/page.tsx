@@ -87,15 +87,24 @@ export default function BookingsPage() {
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Bookings</h1>
       <div className="gc-admin-filters">
-        <select className="gc-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-          <option value="">All statuses</option>
-          <option value="pending">pending</option>
-          <option value="confirmed">confirmed</option>
-          <option value="completed">completed</option>
-          <option value="cancelled">cancelled</option>
-        </select>
-        <input className="gc-date" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        <input className="gc-date" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+        <div className="gc-field">
+          <span className="gc-field-label">Status filter</span>
+          <select className="gc-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="">All statuses</option>
+            <option value="pending">pending</option>
+            <option value="confirmed">confirmed</option>
+            <option value="completed">completed</option>
+            <option value="cancelled">cancelled</option>
+          </select>
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">From date</span>
+          <input className="gc-date" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">To date</span>
+          <input className="gc-date" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+        </div>
         <button className="gc-action-btn" onClick={() => void load()}>
           Refresh
         </button>

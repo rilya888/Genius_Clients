@@ -131,28 +131,37 @@ export default function MasterServicesPage() {
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Master Services</h1>
       <div className="gc-master-services-create-grid">
-        <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
-          <option value="">Select master</option>
-          {masters.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.displayName}
-            </option>
-          ))}
-        </select>
-        <select className="gc-select" value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
-          <option value="">Select service</option>
-          {services.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.displayName}
-            </option>
-          ))}
-        </select>
-        <input
-          className="gc-input"
-          placeholder="Override min"
-          value={durationOverride}
-          onChange={(e) => setDurationOverride(e.target.value)}
-        />
+        <div className="gc-field">
+          <span className="gc-field-label">Master</span>
+          <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+            <option value="">Select master</option>
+            {masters.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.displayName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Service</span>
+          <select className="gc-select" value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
+            <option value="">Select service</option>
+            {services.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.displayName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Duration override (minutes, optional)</span>
+          <input
+            className="gc-input"
+            placeholder="e.g. 45"
+            value={durationOverride}
+            onChange={(e) => setDurationOverride(e.target.value)}
+          />
+        </div>
         <button className="gc-action-btn" onClick={() => void createLink()}>
           Create Link
         </button>

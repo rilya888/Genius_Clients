@@ -157,30 +157,42 @@ export default function ServicesPage() {
         <a href="/admin/service-translations">Open service translations</a>
       </p>
       <div className="gc-services-create-grid">
-        <input
-          className="gc-input"
-          placeholder="Display name"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-        />
-        <input
-          className="gc-input"
-          placeholder="Duration"
-          value={durationMinutes}
-          onChange={(e) => setDurationMinutes(e.target.value)}
-        />
-        <input
-          className="gc-input"
-          placeholder="Price cents"
-          value={priceCents}
-          onChange={(e) => setPriceCents(e.target.value)}
-        />
-        <input
-          className="gc-input"
-          placeholder="Sort order"
-          value={sortOrder}
-          onChange={(e) => setSortOrder(e.target.value)}
-        />
+        <div className="gc-field">
+          <span className="gc-field-label">Service display name</span>
+          <input
+            className="gc-input"
+            placeholder="e.g. Haircut"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Duration (minutes)</span>
+          <input
+            className="gc-input"
+            placeholder="e.g. 60"
+            value={durationMinutes}
+            onChange={(e) => setDurationMinutes(e.target.value)}
+          />
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Price (cents, optional)</span>
+          <input
+            className="gc-input"
+            placeholder="e.g. 2500"
+            value={priceCents}
+            onChange={(e) => setPriceCents(e.target.value)}
+          />
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Sort order</span>
+          <input
+            className="gc-input"
+            placeholder="e.g. 0"
+            value={sortOrder}
+            onChange={(e) => setSortOrder(e.target.value)}
+          />
+        </div>
         <button className="gc-action-btn" onClick={() => void createService()}>
           Create
         </button>

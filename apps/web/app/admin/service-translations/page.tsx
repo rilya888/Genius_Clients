@@ -83,30 +83,42 @@ export default function ServiceTranslationsPage() {
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Service Translations</h1>
       <div className="gc-translations-create-grid">
-        <select className="gc-select" value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
-          <option value="">Select service</option>
-          {services.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.displayName}
-            </option>
-          ))}
-        </select>
-        <select className="gc-select" value={locale} onChange={(e) => setLocale(e.target.value as "it" | "en")}>
-          <option value="it">it</option>
-          <option value="en">en</option>
-        </select>
-        <input
-          className="gc-input"
-          placeholder="Display name"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-        />
-        <input
-          className="gc-input"
-          placeholder="Description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
+        <div className="gc-field">
+          <span className="gc-field-label">Service</span>
+          <select className="gc-select" value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
+            <option value="">Select service</option>
+            {services.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.displayName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Locale</span>
+          <select className="gc-select" value={locale} onChange={(e) => setLocale(e.target.value as "it" | "en")}>
+            <option value="it">it</option>
+            <option value="en">en</option>
+          </select>
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Display name</span>
+          <input
+            className="gc-input"
+            placeholder="Localized service name"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Description (optional)</span>
+          <input
+            className="gc-input"
+            placeholder="Localized description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
         <button className="gc-action-btn" onClick={() => void upsert()}>
           Save
         </button>
