@@ -15,6 +15,16 @@ type MinuteRange = {
 
 export class SlotService {
   private readonly slotRepository = new SlotRepository();
+  private readonly timezonePartsFormatter = new Intl.DateTimeFormat("en-GB", {
+    timeZoneName: "shortOffset",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
 
   private overlaps(a: MinuteRange, b: MinuteRange): boolean {
     return a.startMinute < b.endMinute && a.endMinute > b.startMinute;
@@ -29,12 +39,46 @@ export class SlotService {
     }).format(date);
   }
 
-  private parseDate(input: string): Date {
-    const parsed = new Date(`${input}T00:00:00.000Z`);
-    if (Number.isNaN(parsed.getTime())) {
+  private parseDateParts(input: string): { year: number; month: number; day: number } {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input);
+    if (!match) {
       throw appError("VALIDATION_ERROR", { reason: "date_invalid", expected: "YYYY-MM-DD" });
     }
-    return parsed;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const canonical = new Date(Date.UTC(year, month - 1, day));
+    if (
+      Number.isNaN(canonical.getTime()) ||
+      canonical.getUTCFullYear() !== year ||
+      canonical.getUTCMonth() !== month - 1 ||
+      canonical.getUTCDate() !== day
+    ) {
+      throw appError("VALIDATION_ERROR", { reason: "date_invalid", expected: "YYYY-MM-DD" });
+    }
+    return { year, month, day };
+  }
+
+  private getTimezoneOffsetMs(at: Date, timezone: string): number {
+    const parts = this.timezonePartsFormatter.formatToParts(at);
+    const timezoneName = parts.find((part) => part.type === "timeZoneName")?.value ?? "";
+    const offsetMatch = /GMT([+-]\d{1,2})(?::?(\d{2}))?/.exec(timezoneName);
+    if (!offsetMatch) {
+      throw appError("INTERNAL_ERROR", { reason: "timezone_offset_parse_failed", timezone, timezoneName });
+    }
+    const hours = Number(offsetMatch[1]);
+    const minutes = Number(offsetMatch[2] ?? "0");
+    const sign = hours >= 0 ? 1 : -1;
+    return sign * (Math.abs(hours) * 60 + minutes) * 60 * 1000;
+  }
+
+  private getUtcDateForTenantMidnight(
+    dateParts: { year: number; month: number; day: number },
+    timezone: string
+  ): Date {
+    const utcGuess = Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day, 0, 0, 0, 0);
+    const offsetMs = this.getTimezoneOffsetMs(new Date(utcGuess), timezone);
+    return new Date(utcGuess - offsetMs);
   }
 
   async getAvailableSlots(input: GetAvailableSlotsInput) {
@@ -48,9 +92,18 @@ export class SlotService {
       throw appError("VALIDATION_ERROR", { reason: "service_not_found" });
     }
 
-    const dayStartUtc = this.parseDate(input.date);
-    const dayEndUtc = new Date(dayStartUtc.getTime() + 24 * 60 * 60 * 1000);
-    const dayOfWeek = dayStartUtc.getUTCDay();
+    const dayParts = this.parseDateParts(input.date);
+    const dayStartUtc = this.getUtcDateForTenantMidnight(dayParts, tenant.timezone);
+    const nextDayDate = new Date(Date.UTC(dayParts.year, dayParts.month - 1, dayParts.day + 1));
+    const dayEndUtc = this.getUtcDateForTenantMidnight(
+      {
+        year: nextDayDate.getUTCFullYear(),
+        month: nextDayDate.getUTCMonth() + 1,
+        day: nextDayDate.getUTCDate()
+      },
+      tenant.timezone
+    );
+    const dayOfWeek = new Date(Date.UTC(dayParts.year, dayParts.month - 1, dayParts.day)).getUTCDay();
     const now = new Date();
     const horizonEnd = new Date(now.getTime() + tenant.bookingHorizonDays * 24 * 60 * 60 * 1000);
 
