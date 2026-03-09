@@ -18,7 +18,7 @@ CREATE TABLE tenants (
   default_locale VARCHAR(5) NOT NULL DEFAULT 'it',
   timezone VARCHAR(64) NOT NULL DEFAULT 'Europe/Rome',
   booking_horizon_days INTEGER NOT NULL DEFAULT 30,
-  booking_min_advance_minutes INTEGER NOT NULL DEFAULT 60,
+  booking_min_advance_minutes INTEGER NOT NULL DEFAULT 0,
   booking_buffer_minutes INTEGER NOT NULL DEFAULT 0,
   admin_notification_email VARCHAR(255),
   admin_notification_telegram_chat_id BIGINT,

@@ -41,7 +41,7 @@ export const tenants = pgTable(
     defaultLocale: varchar("default_locale", { length: 5 }).notNull().default("it"),
     timezone: varchar("timezone", { length: 64 }).notNull().default("Europe/Rome"),
     bookingHorizonDays: integer("booking_horizon_days").notNull().default(30),
-    bookingMinAdvanceMinutes: integer("booking_min_advance_minutes").notNull().default(60),
+    bookingMinAdvanceMinutes: integer("booking_min_advance_minutes").notNull().default(0),
     bookingBufferMinutes: integer("booking_buffer_minutes").notNull().default(0),
     adminNotificationEmail: varchar("admin_notification_email", { length: 255 }),
     adminNotificationTelegramChatId: bigint("admin_notification_telegram_chat_id", {

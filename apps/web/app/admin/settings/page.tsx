@@ -8,7 +8,7 @@ export default function TenantSettingsPage() {
   const [defaultLocale, setDefaultLocale] = useState<"it" | "en">("it");
   const [timezone, setTimezone] = useState("Europe/Rome");
   const [bookingHorizonDays, setBookingHorizonDays] = useState("30");
-  const [bookingMinAdvanceMinutes, setBookingMinAdvanceMinutes] = useState("60");
+  const [bookingMinAdvanceMinutes, setBookingMinAdvanceMinutes] = useState("0");
   const [bookingBufferMinutes, setBookingBufferMinutes] = useState("0");
   const [adminNotificationEmail, setAdminNotificationEmail] = useState("");
   const [status, setStatus] = useState("");
@@ -44,7 +44,7 @@ export default function TenantSettingsPage() {
       setDefaultLocale(data?.defaultLocale === "en" ? "en" : "it");
       setTimezone(data?.timezone ?? "Europe/Rome");
       setBookingHorizonDays(String(data?.bookingHorizonDays ?? 30));
-      setBookingMinAdvanceMinutes(String(data?.bookingMinAdvanceMinutes ?? 60));
+      setBookingMinAdvanceMinutes(String(data?.bookingMinAdvanceMinutes ?? 0));
       setBookingBufferMinutes(String(data?.bookingBufferMinutes ?? 0));
       setAdminNotificationEmail(data?.adminNotificationEmail ?? "");
     }
