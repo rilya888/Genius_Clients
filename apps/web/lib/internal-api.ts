@@ -27,10 +27,13 @@ function tenantIdFromAccessToken(accessToken: string | undefined): string | unde
     return undefined;
   }
   const parts = accessToken.split(".");
-  if (parts.length !== 3) {
+  if (parts.length < 2) {
     return undefined;
   }
-  const decodedPayload = decodeBase64Url(parts[1] ?? "");
+  // Token format in this project is payload.signature (2 parts).
+  // Keep compatibility with JWT-like header.payload.signature (3 parts) as fallback.
+  const payloadPart = parts.length === 2 ? parts[0] : parts[1];
+  const decodedPayload = decodeBase64Url(payloadPart ?? "");
   if (!decodedPayload) {
     return undefined;
   }
