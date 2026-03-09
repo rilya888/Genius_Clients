@@ -43,6 +43,7 @@ export const publicRoutes = new Hono<ApiAppEnv>()
     const serviceId = c.req.query("serviceId");
     const date = c.req.query("date");
     const masterId = c.req.query("masterId") ?? undefined;
+    const debug = c.req.query("debug") === "1";
 
     if (!serviceId || !date) {
       throw appError("VALIDATION_ERROR", { required: ["serviceId", "date"] });
@@ -52,7 +53,8 @@ export const publicRoutes = new Hono<ApiAppEnv>()
       tenantId,
       serviceId,
       date,
-      masterId
+      masterId,
+      debug
     });
 
     return c.json({ data: { items } });

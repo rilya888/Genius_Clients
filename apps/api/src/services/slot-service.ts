@@ -6,6 +6,7 @@ type GetAvailableSlotsInput = {
   serviceId: string;
   date: string;
   masterId?: string;
+  debug?: boolean;
 };
 
 type MinuteRange = {
@@ -134,6 +135,14 @@ export class SlotService {
       endAt: string;
       displayTime: string;
     }> = [];
+    const debugRows: Array<{
+      masterId: string;
+      workingWindows: Array<{ startMinute: number; endMinute: number }>;
+      blockedRanges: Array<{ startMinute: number; endMinute: number }>;
+      busyRanges: Array<{ startMinute: number; endMinute: number }>;
+      producedSlots: number;
+      firstSlotDisplayTime: string | null;
+    }> = [];
 
     for (const master of masterCandidates) {
       const workingForMaster = working.filter((item) => item.masterId === null || item.masterId === master.masterId);
@@ -189,9 +198,40 @@ export class SlotService {
           });
         }
       }
+
+      const producedForMaster = slots.filter((slot) => slot.masterId === master.masterId);
+      debugRows.push({
+        masterId: master.masterId,
+        workingWindows: workingForMaster.map((window) => ({
+          startMinute: window.startMinute,
+          endMinute: window.endMinute
+        })),
+        blockedRanges: blockedRanges.map((range) => ({ ...range })),
+        busyRanges: busyRanges.map((range) => ({ ...range })),
+        producedSlots: producedForMaster.length,
+        firstSlotDisplayTime: producedForMaster[0]?.displayTime ?? null
+      });
     }
 
     slots.sort((a, b) => a.startAt.localeCompare(b.startAt) || a.masterId.localeCompare(b.masterId));
+    if (input.debug) {
+      console.log("[slot-debug]", {
+        tenantId: input.tenantId,
+        serviceId: input.serviceId,
+        date: input.date,
+        masterId: input.masterId ?? null,
+        timezone: tenant.timezone,
+        minAdvance: tenant.bookingMinAdvanceMinutes,
+        buffer: tenant.bookingBufferMinutes,
+        totalSlots: slots.length,
+        firstSlots: slots.slice(0, 5).map((slot) => ({
+          masterId: slot.masterId,
+          displayTime: slot.displayTime,
+          startAt: slot.startAt
+        })),
+        masters: debugRows
+      });
+    }
     return slots;
   }
 }
