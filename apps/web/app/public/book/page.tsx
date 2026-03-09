@@ -8,6 +8,23 @@ import { getBrowserLocale, parseLocaleCookie, setUiLocaleCookie } from "../../..
 type MasterItem = { id: string; displayName: string };
 type ServiceItem = { id: string; displayName: string; durationMinutes: number };
 type SlotItem = { masterId: string; startAt: string; endAt: string; displayTime: string };
+type SlotDecision = {
+  startMinute: number;
+  endMinute: number;
+  accepted: boolean;
+  reason?: "blocked_range" | "busy_range" | "min_advance";
+};
+type SlotMasterDiagnostics = {
+  masterId: string;
+  candidateDecisions: SlotDecision[];
+  firstSlotDisplayTime: string | null;
+};
+type SlotDiagnostics = {
+  timezone: string;
+  minAdvanceMinutes: number;
+  bookingBufferMinutes: number;
+  masters: SlotMasterDiagnostics[];
+};
 
 export default function PublicBookingPage() {
   const router = useRouter();
@@ -26,6 +43,7 @@ export default function PublicBookingPage() {
   const [clientConsent, setClientConsent] = useState(false);
   const [status, setStatus] = useState("");
   const [csrfToken, setCsrfToken] = useState("");
+  const [slotHint, setSlotHint] = useState("");
 
   const phoneValid = /^\+[1-9]\d{1,14}$/.test(clientPhoneE164.trim());
   const canBook =
@@ -82,13 +100,16 @@ export default function PublicBookingPage() {
     const query = new URLSearchParams();
     query.set("serviceId", serviceId);
     query.set("date", date);
-    query.set("debug", "1");
+    query.set("includeDiagnostics", "1");
     if (masterId) {
       query.set("masterId", masterId);
     }
 
     const response = await fetch(`/api/public/slots?${query.toString()}`);
-    const payload = await response.json();
+    const payload = (await response.json()) as {
+      data?: { items?: SlotItem[]; diagnostics?: SlotDiagnostics };
+      error?: { message?: string };
+    };
     if (!response.ok) {
       setStatus(payload?.error?.message ?? t("public.booking.loadSlotsFailed", { locale: clientLocale }));
       return;
@@ -97,6 +118,52 @@ export default function PublicBookingPage() {
     setSlots(payload?.data?.items ?? []);
     setSelectedSlot(null);
     setStatus("");
+    setSlotHint(buildSlotHint(payload?.data?.diagnostics, masterId));
+  }
+
+  function minuteToTime(value: number): string {
+    const h = Math.floor(value / 60)
+      .toString()
+      .padStart(2, "0");
+    const m = (value % 60).toString().padStart(2, "0");
+    return `${h}:${m}`;
+  }
+
+  function reasonLabel(reason?: "blocked_range" | "busy_range" | "min_advance"): string {
+    if (reason === "busy_range") {
+      return "another booking already exists";
+    }
+    if (reason === "blocked_range") {
+      return "blocked by schedule exception";
+    }
+    if (reason === "min_advance") {
+      return "blocked by minimum advance time";
+    }
+    return "not available";
+  }
+
+  function buildSlotHint(diagnostics: SlotDiagnostics | undefined, selectedMasterId: string): string {
+    if (!diagnostics || !selectedMasterId) {
+      return "";
+    }
+    const masterDiagnostics = diagnostics.masters.find((item) => item.masterId === selectedMasterId);
+    if (!masterDiagnostics || masterDiagnostics.candidateDecisions.length === 0) {
+      return "";
+    }
+
+    const firstAccepted = masterDiagnostics.candidateDecisions.find((item) => item.accepted);
+    const firstRejected = masterDiagnostics.candidateDecisions.find((item) => !item.accepted);
+    if (!firstAccepted || !firstRejected) {
+      return "";
+    }
+
+    if (firstRejected.startMinute < firstAccepted.startMinute) {
+      return `First available slot is ${minuteToTime(firstAccepted.startMinute)} because ${minuteToTime(
+        firstRejected.startMinute
+      )} is unavailable: ${reasonLabel(firstRejected.reason)}.`;
+    }
+
+    return "";
   }
 
   async function createBooking() {
@@ -195,6 +262,7 @@ export default function PublicBookingPage() {
             </button>
           ))}
         </div>
+        {slotHint ? <p className="gc-muted-line">{slotHint}</p> : null}
 
         <h3 className="gc-book-section-title">{t("public.booking.clientSection", { locale: clientLocale })}</h3>
         <div className="gc-book-grid-bottom">

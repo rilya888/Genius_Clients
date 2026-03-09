@@ -6,12 +6,45 @@ type GetAvailableSlotsInput = {
   serviceId: string;
   date: string;
   masterId?: string;
-  debug?: boolean;
+  includeDiagnostics?: boolean;
 };
 
 type MinuteRange = {
   startMinute: number;
   endMinute: number;
+};
+
+type SlotDecisionReason = "blocked_range" | "busy_range" | "min_advance";
+
+export type SlotCandidateDecision = {
+  startMinute: number;
+  endMinute: number;
+  accepted: boolean;
+  reason?: SlotDecisionReason;
+};
+
+export type SlotMasterDiagnostics = {
+  masterId: string;
+  workingWindows: Array<{ startMinute: number; endMinute: number }>;
+  blockedRanges: Array<{ startMinute: number; endMinute: number }>;
+  busyRanges: Array<{ startMinute: number; endMinute: number }>;
+  candidateDecisions: SlotCandidateDecision[];
+  producedSlots: number;
+  firstSlotDisplayTime: string | null;
+};
+
+export type SlotDiagnostics = {
+  timezone: string;
+  minAdvanceMinutes: number;
+  bookingBufferMinutes: number;
+  masters: SlotMasterDiagnostics[];
+};
+
+type SlotItem = {
+  masterId: string;
+  startAt: string;
+  endAt: string;
+  displayTime: string;
 };
 
 export class SlotService {
@@ -82,7 +115,10 @@ export class SlotService {
     return new Date(utcGuess - offsetMs);
   }
 
-  async getAvailableSlots(input: GetAvailableSlotsInput) {
+  async getAvailableSlots(input: GetAvailableSlotsInput): Promise<{
+    items: SlotItem[];
+    diagnostics?: SlotDiagnostics;
+  }> {
     const tenant = await this.slotRepository.findTenantSettings(input.tenantId);
     if (!tenant) {
       throw appError("TENANT_NOT_FOUND");
@@ -118,7 +154,17 @@ export class SlotService {
       input.masterId
     );
     if (masterCandidates.length === 0) {
-      return [];
+      return {
+        items: [],
+        diagnostics: input.includeDiagnostics
+          ? {
+              timezone: tenant.timezone,
+              minAdvanceMinutes: tenant.bookingMinAdvanceMinutes,
+              bookingBufferMinutes: tenant.bookingBufferMinutes,
+              masters: []
+            }
+          : undefined
+      };
     }
 
     const masterIds = masterCandidates.map((m) => m.masterId);
@@ -129,26 +175,8 @@ export class SlotService {
     ]);
 
     const minAllowedStart = new Date(now.getTime() + tenant.bookingMinAdvanceMinutes * 60 * 1000);
-    const slots: Array<{
-      masterId: string;
-      startAt: string;
-      endAt: string;
-      displayTime: string;
-    }> = [];
-    const debugRows: Array<{
-      masterId: string;
-      workingWindows: Array<{ startMinute: number; endMinute: number }>;
-      blockedRanges: Array<{ startMinute: number; endMinute: number }>;
-      busyRanges: Array<{ startMinute: number; endMinute: number }>;
-      candidateDecisions: Array<{
-        startMinute: number;
-        endMinute: number;
-        accepted: boolean;
-        reason?: "blocked_range" | "busy_range" | "min_advance";
-      }>;
-      producedSlots: number;
-      firstSlotDisplayTime: string | null;
-    }> = [];
+    const slots: SlotItem[] = [];
+    const diagnosticsRows: SlotMasterDiagnostics[] = [];
 
     for (const master of masterCandidates) {
       const workingForMaster = working.filter((item) => item.masterId === null || item.masterId === master.masterId);
@@ -172,7 +200,7 @@ export class SlotService {
         }));
       const slotStepMinutes = master.durationMinutesOverride ?? service.durationMinutes;
       const serviceDurationMinutes = master.durationMinutesOverride ?? service.durationMinutes;
-      const debugRow = {
+      const diagnosticsRow: SlotMasterDiagnostics = {
         masterId: master.masterId,
         workingWindows: workingForMaster.map((window) => ({
           startMinute: window.startMinute,
@@ -180,17 +208,12 @@ export class SlotService {
         })),
         blockedRanges: blockedRanges.map((range) => ({ ...range })),
         busyRanges: busyRanges.map((range) => ({ ...range })),
-        candidateDecisions: [] as Array<{
-          startMinute: number;
-          endMinute: number;
-          accepted: boolean;
-          reason?: "blocked_range" | "busy_range" | "min_advance";
-        }>,
+        candidateDecisions: [],
         producedSlots: 0,
-        firstSlotDisplayTime: null as string | null
+        firstSlotDisplayTime: null
       };
-      if (input.debug) {
-        debugRows.push(debugRow);
+      if (input.includeDiagnostics) {
+        diagnosticsRows.push(diagnosticsRow);
       }
 
       for (const window of workingForMaster) {
@@ -205,8 +228,8 @@ export class SlotService {
           const candidateOccupiedRange = { startMinute, endMinute: occupiedEndMinute };
           const blockedConflict = blockedRanges.some((range) => this.overlaps(range, candidateServiceRange));
           if (blockedConflict) {
-            if (input.debug) {
-              debugRow.candidateDecisions.push({
+            if (input.includeDiagnostics) {
+              diagnosticsRow.candidateDecisions.push({
                 startMinute,
                 endMinute: serviceEndMinute,
                 accepted: false,
@@ -217,8 +240,8 @@ export class SlotService {
           }
           const busyConflict = busyRanges.some((range) => this.overlaps(range, candidateOccupiedRange));
           if (busyConflict) {
-            if (input.debug) {
-              debugRow.candidateDecisions.push({
+            if (input.includeDiagnostics) {
+              diagnosticsRow.candidateDecisions.push({
                 startMinute,
                 endMinute: serviceEndMinute,
                 accepted: false,
@@ -231,8 +254,8 @@ export class SlotService {
           const startAt = new Date(dayStartUtc.getTime() + startMinute * 60 * 1000);
           const endAt = new Date(dayStartUtc.getTime() + serviceEndMinute * 60 * 1000);
           if (startAt < minAllowedStart) {
-            if (input.debug) {
-              debugRow.candidateDecisions.push({
+            if (input.includeDiagnostics) {
+              diagnosticsRow.candidateDecisions.push({
                 startMinute,
                 endMinute: serviceEndMinute,
                 accepted: false,
@@ -248,8 +271,8 @@ export class SlotService {
             endAt: endAt.toISOString(),
             displayTime: this.formatTime(startAt, tenant.timezone)
           });
-          if (input.debug) {
-            debugRow.candidateDecisions.push({
+          if (input.includeDiagnostics) {
+            diagnosticsRow.candidateDecisions.push({
               startMinute,
               endMinute: serviceEndMinute,
               accepted: true
@@ -258,34 +281,24 @@ export class SlotService {
         }
       }
 
-      if (input.debug) {
+      if (input.includeDiagnostics) {
         const producedForMaster = slots.filter((slot) => slot.masterId === master.masterId);
-        debugRow.producedSlots = producedForMaster.length;
-        debugRow.firstSlotDisplayTime = producedForMaster[0]?.displayTime ?? null;
+        diagnosticsRow.producedSlots = producedForMaster.length;
+        diagnosticsRow.firstSlotDisplayTime = producedForMaster[0]?.displayTime ?? null;
       }
     }
 
     slots.sort((a, b) => a.startAt.localeCompare(b.startAt) || a.masterId.localeCompare(b.masterId));
-    if (input.debug) {
-      const debugPayload = {
-        tenantId: input.tenantId,
-        serviceId: input.serviceId,
-        date: input.date,
-        masterId: input.masterId ?? null,
+    return {
+      items: slots,
+      diagnostics: input.includeDiagnostics
+        ? {
         timezone: tenant.timezone,
-        minAdvance: tenant.bookingMinAdvanceMinutes,
-        buffer: tenant.bookingBufferMinutes,
-        totalSlots: slots.length,
-        firstSlots: slots.slice(0, 5).map((slot) => ({
-          masterId: slot.masterId,
-          displayTime: slot.displayTime,
-          startAt: slot.startAt
-        })),
-        masters: debugRows
-      };
-      console.log("[slot-debug]", debugPayload);
-      console.log("[slot-debug-json]", JSON.stringify(debugPayload));
-    }
-    return slots;
+            minAdvanceMinutes: tenant.bookingMinAdvanceMinutes,
+            bookingBufferMinutes: tenant.bookingBufferMinutes,
+            masters: diagnosticsRows
+          }
+        : undefined
+    };
   }
 }

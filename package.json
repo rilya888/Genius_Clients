@@ -25,6 +25,7 @@
     "deploy:sync-and-wait": "pnpm deploy:sync-branches && pnpm deploy:wait-success",
     "smoke:local": "node scripts/smoke/local-smoke.mjs",
     "smoke:production": "node scripts/smoke/production-smoke.mjs",
+    "smoke:stripe-webhook": "node scripts/smoke/stripe-webhook-idempotency.mjs",
     "railway:audit-env": "bash scripts/release/audit-railway-env.sh production",
     "railway:audit-env:staging": "bash scripts/release/audit-railway-env.sh staging",
     "railway:audit-alerts": "bash scripts/release/audit-railway-alerts.sh",

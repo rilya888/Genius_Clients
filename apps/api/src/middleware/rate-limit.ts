@@ -5,6 +5,9 @@ import { getRedisClient } from "../lib/redis";
 
 const counters = new Map<string, { count: number; resetAt: number }>();
 const REDIS_RATE_LIMIT_PREFIX = process.env.RATE_LIMIT_REDIS_PREFIX ?? "rl:v1";
+const REDIS_REQUIRED =
+  process.env.RATE_LIMIT_REDIS_REQUIRED === "true" ||
+  (process.env.NODE_ENV === "production" && process.env.RATE_LIMIT_REDIS_REQUIRED !== "false");
 
 function getClientIp(c: Context<ApiAppEnv>): string {
   const forwarded = c.req.header("x-forwarded-for");
@@ -63,7 +66,7 @@ async function incrementRedisCounter(input: {
     const resetAt = input.now + Math.max(ttlMs, 0);
     return { count, resetAt };
   } catch (error) {
-    console.error("[api] redis rate-limit fallback to memory", error);
+    console.error("[api] redis rate-limit increment failed", error);
     return null;
   }
 }
@@ -96,12 +99,16 @@ export async function rateLimitMiddleware(c: Context<ApiAppEnv>, next: Next) {
   const ip = getClientIp(c);
   const tenant = c.get("tenantId") ?? c.req.header("x-internal-tenant-id") ?? "no-tenant";
   const key = `${policy.bucket}:${ip}:${tenant}`;
+  const redisCounter = await incrementRedisCounter({
+    key,
+    windowMs: policy.windowMs,
+    now
+  });
+  if (!redisCounter && REDIS_REQUIRED) {
+    throw appError("INTERNAL_ERROR", { reason: "rate_limit_store_unavailable" });
+  }
   const counter =
-    (await incrementRedisCounter({
-      key,
-      windowMs: policy.windowMs,
-      now
-    })) ??
+    redisCounter ??
     incrementMemoryCounter({
       key,
       windowMs: policy.windowMs,

@@ -43,21 +43,26 @@ export const publicRoutes = new Hono<ApiAppEnv>()
     const serviceId = c.req.query("serviceId");
     const date = c.req.query("date");
     const masterId = c.req.query("masterId") ?? undefined;
-    const debug = c.req.query("debug") === "1";
+    const includeDiagnostics = c.req.query("includeDiagnostics") === "1";
 
     if (!serviceId || !date) {
       throw appError("VALIDATION_ERROR", { required: ["serviceId", "date"] });
     }
 
-    const items = await slotService.getAvailableSlots({
+    const result = await slotService.getAvailableSlots({
       tenantId,
       serviceId,
       date,
       masterId,
-      debug
+      includeDiagnostics
     });
 
-    return c.json({ data: { items } });
+    return c.json({
+      data: {
+        items: result.items,
+        diagnostics: result.diagnostics
+      }
+    });
   })
   .post("/bookings", async (c) => {
     const body = await c.req.json<{

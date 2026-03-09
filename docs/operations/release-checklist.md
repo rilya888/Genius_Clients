@@ -23,6 +23,8 @@
 
 - Run `pnpm smoke:local` against running services.
 - Run `pnpm smoke:production`.
+- If Stripe secrets are configured, run webhook idempotency smoke:
+  - `SMOKE_API_BASE_URL=https://api-production-... STRIPE_WEBHOOK_SECRET=... STRIPE_TEST_TENANT_ID=... pnpm smoke:stripe-webhook`
 - Check readiness endpoints:
   - web: `/api/ready`
   - api: `/api/v1/ready`
