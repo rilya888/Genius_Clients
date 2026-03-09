@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
+import { getTimeOptions } from "../../../lib/schedule-options";
 
 type Master = { id: string; displayName: string };
 type ExceptionItem = {
@@ -76,6 +77,10 @@ export default function ExceptionsPage() {
     if (!date) {
       return;
     }
+    if (!isClosed && startMinute && endMinute && Number(startMinute) >= Number(endMinute)) {
+      setStatus("Start time must be earlier than end time");
+      return;
+    }
     const { response, payload } = await fetchJsonWithSessionRetry<{ error?: { message?: string } }>(
       "/api/admin/exceptions",
       {
@@ -85,8 +90,8 @@ export default function ExceptionsPage() {
         masterId: masterId || undefined,
         date,
         isClosed,
-        startMinute: startMinute ? Number(startMinute) : undefined,
-        endMinute: endMinute ? Number(endMinute) : undefined,
+        startMinute: isClosed ? undefined : startMinute ? Number(startMinute) : undefined,
+        endMinute: isClosed ? undefined : endMinute ? Number(endMinute) : undefined,
         note: note || undefined
       })
       }
@@ -104,6 +109,10 @@ export default function ExceptionsPage() {
     if (!edit || !edit.date) {
       return;
     }
+    if (!edit.isClosed && edit.startMinute && edit.endMinute && Number(edit.startMinute) >= Number(edit.endMinute)) {
+      setStatus("Start time must be earlier than end time");
+      return;
+    }
     const { response, payload } = await fetchJsonWithSessionRetry<{ error?: { message?: string } }>(
       `/api/admin/exceptions/${id}`,
       {
@@ -113,8 +122,8 @@ export default function ExceptionsPage() {
         masterId: edit.masterId || null,
         date: edit.date,
         isClosed: edit.isClosed,
-        startMinute: edit.startMinute ? Number(edit.startMinute) : null,
-        endMinute: edit.endMinute ? Number(edit.endMinute) : null,
+        startMinute: edit.isClosed ? null : edit.startMinute ? Number(edit.startMinute) : null,
+        endMinute: edit.isClosed ? null : edit.endMinute ? Number(edit.endMinute) : null,
         note: edit.note || null
       })
       }
@@ -180,22 +189,29 @@ export default function ExceptionsPage() {
           <input className="gc-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
         <div className="gc-field">
-          <span className="gc-field-label">Start minute (optional)</span>
-          <input
-            className="gc-input"
-            placeholder="e.g. 540"
+          <span className="gc-field-label">Start time (optional)</span>
+          <select
+            className="gc-select"
             value={startMinute}
             onChange={(e) => setStartMinute(e.target.value)}
-          />
+            disabled={isClosed}
+          >
+            {getTimeOptions(startMinute, true).map((option) => (
+              <option key={option.value || "empty-start"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="gc-field">
-          <span className="gc-field-label">End minute (optional)</span>
-          <input
-            className="gc-input"
-            placeholder="e.g. 1020"
-            value={endMinute}
-            onChange={(e) => setEndMinute(e.target.value)}
-          />
+          <span className="gc-field-label">End time (optional)</span>
+          <select className="gc-select" value={endMinute} onChange={(e) => setEndMinute(e.target.value)} disabled={isClosed}>
+            {getTimeOptions(endMinute, true).map((option) => (
+              <option key={option.value || "empty-end"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="gc-field">
           <span className="gc-field-label">Note (optional)</span>
@@ -265,18 +281,32 @@ export default function ExceptionsPage() {
                   </label>
                 </td>
                 <td>
-                  <input
-                    className="gc-input"
+                  <select
+                    className="gc-select"
                     value={editing[item.id]?.startMinute ?? ""}
                     onChange={(e) => updateEdit(item.id, { startMinute: e.target.value })}
-                  />
+                    disabled={editing[item.id]?.isClosed ?? item.isClosed}
+                  >
+                    {getTimeOptions(editing[item.id]?.startMinute ?? "", true).map((option) => (
+                      <option key={option.value || "empty-row-start"} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </td>
                 <td>
-                  <input
-                    className="gc-input"
+                  <select
+                    className="gc-select"
                     value={editing[item.id]?.endMinute ?? ""}
                     onChange={(e) => updateEdit(item.id, { endMinute: e.target.value })}
-                  />
+                    disabled={editing[item.id]?.isClosed ?? item.isClosed}
+                  >
+                    {getTimeOptions(editing[item.id]?.endMinute ?? "", true).map((option) => (
+                      <option key={option.value || "empty-row-end"} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </td>
                 <td>
                   <input

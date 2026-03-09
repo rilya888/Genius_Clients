@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
+import { getTimeOptions, WEEKDAY_OPTIONS } from "../../../lib/schedule-options";
 
 type Master = { id: string; displayName: string };
 type WorkingHourItem = {
@@ -59,6 +60,10 @@ export default function WorkingHoursPage() {
   }, []);
 
   async function createWorkingHours() {
+    if (Number(startMinute) >= Number(endMinute)) {
+      setStatus("Start time must be earlier than end time");
+      return;
+    }
     const { response, payload } = await fetchJsonWithSessionRetry<{ error?: { message?: string } }>(
       "/api/admin/working-hours",
       {
@@ -83,6 +88,10 @@ export default function WorkingHoursPage() {
   async function saveWorkingHours(id: string) {
     const edit = editing[id];
     if (!edit) {
+      return;
+    }
+    if (Number(edit.startMinute) >= Number(edit.endMinute)) {
+      setStatus("Start time must be earlier than end time");
       return;
     }
     const { response, payload } = await fetchJsonWithSessionRetry<{ error?: { message?: string } }>(
@@ -149,31 +158,34 @@ export default function WorkingHoursPage() {
           </select>
         </div>
         <div className="gc-field">
-          <span className="gc-field-label">Day of week (0-6)</span>
-          <input
-            className="gc-input"
-            value={dayOfWeek}
-            onChange={(e) => setDayOfWeek(e.target.value)}
-            placeholder="e.g. 1 for Monday"
-          />
+          <span className="gc-field-label">Day of week</span>
+          <select className="gc-select" value={dayOfWeek} onChange={(e) => setDayOfWeek(e.target.value)}>
+            {WEEKDAY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="gc-field">
-          <span className="gc-field-label">Start minute</span>
-          <input
-            className="gc-input"
-            value={startMinute}
-            onChange={(e) => setStartMinute(e.target.value)}
-            placeholder="e.g. 540 (09:00)"
-          />
+          <span className="gc-field-label">Start time</span>
+          <select className="gc-select" value={startMinute} onChange={(e) => setStartMinute(e.target.value)}>
+            {getTimeOptions(startMinute).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="gc-field">
-          <span className="gc-field-label">End minute</span>
-          <input
-            className="gc-input"
-            value={endMinute}
-            onChange={(e) => setEndMinute(e.target.value)}
-            placeholder="e.g. 1020 (17:00)"
-          />
+          <span className="gc-field-label">End time</span>
+          <select className="gc-select" value={endMinute} onChange={(e) => setEndMinute(e.target.value)}>
+            {getTimeOptions(endMinute).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
         <button className="gc-action-btn" onClick={() => void createWorkingHours()}>
           Create
@@ -212,25 +224,43 @@ export default function WorkingHoursPage() {
                   </select>
                 </td>
                 <td>
-                  <input
-                    className="gc-input"
+                  <select
+                    className="gc-select"
                     value={editing[item.id]?.dayOfWeek ?? String(item.dayOfWeek)}
                     onChange={(e) => updateEdit(item.id, { dayOfWeek: e.target.value })}
-                  />
+                  >
+                    {WEEKDAY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </td>
                 <td>
-                  <input
-                    className="gc-input"
+                  <select
+                    className="gc-select"
                     value={editing[item.id]?.startMinute ?? String(item.startMinute)}
                     onChange={(e) => updateEdit(item.id, { startMinute: e.target.value })}
-                  />
+                  >
+                    {getTimeOptions(editing[item.id]?.startMinute ?? String(item.startMinute)).map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </td>
                 <td>
-                  <input
-                    className="gc-input"
+                  <select
+                    className="gc-select"
                     value={editing[item.id]?.endMinute ?? String(item.endMinute)}
                     onChange={(e) => updateEdit(item.id, { endMinute: e.target.value })}
-                  />
+                  >
+                    {getTimeOptions(editing[item.id]?.endMinute ?? String(item.endMinute)).map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </td>
                 <td>
                   <label className="gc-consent gc-mt-0">
