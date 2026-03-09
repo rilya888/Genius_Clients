@@ -37,6 +37,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <Link href="/public/book" className="gc-nav-link">
               Public Book
             </Link>
+            <Link href="/privacy" className="gc-nav-link">
+              Privacy
+            </Link>
+            <Link href="/terms" className="gc-nav-link">
+              Terms
+            </Link>
           </nav>
           <LanguageSwitcher locale={locale} />
         </header>
