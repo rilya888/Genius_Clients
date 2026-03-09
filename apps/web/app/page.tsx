@@ -17,6 +17,12 @@ export default function HomePage() {
           <a href="/public/book" className="gc-btn gc-btn-secondary">
             Open Public Booking
           </a>
+          <a href="/privacy" className="gc-btn gc-btn-secondary">
+            Privacy Policy
+          </a>
+          <a href="/terms" className="gc-btn gc-btn-secondary">
+            Terms of Service
+          </a>
         </div>
       </section>
       <section className="gc-home-section">
