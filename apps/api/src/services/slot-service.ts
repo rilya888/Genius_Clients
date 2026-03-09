@@ -15,7 +15,6 @@ type MinuteRange = {
 
 export class SlotService {
   private readonly slotRepository = new SlotRepository();
-  private readonly slotStepMinutes = 15;
 
   private overlaps(a: MinuteRange, b: MinuteRange): boolean {
     return a.startMinute < b.endMinute && a.endMinute > b.startMinute;
@@ -102,6 +101,7 @@ export class SlotService {
           startMinute: Math.floor((b.startAt.getTime() - dayStartUtc.getTime()) / 60000),
           endMinute: Math.ceil((b.endAt.getTime() - dayStartUtc.getTime()) / 60000)
         }));
+      const slotStepMinutes = master.durationMinutesOverride ?? service.durationMinutes;
       const totalDuration =
         (master.durationMinutesOverride ?? service.durationMinutes) + tenant.bookingBufferMinutes;
 
@@ -109,7 +109,7 @@ export class SlotService {
         for (
           let startMinute = window.startMinute;
           startMinute + totalDuration <= window.endMinute;
-          startMinute += this.slotStepMinutes
+          startMinute += slotStepMinutes
         ) {
           const endMinute = startMinute + totalDuration;
           const candidateRange = { startMinute, endMinute };
