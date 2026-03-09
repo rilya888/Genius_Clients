@@ -140,6 +140,12 @@ export class SlotService {
       workingWindows: Array<{ startMinute: number; endMinute: number }>;
       blockedRanges: Array<{ startMinute: number; endMinute: number }>;
       busyRanges: Array<{ startMinute: number; endMinute: number }>;
+      candidateDecisions: Array<{
+        startMinute: number;
+        endMinute: number;
+        accepted: boolean;
+        reason?: "blocked_range" | "busy_range" | "min_advance";
+      }>;
       producedSlots: number;
       firstSlotDisplayTime: string | null;
     }> = [];
@@ -166,6 +172,26 @@ export class SlotService {
         }));
       const slotStepMinutes = master.durationMinutesOverride ?? service.durationMinutes;
       const serviceDurationMinutes = master.durationMinutesOverride ?? service.durationMinutes;
+      const debugRow = {
+        masterId: master.masterId,
+        workingWindows: workingForMaster.map((window) => ({
+          startMinute: window.startMinute,
+          endMinute: window.endMinute
+        })),
+        blockedRanges: blockedRanges.map((range) => ({ ...range })),
+        busyRanges: busyRanges.map((range) => ({ ...range })),
+        candidateDecisions: [] as Array<{
+          startMinute: number;
+          endMinute: number;
+          accepted: boolean;
+          reason?: "blocked_range" | "busy_range" | "min_advance";
+        }>,
+        producedSlots: 0,
+        firstSlotDisplayTime: null as string | null
+      };
+      if (input.debug) {
+        debugRows.push(debugRow);
+      }
 
       for (const window of workingForMaster) {
         for (
@@ -177,16 +203,42 @@ export class SlotService {
           const occupiedEndMinute = serviceEndMinute + tenant.bookingBufferMinutes;
           const candidateServiceRange = { startMinute, endMinute: serviceEndMinute };
           const candidateOccupiedRange = { startMinute, endMinute: occupiedEndMinute };
-          if (
-            blockedRanges.some((range) => this.overlaps(range, candidateServiceRange)) ||
-            busyRanges.some((range) => this.overlaps(range, candidateOccupiedRange))
-          ) {
+          const blockedConflict = blockedRanges.some((range) => this.overlaps(range, candidateServiceRange));
+          if (blockedConflict) {
+            if (input.debug) {
+              debugRow.candidateDecisions.push({
+                startMinute,
+                endMinute: serviceEndMinute,
+                accepted: false,
+                reason: "blocked_range"
+              });
+            }
+            continue;
+          }
+          const busyConflict = busyRanges.some((range) => this.overlaps(range, candidateOccupiedRange));
+          if (busyConflict) {
+            if (input.debug) {
+              debugRow.candidateDecisions.push({
+                startMinute,
+                endMinute: serviceEndMinute,
+                accepted: false,
+                reason: "busy_range"
+              });
+            }
             continue;
           }
 
           const startAt = new Date(dayStartUtc.getTime() + startMinute * 60 * 1000);
           const endAt = new Date(dayStartUtc.getTime() + serviceEndMinute * 60 * 1000);
           if (startAt < minAllowedStart) {
+            if (input.debug) {
+              debugRow.candidateDecisions.push({
+                startMinute,
+                endMinute: serviceEndMinute,
+                accepted: false,
+                reason: "min_advance"
+              });
+            }
             continue;
           }
 
@@ -196,21 +248,21 @@ export class SlotService {
             endAt: endAt.toISOString(),
             displayTime: this.formatTime(startAt, tenant.timezone)
           });
+          if (input.debug) {
+            debugRow.candidateDecisions.push({
+              startMinute,
+              endMinute: serviceEndMinute,
+              accepted: true
+            });
+          }
         }
       }
 
-      const producedForMaster = slots.filter((slot) => slot.masterId === master.masterId);
-      debugRows.push({
-        masterId: master.masterId,
-        workingWindows: workingForMaster.map((window) => ({
-          startMinute: window.startMinute,
-          endMinute: window.endMinute
-        })),
-        blockedRanges: blockedRanges.map((range) => ({ ...range })),
-        busyRanges: busyRanges.map((range) => ({ ...range })),
-        producedSlots: producedForMaster.length,
-        firstSlotDisplayTime: producedForMaster[0]?.displayTime ?? null
-      });
+      if (input.debug) {
+        const producedForMaster = slots.filter((slot) => slot.masterId === master.masterId);
+        debugRow.producedSlots = producedForMaster.length;
+        debugRow.firstSlotDisplayTime = producedForMaster[0]?.displayTime ?? null;
+      }
     }
 
     slots.sort((a, b) => a.startAt.localeCompare(b.startAt) || a.masterId.localeCompare(b.masterId));
