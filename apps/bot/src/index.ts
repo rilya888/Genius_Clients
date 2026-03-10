@@ -717,7 +717,10 @@ async function buildStaticReply(text: string, locale: SupportedLocale) {
           : "No availability found.";
       }
 
-      const top = slots.slice(0, 10).map((item) => item.displayTime ?? "?").join(", ");
+      const top = slots
+        .slice(0, 10)
+        .map((item: { displayTime?: string }) => item.displayTime ?? "?")
+        .join(", ");
       return locale === "it"
         ? `Disponibilita: ${top}`
         : `Available slots: ${top}`;
