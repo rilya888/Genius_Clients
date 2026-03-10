@@ -523,7 +523,7 @@ async function fetchServiceDuration(serviceId: string): Promise<number | null> {
     return null;
   }
 
-  const service = payload.data.items.find((item: { id?: string }) => item.id === serviceId);
+  const service = payload.data.items.find((item: { id?: string; durationMinutes?: unknown }) => item.id === serviceId);
   if (!service || !Number.isInteger(service.durationMinutes)) {
     return null;
   }

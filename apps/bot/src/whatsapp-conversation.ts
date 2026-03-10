@@ -348,7 +348,7 @@ async function promptSlot(
     return promptSlot(input, session, deps);
   }
 
-  const choices = pageItems.map((slot) => ({
+  const choices: Choice[] = pageItems.map((slot) => ({
     id: `slot:${encodeURIComponent(slot.startAt)}`,
     title: truncateForChoice(slot.displayTime, 24),
     description: new Date(slot.startAt).toISOString().slice(0, 16).replace("T", " ")
@@ -356,13 +356,15 @@ async function promptSlot(
   if (pageStart > 0) {
     choices.push({
       id: "slotpage:prev",
-      title: session.locale === "it" ? "Pagina precedente" : "Previous page"
+      title: session.locale === "it" ? "Pagina precedente" : "Previous page",
+      description: ""
     });
   }
   if (pageStart + pageSize < slots.length) {
     choices.push({
       id: "slotpage:next",
-      title: session.locale === "it" ? "Pagina successiva" : "Next page"
+      title: session.locale === "it" ? "Pagina successiva" : "Next page",
+      description: ""
     });
   }
 
