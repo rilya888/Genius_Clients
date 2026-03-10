@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import {
+  masterServices,
   masterTranslations,
   masters,
   serviceTranslations,
@@ -22,14 +23,30 @@ export class CatalogRepository {
     return tenant?.defaultLocale ?? "it";
   }
 
-  async listActiveMasters(tenantId: string) {
+  async listActiveMasters(tenantId: string, serviceId?: string) {
     const db = getDb();
-    return db
+    const query = db
       .select({
         id: masters.id,
         displayName: masters.displayName
       })
-      .from(masters)
+      .from(masters);
+
+    if (serviceId) {
+      return query
+        .innerJoin(
+          masterServices,
+          and(
+            eq(masterServices.masterId, masters.id),
+            eq(masterServices.tenantId, tenantId),
+            eq(masterServices.serviceId, serviceId)
+          )
+        )
+        .where(and(eq(masters.tenantId, tenantId), eq(masters.isActive, true)))
+        .orderBy(asc(masters.displayName));
+    }
+
+    return query
       .where(and(eq(masters.tenantId, tenantId), eq(masters.isActive, true)))
       .orderBy(asc(masters.displayName));
   }

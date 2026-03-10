@@ -31,7 +31,8 @@ export const publicRoutes = new Hono<ApiAppEnv>()
   .get("/masters", async (c) => {
     const tenantId = c.get("tenantId");
     const locale = c.req.query("locale") ?? undefined;
-    return c.json({ data: { items: await catalogService.listMasters(tenantId, locale) } });
+    const serviceId = c.req.query("serviceId") ?? undefined;
+    return c.json({ data: { items: await catalogService.listMasters(tenantId, locale, serviceId) } });
   })
   .get("/services", async (c) => {
     const tenantId = c.get("tenantId");
@@ -123,6 +124,22 @@ export const publicRoutes = new Hono<ApiAppEnv>()
 
     return c.json({ data }, 201);
   })
+  .get("/bookings", async (c) => {
+    const clientPhoneE164 = c.req.query("clientPhoneE164");
+    const limitRaw = c.req.query("limit");
+    if (!clientPhoneE164) {
+      throw appError("VALIDATION_ERROR", { required: ["clientPhoneE164"] });
+    }
+
+    const tenantId = c.get("tenantId");
+    const items = await bookingService.listPublicBookingsByPhone({
+      tenantId,
+      clientPhoneE164,
+      limit: limitRaw ? Number(limitRaw) : undefined
+    });
+
+    return c.json({ data: { items } });
+  })
   .post("/bookings/:id/cancel", async (c) => {
     const body = await c.req.json<{
       clientPhoneE164?: string;
@@ -139,6 +156,45 @@ export const publicRoutes = new Hono<ApiAppEnv>()
       bookingId,
       clientPhoneE164: body.clientPhoneE164,
       reason: body.reason
+    });
+
+    return c.json({ data });
+  })
+  .post("/bookings/:id/reschedule", async (c) => {
+    const body = await c.req.json<{
+      clientPhoneE164?: string;
+      serviceId?: string;
+      masterId?: string;
+      clientLocale?: "it" | "en";
+      source?: string;
+      startAt?: string;
+      endAt?: string;
+    }>();
+
+    if (!body.clientPhoneE164 || !body.startAt || !body.endAt) {
+      throw appError("VALIDATION_ERROR", {
+        required: ["clientPhoneE164", "startAt", "endAt"]
+      });
+    }
+
+    const idempotencyKey = c.req.header("idempotency-key");
+    if (!idempotencyKey) {
+      throw appError("VALIDATION_ERROR", { reason: "missing idempotency-key header" });
+    }
+
+    const tenantId = c.get("tenantId");
+    const bookingId = c.req.param("id");
+    const data = await bookingService.reschedulePublicBooking({
+      tenantId,
+      bookingId,
+      clientPhoneE164: body.clientPhoneE164,
+      serviceId: body.serviceId,
+      masterId: body.masterId,
+      clientLocale: body.clientLocale,
+      source: body.source,
+      startAtIso: body.startAt,
+      endAtIso: body.endAt,
+      idempotencyKey
     });
 
     return c.json({ data });

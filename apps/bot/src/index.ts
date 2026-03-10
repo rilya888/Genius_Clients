@@ -4,6 +4,7 @@ import { resolveLocale, t, type SupportedLocale } from "@genius/i18n";
 import { captureException } from "@genius/shared";
 import Redis from "ioredis";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { processWhatsAppConversation, type WhatsAppConversationSession } from "./whatsapp-conversation";
 
 const app = new Hono();
 const telegramWebhookSecret = process.env.TG_WEBHOOK_SECRET_TOKEN ?? "";
@@ -44,8 +45,15 @@ type TelegramUpdate = {
 type WhatsAppInbound = {
   messageId: string;
   from: string;
-  text: string;
+  text?: string;
+  replyId?: string;
   locale: SupportedLocale;
+};
+
+type WhatsAppChoice = {
+  id: string;
+  title: string;
+  description?: string;
 };
 
 async function sendTelegramMessage(input: { chatId: number; text: string }) {
@@ -77,7 +85,7 @@ async function sendTelegramMessage(input: { chatId: number; text: string }) {
   return { sent: true as const };
 }
 
-async function sendWhatsAppMessage(input: { to: string; text: string }) {
+async function sendWhatsAppPayload(input: { to: string; payload: Record<string, unknown> }) {
   if (!waPhoneNumberId || !waAccessToken) {
     console.warn("[bot] WhatsApp API credentials are not configured; message send skipped");
     return { sent: false, reason: "missing_whatsapp_config" as const };
@@ -89,12 +97,7 @@ async function sendWhatsAppMessage(input: { to: string; text: string }) {
       "content-type": "application/json",
       authorization: `Bearer ${waAccessToken}`
     },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to: input.to,
-      type: "text",
-      text: { body: input.text }
-    })
+    body: JSON.stringify(input.payload)
   });
 
   if (!response.ok) {
@@ -109,6 +112,79 @@ async function sendWhatsAppMessage(input: { to: string; text: string }) {
   }
 
   return { sent: true as const };
+}
+
+async function sendWhatsAppMessage(input: { to: string; text: string }) {
+  return sendWhatsAppPayload({
+    to: input.to,
+    payload: {
+      messaging_product: "whatsapp",
+      to: input.to,
+      type: "text",
+      text: { body: input.text }
+    }
+  });
+}
+
+async function sendWhatsAppButtons(input: {
+  to: string;
+  bodyText: string;
+  choices: WhatsAppChoice[];
+}) {
+  const buttons = input.choices.slice(0, 3).map((choice) => ({
+    type: "reply",
+    reply: {
+      id: choice.id,
+      title: choice.title.slice(0, 20)
+    }
+  }));
+  return sendWhatsAppPayload({
+    to: input.to,
+    payload: {
+      messaging_product: "whatsapp",
+      to: input.to,
+      type: "interactive",
+      interactive: {
+        type: "button",
+        body: { text: input.bodyText.slice(0, 1024) },
+        action: { buttons }
+      }
+    }
+  });
+}
+
+async function sendWhatsAppList(input: {
+  to: string;
+  bodyText: string;
+  buttonText: string;
+  choices: WhatsAppChoice[];
+}) {
+  const rows = input.choices.slice(0, 10).map((choice) => ({
+    id: choice.id,
+    title: choice.title.slice(0, 24),
+    description: choice.description?.slice(0, 72)
+  }));
+  return sendWhatsAppPayload({
+    to: input.to,
+    payload: {
+      messaging_product: "whatsapp",
+      to: input.to,
+      type: "interactive",
+      interactive: {
+        type: "list",
+        body: { text: input.bodyText.slice(0, 1024) },
+        action: {
+          button: input.buttonText.slice(0, 20),
+          sections: [
+            {
+              title: "Options",
+              rows
+            }
+          ]
+        }
+      }
+    }
+  });
 }
 
 function resolveLocaleFromTelegram(update: TelegramUpdate): SupportedLocale {
@@ -148,6 +224,20 @@ function assertWhatsAppSignature(signatureHeader: string | undefined, rawBody: s
   }
 }
 
+function normalizeWhatsAppPhone(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  if (trimmed.startsWith("+")) {
+    return trimmed;
+  }
+  if (/^\d+$/.test(trimmed)) {
+    return `+${trimmed}`;
+  }
+  return trimmed;
+}
+
 function extractWhatsAppInbound(payload: unknown): WhatsAppInbound[] {
   const root = typeof payload === "object" && payload ? (payload as Record<string, unknown>) : {};
   const entries = Array.isArray(root.entry) ? root.entry : [];
@@ -183,18 +273,45 @@ function extractWhatsAppInbound(payload: unknown): WhatsAppInbound[] {
           typeof rawMessage === "object" && rawMessage
             ? (rawMessage as Record<string, unknown>)
             : {};
+        const type = typeof msg.type === "string" ? msg.type : "";
         const textContainer =
           typeof msg.text === "object" && msg.text ? (msg.text as Record<string, unknown>) : {};
         const text = textContainer.body;
+        const interactive =
+          typeof msg.interactive === "object" && msg.interactive
+            ? (msg.interactive as Record<string, unknown>)
+            : {};
+        const interactiveType = typeof interactive.type === "string" ? interactive.type : "";
+        const buttonReply =
+          typeof interactive.button_reply === "object" && interactive.button_reply
+            ? (interactive.button_reply as Record<string, unknown>)
+            : {};
+        const listReply =
+          typeof interactive.list_reply === "object" && interactive.list_reply
+            ? (interactive.list_reply as Record<string, unknown>)
+            : {};
+        const replyId =
+          interactiveType === "button_reply"
+            ? buttonReply.id
+            : interactiveType === "list_reply"
+              ? listReply.id
+              : undefined;
         const from = msg.from;
         const messageId = msg.id;
-        if (typeof text !== "string" || typeof from !== "string" || typeof messageId !== "string") {
+        if (typeof from !== "string" || typeof messageId !== "string") {
+          continue;
+        }
+        if (type === "text" && typeof text !== "string") {
+          continue;
+        }
+        if (type === "interactive" && typeof replyId !== "string") {
           continue;
         }
         items.push({
           messageId,
-          from,
-          text,
+          from: normalizeWhatsAppPhone(from),
+          text: typeof text === "string" ? text : undefined,
+          replyId: typeof replyId === "string" ? replyId : undefined,
           locale: resolveLocaleFromWhatsApp(locale)
         });
       }
@@ -242,9 +359,16 @@ async function fetchSlotsFromApi(input: {
     throw new Error(payload?.error?.message ?? "slots_request_failed");
   }
 
-  return Array.isArray(payload?.data?.items)
-    ? (payload.data.items as Array<{ displayTime?: string }>)
-    : [];
+  if (!Array.isArray(payload?.data?.items)) {
+    return [] as Array<{ startAt: string; displayTime: string }>;
+  }
+
+  return payload.data.items
+    .map((item: Record<string, unknown>) => ({
+      startAt: String(item.startAt ?? ""),
+      displayTime: String(item.displayTime ?? "")
+    }))
+    .filter((item: { startAt: string; displayTime: string }) => item.startAt && item.displayTime);
 }
 
 function buildInternalHeaders() {
@@ -260,6 +384,130 @@ function buildInternalHeaders() {
     headers["x-internal-tenant-id"] = botTenantId;
   }
   return headers;
+}
+
+function getSessionTenantSegment() {
+  if (botTenantSlug) {
+    return `slug:${botTenantSlug}`;
+  }
+  if (botTenantId) {
+    return `id:${botTenantId}`;
+  }
+  return "unknown";
+}
+
+function getSessionKey(phone: string) {
+  return `wa:session:${getSessionTenantSegment()}:${phone}`;
+}
+
+function getInboundDedupKey(messageId: string) {
+  return `wa:inbound:${messageId}`;
+}
+
+async function loadWhatsAppSession(phone: string): Promise<WhatsAppConversationSession | null> {
+  if (!redis) {
+    return null;
+  }
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+  const raw = await redis.get(getSessionKey(phone));
+  if (!raw) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw) as WhatsAppConversationSession;
+  } catch {
+    return null;
+  }
+}
+
+async function saveWhatsAppSession(phone: string, session: WhatsAppConversationSession) {
+  if (!redis) {
+    return;
+  }
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+  await redis.set(getSessionKey(phone), JSON.stringify(session), "EX", 60 * 60);
+}
+
+async function clearWhatsAppSession(phone: string) {
+  if (!redis) {
+    return;
+  }
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+  await redis.del(getSessionKey(phone));
+}
+
+async function dedupInboundMessage(messageId: string): Promise<boolean> {
+  if (!redis) {
+    return true;
+  }
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+  const created = await redis.set(getInboundDedupKey(messageId), "1", "EX", 24 * 60 * 60, "NX");
+  return created === "OK";
+}
+
+async function fetchServicesForConversation(locale: SupportedLocale) {
+  if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
+    return [] as Array<{ id: string; displayName: string; durationMinutes?: number }>;
+  }
+  const response = await fetch(`${apiUrl}/api/v1/public/services?locale=${locale}`, {
+    method: "GET",
+    headers: buildInternalHeaders()
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(payload?.data?.items)) {
+    return [] as Array<{ id: string; displayName: string; durationMinutes?: number }>;
+  }
+  return payload.data.items.map((item: Record<string, unknown>) => ({
+    id: String(item.id ?? ""),
+    displayName: String(item.displayName ?? ""),
+    durationMinutes:
+      typeof item.durationMinutes === "number" ? Number(item.durationMinutes) : undefined
+  }));
+}
+
+async function fetchMastersForConversation(locale: SupportedLocale, serviceId?: string) {
+  if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
+    return [] as Array<{ id: string; displayName: string }>;
+  }
+  const params = new URLSearchParams({ locale });
+  if (serviceId) {
+    params.set("serviceId", serviceId);
+  }
+  const response = await fetch(`${apiUrl}/api/v1/public/masters?${params.toString()}`, {
+    method: "GET",
+    headers: buildInternalHeaders()
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(payload?.data?.items)) {
+    return [] as Array<{ id: string; displayName: string }>;
+  }
+  return payload.data.items.map((item: Record<string, unknown>) => ({
+    id: String(item.id ?? ""),
+    displayName: String(item.displayName ?? "")
+  }));
+}
+
+async function getTenantTimezoneForConversation() {
+  if (botTenantSlug && apiUrl && internalApiSecret) {
+    const response = await fetch(`${apiUrl}/api/v1/public/tenants/${botTenantSlug}`, {
+      method: "GET",
+      headers: buildInternalHeaders()
+    });
+    const payload = await response.json().catch(() => null);
+    const timezone = payload?.data?.timezone;
+    if (response.ok && typeof timezone === "string" && timezone) {
+      return timezone;
+    }
+  }
+  return "Europe/Rome";
 }
 
 async function fetchServiceDuration(serviceId: string): Promise<number | null> {
@@ -358,6 +606,79 @@ async function cancelBookingFromBot(input: { bookingId: string; phone: string })
   }
 
   return payload?.data?.id ? String(payload.data.id) : input.bookingId;
+}
+
+async function rescheduleBookingFromBot(input: {
+  bookingId: string;
+  phone: string;
+  serviceId: string;
+  masterId?: string;
+  startAtIso: string;
+  locale: SupportedLocale;
+}) {
+  if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
+    throw new Error("bot_api_config_missing");
+  }
+
+  const durationMinutes = await fetchServiceDuration(input.serviceId);
+  if (!durationMinutes) {
+    throw new Error("service_not_found_or_duration_missing");
+  }
+
+  const startAt = new Date(input.startAtIso);
+  if (Number.isNaN(startAt.getTime())) {
+    throw new Error("invalid_startAt");
+  }
+  const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
+  const response = await fetch(`${apiUrl}/api/v1/public/bookings/${input.bookingId}/reschedule`, {
+    method: "POST",
+    headers: {
+      ...buildInternalHeaders(),
+      "idempotency-key": randomUUID()
+    },
+    body: JSON.stringify({
+      clientPhoneE164: input.phone,
+      serviceId: input.serviceId,
+      masterId: input.masterId,
+      clientLocale: input.locale,
+      source: "whatsapp",
+      startAt: startAt.toISOString(),
+      endAt: endAt.toISOString()
+    })
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error?.message ?? "booking_reschedule_failed");
+  }
+
+  return payload?.data?.newBookingId ? String(payload.data.newBookingId) : "ok";
+}
+
+async function listBookingsByPhoneFromBot(input: { phone: string; limit?: number }) {
+  if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
+    return [] as Array<{ id: string; startAt: string; status: string }>;
+  }
+  const params = new URLSearchParams({
+    clientPhoneE164: input.phone
+  });
+  if (input.limit && Number.isFinite(input.limit)) {
+    params.set("limit", String(Math.trunc(input.limit)));
+  }
+  const response = await fetch(`${apiUrl}/api/v1/public/bookings?${params.toString()}`, {
+    method: "GET",
+    headers: buildInternalHeaders()
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(payload?.data?.items)) {
+    return [] as Array<{ id: string; startAt: string; status: string }>;
+  }
+  return payload.data.items
+    .map((item: Record<string, unknown>) => ({
+      id: String(item.id ?? ""),
+      startAt: String(item.startAt ?? ""),
+      status: String(item.status ?? "")
+    }))
+    .filter((item: { id: string; startAt: string; status: string }) => item.id && item.startAt);
 }
 
 async function buildStaticReply(text: string, locale: SupportedLocale) {
@@ -665,13 +986,57 @@ app.post("/webhooks/whatsapp", async (c) => {
     const inbound = extractWhatsAppInbound(payload);
 
     for (const item of inbound) {
-      const replyText = await processIncomingText({
-        text: item.text,
-        locale: item.locale,
-        source: "whatsapp",
-        senderPhoneE164: item.from
-      });
-      await sendWhatsAppMessage({ to: item.from, text: replyText });
+      const flowResult = await processWhatsAppConversation(
+        {
+          messageId: item.messageId,
+          from: item.from,
+          locale: item.locale,
+          text: item.text,
+          replyId: item.replyId
+        },
+        {
+          dedupInboundMessage,
+          loadSession: loadWhatsAppSession,
+          saveSession: saveWhatsAppSession,
+          clearSession: clearWhatsAppSession,
+          sendText: async (to, text) => {
+            await sendWhatsAppMessage({ to, text });
+          },
+          sendList: async (to, bodyText, buttonText, choices) => {
+            await sendWhatsAppList({ to, bodyText, buttonText, choices });
+          },
+          sendButtons: async (to, bodyText, choices) => {
+            await sendWhatsAppButtons({ to, bodyText, choices });
+          },
+          fetchServices: fetchServicesForConversation,
+          fetchMasters: fetchMastersForConversation,
+          fetchSlots: async (input) => fetchSlotsFromApi(input),
+          listBookingsByPhone: listBookingsByPhoneFromBot,
+          createBooking: async (input) =>
+            createBookingFromBot({
+              serviceId: input.serviceId,
+              startAtIso: input.startAtIso,
+              phone: input.phone,
+              locale: input.locale,
+              source: "whatsapp",
+              masterId: input.masterId,
+              clientName: input.clientName
+            }),
+          cancelBooking: cancelBookingFromBot,
+          rescheduleBooking: rescheduleBookingFromBot,
+          getTenantTimezone: getTenantTimezoneForConversation
+        }
+      );
+
+      if (!flowResult.handled && item.text) {
+        const replyText = await processIncomingText({
+          text: item.text,
+          locale: item.locale,
+          source: "whatsapp",
+          senderPhoneE164: item.from
+        });
+        await sendWhatsAppMessage({ to: item.from, text: replyText });
+      }
     }
 
     return c.json({
