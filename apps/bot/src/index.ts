@@ -523,7 +523,7 @@ async function fetchServiceDuration(serviceId: string): Promise<number | null> {
     return null;
   }
 
-  const service = payload.data.items.find((item: { id?: string }) => item.id === serviceId);
+  const service = payload.data.items.find((item: { id?: string; durationMinutes?: unknown }) => item.id === serviceId);
   if (!service || !Number.isInteger(service.durationMinutes)) {
     return null;
   }
@@ -717,7 +717,10 @@ async function buildStaticReply(text: string, locale: SupportedLocale) {
           : "No availability found.";
       }
 
-      const top = slots.slice(0, 10).map((item) => item.displayTime ?? "?").join(", ");
+      const top = slots
+        .slice(0, 10)
+        .map((item: { displayTime?: string }) => item.displayTime ?? "?")
+        .join(", ");
       return locale === "it"
         ? `Disponibilita: ${top}`
         : `Available slots: ${top}`;
