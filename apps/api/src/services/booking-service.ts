@@ -25,6 +25,19 @@ export type PublicBookingInput = {
   idempotencyKey: string;
 };
 
+type PublicRescheduleInput = {
+  tenantId: string;
+  bookingId: string;
+  clientPhoneE164: string;
+  startAtIso: string;
+  endAtIso: string;
+  idempotencyKey: string;
+  serviceId?: string;
+  masterId?: string;
+  source?: string;
+  clientLocale?: "it" | "en";
+};
+
 export class BookingService {
   private readonly bookingRepository = new BookingRepository();
   private readonly idempotencyRepository = new IdempotencyRepository();
@@ -337,5 +350,91 @@ export class BookingService {
     });
 
     return updated;
+  }
+
+  async listPublicBookingsByPhone(input: {
+    tenantId: string;
+    clientPhoneE164: string;
+    limit?: number;
+  }) {
+    const clientPhone = input.clientPhoneE164.trim();
+    try {
+      assertE164(clientPhone);
+    } catch (error) {
+      throw appError("VALIDATION_ERROR", {
+        reason: "client_phone_invalid",
+        details: error instanceof Error ? error.message : "invalid_phone"
+      });
+    }
+
+    const normalizedLimit =
+      input.limit !== undefined && Number.isFinite(input.limit) ? Math.trunc(input.limit) : 10;
+    const limit = Math.min(Math.max(normalizedLimit, 1), 50);
+    return this.bookingRepository.listUpcomingByPhone({
+      tenantId: input.tenantId,
+      clientPhoneE164: clientPhone,
+      statuses: ["pending", "confirmed"],
+      now: new Date(),
+      limit
+    });
+  }
+
+  async reschedulePublicBooking(input: PublicRescheduleInput) {
+    const current = await this.bookingRepository.findById(input.tenantId, input.bookingId);
+    if (!current) {
+      throw appError("TENANT_NOT_FOUND", { reason: "booking_not_found_in_tenant" });
+    }
+
+    const clientPhone = input.clientPhoneE164.trim();
+    try {
+      assertE164(clientPhone);
+    } catch (error) {
+      throw appError("VALIDATION_ERROR", {
+        reason: "client_phone_invalid",
+        details: error instanceof Error ? error.message : "invalid_phone"
+      });
+    }
+
+    if (current.clientPhoneE164 !== clientPhone) {
+      throw appError("AUTH_FORBIDDEN", { reason: "booking_phone_mismatch" });
+    }
+    if (current.status !== "pending" && current.status !== "confirmed") {
+      throw appError("VALIDATION_ERROR", { reason: "booking_not_reschedulable" });
+    }
+
+    const created = await this.createPublicBooking({
+      tenantId: input.tenantId,
+      serviceId: input.serviceId ?? current.serviceId,
+      masterId: input.masterId ?? current.masterId ?? undefined,
+      source: input.source ?? current.source,
+      clientName: current.clientName,
+      clientPhoneE164: clientPhone,
+      clientEmail: current.clientEmail ?? undefined,
+      clientLocale: input.clientLocale ?? (current.clientLocale as "it" | "en"),
+      clientConsent: true,
+      startAtIso: input.startAtIso,
+      endAtIso: input.endAtIso,
+      idempotencyKey: input.idempotencyKey
+    });
+
+    try {
+      await this.cancelPublicBooking({
+        tenantId: input.tenantId,
+        bookingId: current.id,
+        clientPhoneE164: clientPhone,
+        reason: "Rescheduled by client"
+      });
+    } catch {
+      throw appError("CONFLICT", {
+        reason: "reschedule_created_but_old_cancel_failed",
+        newBookingId: created.bookingId
+      });
+    }
+
+    return {
+      oldBookingId: current.id,
+      newBookingId: created.bookingId,
+      status: "rescheduled" as const
+    };
   }
 }

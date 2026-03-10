@@ -79,6 +79,7 @@ flowchart TB
 | 13 | Auth & Tenant Onboarding | [13-auth-tenant-onboarding.md](13-auth-tenant-onboarding.md) | Регистрация, поддомены, email |
 | 14 | Security & Data Integrity | [14-security-and-data-integrity.md](14-security-and-data-integrity.md) | Tenant isolation, CSRF/session hardening, webhook security, idempotency, Redis rate-limit |
 | 15 | Operations & Reliability | [15-operations-reliability.md](15-operations-reliability.md) | RPO/RTO baseline, backup/restore drills, SLI/alerts, mandatory Sentry, incident runbook |
+| 17 | WhatsApp Conversational Booking | [17-whatsapp-conversational-booking.md](17-whatsapp-conversational-booking.md) | Interactive booking/cancel/reschedule flow with FSM |
 
 ---
 
@@ -150,3 +151,4 @@ flowchart TB
 - [13-auth-tenant-onboarding.md](13-auth-tenant-onboarding.md)
 - [14-security-and-data-integrity.md](14-security-and-data-integrity.md)
 - [15-operations-reliability.md](15-operations-reliability.md)
+- [17-whatsapp-conversational-booking.md](17-whatsapp-conversational-booking.md)

@@ -123,4 +123,41 @@ export class BookingRepository {
 
     return item ?? null;
   }
+
+  async listUpcomingByPhone(input: {
+    tenantId: string;
+    clientPhoneE164: string;
+    statuses: BookingStatus[];
+    now: Date;
+    limit: number;
+  }) {
+    const db = getDb();
+    return db
+      .select({
+        id: bookings.id,
+        serviceId: bookings.serviceId,
+        masterId: bookings.masterId,
+        status: bookings.status,
+        source: bookings.source,
+        clientName: bookings.clientName,
+        clientPhoneE164: bookings.clientPhoneE164,
+        clientEmail: bookings.clientEmail,
+        clientLocale: bookings.clientLocale,
+        startAt: bookings.startAt,
+        endAt: bookings.endAt,
+        createdAt: bookings.createdAt,
+        updatedAt: bookings.updatedAt
+      })
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.tenantId, input.tenantId),
+          eq(bookings.clientPhoneE164, input.clientPhoneE164),
+          inArray(bookings.status, input.statuses),
+          gte(bookings.startAt, input.now)
+        )
+      )
+      .orderBy(asc(bookings.startAt), asc(bookings.id))
+      .limit(input.limit);
+  }
 }

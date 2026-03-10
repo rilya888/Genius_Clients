@@ -8,8 +8,8 @@ export class CatalogService {
     return [...new Set(chain)];
   }
 
-  async listMasters(tenantId: string, locale?: string) {
-    const base = await this.catalogRepository.listActiveMasters(tenantId);
+  async listMasters(tenantId: string, locale?: string, serviceId?: string) {
+    const base = await this.catalogRepository.listActiveMasters(tenantId, serviceId);
     const tenantDefault = await this.catalogRepository.findTenantDefaultLocale(tenantId);
     const localeChain = this.buildLocaleChain(locale, tenantDefault);
     const translations = await this.catalogRepository.listMasterTranslationsByLocales(tenantId, localeChain);
