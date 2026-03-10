@@ -95,6 +95,7 @@ export async function rateLimitMiddleware(c: Context<ApiAppEnv>, next: Next) {
   }
 
   const path = c.req.path;
+  const isWebhookPath = path.includes("/webhooks/");
   const policy = getPolicy(path);
   const ip = getClientIp(c);
   const tenant = c.get("tenantId") ?? c.req.header("x-internal-tenant-id") ?? "no-tenant";
@@ -104,7 +105,9 @@ export async function rateLimitMiddleware(c: Context<ApiAppEnv>, next: Next) {
     windowMs: policy.windowMs,
     now
   });
-  if (!redisCounter && REDIS_REQUIRED) {
+  // Webhook providers require fast, deterministic responses for verification/retries.
+  // If Redis is temporarily unavailable, webhook paths should fall back to in-memory counters.
+  if (!redisCounter && REDIS_REQUIRED && !isWebhookPath) {
     throw appError("INTERNAL_ERROR", { reason: "rate_limit_store_unavailable" });
   }
   const counter =
