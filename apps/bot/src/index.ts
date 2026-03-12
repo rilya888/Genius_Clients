@@ -56,6 +56,18 @@ type WhatsAppChoice = {
   description?: string;
 };
 
+function maskPhone(value: string): string {
+  const raw = value.trim();
+  if (!raw) {
+    return raw;
+  }
+  const normalized = raw.replace(/\s+/g, "");
+  if (normalized.length <= 4) {
+    return "***";
+  }
+  return `${normalized.slice(0, 3)}***${normalized.slice(-2)}`;
+}
+
 async function sendTelegramMessage(input: { chatId: number; text: string }) {
   if (!telegramBotToken) {
     console.warn("[bot] TG_BOT_TOKEN is not configured; message send skipped");
@@ -91,6 +103,12 @@ async function sendWhatsAppPayload(input: { to: string; payload: Record<string, 
     return { sent: false, reason: "missing_whatsapp_config" as const };
   }
 
+  const kind = String(input.payload.type ?? "unknown");
+  console.info("[bot] whatsapp outgoing request", {
+    to: maskPhone(input.to),
+    type: kind
+  });
+
   const response = await fetch(`https://graph.facebook.com/v21.0/${waPhoneNumberId}/messages`, {
     method: "POST",
     headers: {
@@ -110,6 +128,12 @@ async function sendWhatsAppPayload(input: { to: string; payload: Record<string, 
     });
     return { sent: false, reason: "whatsapp_api_failed" as const };
   }
+
+  console.info("[bot] whatsapp outgoing delivered", {
+    to: maskPhone(input.to),
+    type: kind,
+    status: response.status
+  });
 
   return { sent: true as const };
 }
@@ -975,9 +999,11 @@ app.get("/webhooks/whatsapp", (c) => {
   const challenge = c.req.query("hub.challenge");
 
   if (mode === "subscribe" && challenge && token && waVerifyToken && token === waVerifyToken) {
+    console.info("[bot] whatsapp verify challenge accepted");
     return c.text(challenge, 200);
   }
 
+  console.warn("[bot] whatsapp verify challenge rejected");
   return c.json({ error: { code: "AUTH_FORBIDDEN", message: "Invalid WhatsApp verify token" } }, 403);
 });
 
@@ -987,8 +1013,17 @@ app.post("/webhooks/whatsapp", async (c) => {
     assertWhatsAppSignature(c.req.header("x-hub-signature-256"), rawBody);
     const payload = JSON.parse(rawBody) as unknown;
     const inbound = extractWhatsAppInbound(payload);
+    console.info("[bot] whatsapp webhook accepted", { inboundCount: inbound.length });
 
     for (const item of inbound) {
+      console.info("[bot] whatsapp inbound message", {
+        messageId: item.messageId,
+        from: maskPhone(item.from),
+        hasText: Boolean(item.text),
+        hasReplyId: Boolean(item.replyId),
+        locale: item.locale
+      });
+
       const flowResult = await processWhatsAppConversation(
         {
           messageId: item.messageId,
@@ -1031,6 +1066,12 @@ app.post("/webhooks/whatsapp", async (c) => {
         }
       );
 
+      console.info("[bot] whatsapp flow result", {
+        messageId: item.messageId,
+        from: maskPhone(item.from),
+        handled: flowResult.handled
+      });
+
       if (!flowResult.handled && item.text) {
         const replyText = await processIncomingText({
           text: item.text,
@@ -1039,6 +1080,10 @@ app.post("/webhooks/whatsapp", async (c) => {
           senderPhoneE164: item.from
         });
         await sendWhatsAppMessage({ to: item.from, text: replyText });
+        console.info("[bot] whatsapp fallback reply sent", {
+          messageId: item.messageId,
+          from: maskPhone(item.from)
+        });
       }
     }
 
@@ -1049,6 +1094,9 @@ app.post("/webhooks/whatsapp", async (c) => {
       }
     });
   } catch (error) {
+    console.error("[bot] whatsapp webhook processing failed", {
+      message: error instanceof Error ? error.message : "unknown_error"
+    });
     await captureException({
       service: "bot",
       error,

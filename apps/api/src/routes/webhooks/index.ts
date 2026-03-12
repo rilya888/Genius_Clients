@@ -46,7 +46,7 @@ export const webhookRoutes = new Hono<ApiAppEnv>()
     const mode = c.req.query("hub.mode");
     const token = c.req.query("hub.verify_token");
     const challenge = c.req.query("hub.challenge");
-    const expected = process.env.WA_VERIFY_TOKEN;
+    const expected = process.env.WA_VERIFY_TOKEN ?? process.env.WA_WEBHOOK_SECRET;
 
     if (mode === "subscribe" && token && expected && token === expected && challenge) {
       return c.text(challenge, 200);
