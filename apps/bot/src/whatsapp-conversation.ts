@@ -44,6 +44,10 @@ export type WhatsAppConversationSession = {
   masterId?: string;
   masterName?: string;
   date?: string;
+  servicePage?: number;
+  masterPage?: number;
+  datePage?: number;
+  bookingPage?: number;
   slotPage?: number;
   slotStartAt?: string;
   slotDisplayTime?: string;
@@ -105,6 +109,7 @@ export type WhatsAppConversationDeps = {
 };
 
 const FLOW_VERSION = 1;
+const RESTART_FLOW_TOKEN = "flow:restart";
 
 function truncateForChoice(input: string, maxLength: number): string {
   if (input.length <= maxLength) {
@@ -117,7 +122,12 @@ function createInitialSession(locale: SupportedLocale): WhatsAppConversationSess
   return {
     flowVersion: FLOW_VERSION,
     locale,
-    state: "choose_intent"
+    state: "choose_intent",
+    servicePage: 0,
+    masterPage: 0,
+    datePage: 0,
+    bookingPage: 0,
+    slotPage: 0
   };
 }
 
@@ -171,12 +181,52 @@ function buildNext7Days(timezone: string): string[] {
   return Array.from(new Set(out));
 }
 
+function buildRestartChoice(locale: SupportedLocale): Choice {
+  return {
+    id: RESTART_FLOW_TOKEN,
+    title: locale === "it" ? "Inizio" : "Start over"
+  };
+}
+
+function buildPaginatedButtons<T>(input: {
+  items: T[];
+  page: number;
+  mapChoice: (item: T) => Choice;
+  navPrefix: string;
+  locale: SupportedLocale;
+}) {
+  const pageSize = input.items.length <= 2 ? 2 : 1;
+  const totalPages = Math.max(1, Math.ceil(input.items.length / pageSize));
+  const safePage = Math.min(Math.max(input.page, 0), totalPages - 1);
+  const hasMultiplePages = totalPages > 1;
+  const startIndex = safePage * pageSize;
+  const pageItems = input.items.slice(startIndex, startIndex + pageSize);
+  const choices: Choice[] = pageItems.map(input.mapChoice);
+
+  if (hasMultiplePages) {
+    if (safePage < totalPages - 1) {
+      choices.push({
+        id: `${input.navPrefix}:next`,
+        title: input.locale === "it" ? "Avanti" : "Next"
+      });
+    } else if (safePage > 0) {
+      choices.push({
+        id: `${input.navPrefix}:prev`,
+        title: input.locale === "it" ? "Indietro" : "Previous"
+      });
+    }
+  }
+
+  choices.push(buildRestartChoice(input.locale));
+  return { choices: choices.slice(0, 3), safePage, totalPages };
+}
+
 async function promptIntent(input: ConversationInput, deps: WhatsAppConversationDeps) {
   const bodyText =
     input.locale === "it"
       ? "Cosa vuoi fare?"
       : "What would you like to do?";
-  await deps.sendList(input.from, bodyText, input.locale === "it" ? "Scegli" : "Choose", [
+  await deps.sendButtons(input.from, bodyText, [
     {
       id: "intent:new",
       title: input.locale === "it" ? "Nuova prenotazione" : "New booking"
@@ -188,10 +238,6 @@ async function promptIntent(input: ConversationInput, deps: WhatsAppConversation
     {
       id: "intent:cancel",
       title: input.locale === "it" ? "Annulla prenotazione" : "Cancel booking"
-    },
-    {
-      id: "intent:human",
-      title: input.locale === "it" ? "Parla con operatore" : "Human support"
     }
   ]);
 }
@@ -199,6 +245,7 @@ async function promptIntent(input: ConversationInput, deps: WhatsAppConversation
 async function promptBookingSelectionForAction(input: {
   from: string;
   locale: SupportedLocale;
+  page: number;
   action: "cancel" | "reschedule";
   deps: WhatsAppConversationDeps;
 }) {
@@ -222,15 +269,19 @@ async function promptBookingSelectionForAction(input: {
         ? "Sposta prenotazione"
         : "Reschedule booking";
 
-  const choices = items.map((item) => ({
-    id: `booking:${item.id}`,
-    title: truncateForChoice(`${item.startAt.slice(0, 16).replace("T", " ")}`, 24),
-    description: item.id.slice(0, 8)
-  }));
-  await input.deps.sendList(
+  const { choices, safePage, totalPages } = buildPaginatedButtons({
+    items,
+    page: input.page,
+    mapChoice: (item) => ({
+      id: `booking:${item.id}`,
+      title: truncateForChoice(`${item.startAt.slice(0, 16).replace("T", " ")}`, 24)
+    }),
+    navPrefix: "bookingpage",
+    locale: input.locale
+  });
+  await input.deps.sendButtons(
     input.from,
-    labelPrefix,
-    input.locale === "it" ? "Prenotazioni" : "Bookings",
+    `${labelPrefix} (${safePage + 1}/${totalPages})`,
     choices
   );
   return true;
@@ -254,13 +305,17 @@ async function promptService(
 
   const bodyText =
     session.locale === "it" ? "Seleziona il servizio." : "Select a service.";
-  const choices = services.slice(0, 10).map((service) => ({
-    id: `service:${service.id}`,
-    title: truncateForChoice(service.displayName, 24),
-    description:
-      typeof service.durationMinutes === "number" ? `${service.durationMinutes} min` : undefined
-  }));
-  await deps.sendList(input.from, bodyText, session.locale === "it" ? "Servizi" : "Services", choices);
+  const { choices, safePage, totalPages } = buildPaginatedButtons({
+    items: services.slice(0, 10),
+    page: session.servicePage ?? 0,
+    mapChoice: (service) => ({
+      id: `service:${service.id}`,
+      title: truncateForChoice(service.displayName, 24)
+    }),
+    navPrefix: "servicepage",
+    locale: session.locale
+  });
+  await deps.sendButtons(input.from, `${bodyText} (${safePage + 1}/${totalPages})`, choices);
 }
 
 async function promptMaster(
@@ -278,11 +333,17 @@ async function promptMaster(
   }
 
   const bodyText = session.locale === "it" ? "Scegli il master." : "Choose a master.";
-  const choices = masters.slice(0, 10).map((master) => ({
-    id: `master:${master.id}`,
-    title: truncateForChoice(master.displayName, 24)
-  }));
-  await deps.sendList(input.from, bodyText, session.locale === "it" ? "Master" : "Masters", choices);
+  const { choices, safePage, totalPages } = buildPaginatedButtons({
+    items: masters.slice(0, 10),
+    page: session.masterPage ?? 0,
+    mapChoice: (master) => ({
+      id: `master:${master.id}`,
+      title: truncateForChoice(master.displayName, 24)
+    }),
+    navPrefix: "masterpage",
+    locale: session.locale
+  });
+  await deps.sendButtons(input.from, `${bodyText} (${safePage + 1}/${totalPages})`, choices);
 }
 
 async function promptDate(
@@ -292,16 +353,20 @@ async function promptDate(
 ) {
   const timezone = await deps.getTenantTimezone();
   const days = buildNext7Days(timezone);
-  const choices = days.map((day) => ({
-    id: `date:${day}`,
-    title: truncateForChoice(formatDateLabel(day, session.locale, timezone), 24),
-    description: day
-  }));
+  const { choices, safePage, totalPages } = buildPaginatedButtons({
+    items: days,
+    page: session.datePage ?? 0,
+    mapChoice: (day) => ({
+      id: `date:${day}`,
+      title: truncateForChoice(formatDateLabel(day, session.locale, timezone), 24)
+    }),
+    navPrefix: "datepage",
+    locale: session.locale
+  });
 
-  await deps.sendList(
+  await deps.sendButtons(
     input.from,
-    session.locale === "it" ? "Scegli una data (7 giorni)." : "Choose a date (next 7 days).",
-    session.locale === "it" ? "Date" : "Dates",
+    `${session.locale === "it" ? "Scegli una data (7 giorni)." : "Choose a date (next 7 days)."} (${safePage + 1}/${totalPages})`,
     choices
   );
 }
@@ -332,7 +397,7 @@ async function promptSlot(
     return;
   }
 
-  const pageSize = 8;
+  const pageSize = 1;
   const page = Math.max(session.slotPage ?? 0, 0);
   const pageStart = page * pageSize;
   const pageItems = slots.slice(pageStart, pageStart + pageSize);
@@ -350,31 +415,27 @@ async function promptSlot(
 
   const choices: Choice[] = pageItems.map((slot) => ({
     id: `slot:${encodeURIComponent(slot.startAt)}`,
-    title: truncateForChoice(slot.displayTime, 24),
-    description: new Date(slot.startAt).toISOString().slice(0, 16).replace("T", " ")
+    title: truncateForChoice(slot.displayTime, 24)
   }));
-  if (pageStart > 0) {
-    choices.push({
-      id: "slotpage:prev",
-      title: session.locale === "it" ? "Pagina precedente" : "Previous page",
-      description: ""
-    });
-  }
   if (pageStart + pageSize < slots.length) {
     choices.push({
       id: "slotpage:next",
-      title: session.locale === "it" ? "Pagina successiva" : "Next page",
-      description: ""
+      title: session.locale === "it" ? "Avanti" : "Next"
+    });
+  } else if (pageStart > 0) {
+    choices.push({
+      id: "slotpage:prev",
+      title: session.locale === "it" ? "Indietro" : "Previous"
     });
   }
+  choices.push(buildRestartChoice(session.locale));
 
-  await deps.sendList(
+  await deps.sendButtons(
     input.from,
     session.locale === "it"
       ? `Scegli uno slot. Pagina ${page + 1}.`
       : `Choose a slot. Page ${page + 1}.`,
-    session.locale === "it" ? "Orari" : "Times",
-    choices
+    choices.slice(0, 3)
   );
 }
 
@@ -394,12 +455,12 @@ async function promptConfirm(
       title: session.locale === "it" ? "Conferma" : "Confirm"
     },
     {
-      id: "confirm:change",
-      title: session.locale === "it" ? "Cambia" : "Change"
-    },
-    {
       id: "confirm:cancel",
       title: session.locale === "it" ? "Annulla" : "Cancel"
+    },
+    {
+      id: RESTART_FLOW_TOKEN,
+      title: session.locale === "it" ? "Inizio" : "Start over"
     }
   ]);
 }
@@ -472,6 +533,16 @@ export async function processWhatsAppConversation(
     await promptIntent(input, deps);
     return { handled: true };
   }
+  if (
+    normalizedToken === RESTART_FLOW_TOKEN ||
+    normalizedToken === "restart" ||
+    normalizedToken === "back"
+  ) {
+    session = createInitialSession(input.locale);
+    await deps.saveSession(input.from, session);
+    await promptIntent(input, deps);
+    return { handled: true };
+  }
 
   if (!session.intent && session.state !== "choose_intent") {
     session = createInitialSession(input.locale);
@@ -482,6 +553,7 @@ export async function processWhatsAppConversation(
       if (token === "intent:new") {
         session.intent = "new_booking";
         session.state = "choose_service";
+        session.servicePage = 0;
         await deps.saveSession(input.from, session);
         await promptService(input, session, deps);
         return { handled: true };
@@ -493,6 +565,7 @@ export async function processWhatsAppConversation(
         const shown = await promptBookingSelectionForAction({
           from: input.from,
           locale: session.locale,
+          page: session.bookingPage ?? 0,
           action: "cancel",
           deps
         });
@@ -508,6 +581,7 @@ export async function processWhatsAppConversation(
         const shown = await promptBookingSelectionForAction({
           from: input.from,
           locale: session.locale,
+          page: session.bookingPage ?? 0,
           action: "reschedule",
           deps
         });
@@ -516,27 +590,41 @@ export async function processWhatsAppConversation(
         }
         return { handled: true };
       }
-      if (token === "intent:human") {
-        await deps.sendText(
-          input.from,
-          session.locale === "it"
-            ? "Richiesta inoltrata a un operatore. Ti risponderemo presto."
-            : "Your request has been forwarded to a human operator. We will reply soon."
-        );
-        await deps.clearSession(input.from);
-        return { handled: true };
-      }
-
       await promptIntent(input, deps);
       return { handled: true };
     }
 
     case "reschedule_wait_booking_id": {
+      if (token === "bookingpage:next") {
+        session.bookingPage = Math.max((session.bookingPage ?? 0) + 1, 0);
+        await deps.saveSession(input.from, session);
+        await promptBookingSelectionForAction({
+          from: input.from,
+          locale: session.locale,
+          page: session.bookingPage,
+          action: "reschedule",
+          deps
+        });
+        return { handled: true };
+      }
+      if (token === "bookingpage:prev") {
+        session.bookingPage = Math.max((session.bookingPage ?? 0) - 1, 0);
+        await deps.saveSession(input.from, session);
+        await promptBookingSelectionForAction({
+          from: input.from,
+          locale: session.locale,
+          page: session.bookingPage,
+          action: "reschedule",
+          deps
+        });
+        return { handled: true };
+      }
       const bookingToken = token.startsWith("booking:") ? token.replace("booking:", "") : token;
       if (!isUuidLike(bookingToken)) {
         await promptBookingSelectionForAction({
           from: input.from,
           locale: session.locale,
+          page: session.bookingPage ?? 0,
           action: "reschedule",
           deps
         });
@@ -544,17 +632,43 @@ export async function processWhatsAppConversation(
       }
       session.bookingIdToReschedule = bookingToken.trim();
       session.state = "choose_service";
+      session.servicePage = 0;
       await deps.saveSession(input.from, session);
       await promptService(input, session, deps);
       return { handled: true };
     }
 
     case "cancel_wait_booking_id": {
+      if (token === "bookingpage:next") {
+        session.bookingPage = Math.max((session.bookingPage ?? 0) + 1, 0);
+        await deps.saveSession(input.from, session);
+        await promptBookingSelectionForAction({
+          from: input.from,
+          locale: session.locale,
+          page: session.bookingPage,
+          action: "cancel",
+          deps
+        });
+        return { handled: true };
+      }
+      if (token === "bookingpage:prev") {
+        session.bookingPage = Math.max((session.bookingPage ?? 0) - 1, 0);
+        await deps.saveSession(input.from, session);
+        await promptBookingSelectionForAction({
+          from: input.from,
+          locale: session.locale,
+          page: session.bookingPage,
+          action: "cancel",
+          deps
+        });
+        return { handled: true };
+      }
       const bookingToken = token.startsWith("booking:") ? token.replace("booking:", "") : token;
       if (!isUuidLike(bookingToken)) {
         await promptBookingSelectionForAction({
           from: input.from,
           locale: session.locale,
+          page: session.bookingPage ?? 0,
           action: "cancel",
           deps
         });
@@ -584,6 +698,18 @@ export async function processWhatsAppConversation(
     }
 
     case "choose_service": {
+      if (token === "servicepage:next") {
+        session.servicePage = Math.max((session.servicePage ?? 0) + 1, 0);
+        await deps.saveSession(input.from, session);
+        await promptService(input, session, deps);
+        return { handled: true };
+      }
+      if (token === "servicepage:prev") {
+        session.servicePage = Math.max((session.servicePage ?? 0) - 1, 0);
+        await deps.saveSession(input.from, session);
+        await promptService(input, session, deps);
+        return { handled: true };
+      }
       if (!token.startsWith("service:")) {
         await promptService(input, session, deps);
         return { handled: true };
@@ -598,12 +724,25 @@ export async function processWhatsAppConversation(
       session.serviceId = picked.id;
       session.serviceName = picked.displayName;
       session.state = "choose_master";
+      session.masterPage = 0;
       await deps.saveSession(input.from, session);
       await promptMaster(input, session, deps);
       return { handled: true };
     }
 
     case "choose_master": {
+      if (token === "masterpage:next") {
+        session.masterPage = Math.max((session.masterPage ?? 0) + 1, 0);
+        await deps.saveSession(input.from, session);
+        await promptMaster(input, session, deps);
+        return { handled: true };
+      }
+      if (token === "masterpage:prev") {
+        session.masterPage = Math.max((session.masterPage ?? 0) - 1, 0);
+        await deps.saveSession(input.from, session);
+        await promptMaster(input, session, deps);
+        return { handled: true };
+      }
       if (!token.startsWith("master:")) {
         await promptMaster(input, session, deps);
         return { handled: true };
@@ -618,6 +757,7 @@ export async function processWhatsAppConversation(
       session.masterId = picked.id;
       session.masterName = picked.displayName;
       session.state = "choose_date";
+      session.datePage = 0;
       session.slotPage = 0;
       await deps.saveSession(input.from, session);
       await promptDate(input, session, deps);
@@ -625,6 +765,18 @@ export async function processWhatsAppConversation(
     }
 
     case "choose_date": {
+      if (token === "datepage:next") {
+        session.datePage = Math.max((session.datePage ?? 0) + 1, 0);
+        await deps.saveSession(input.from, session);
+        await promptDate(input, session, deps);
+        return { handled: true };
+      }
+      if (token === "datepage:prev") {
+        session.datePage = Math.max((session.datePage ?? 0) - 1, 0);
+        await deps.saveSession(input.from, session);
+        await promptDate(input, session, deps);
+        return { handled: true };
+      }
       if (!token.startsWith("date:")) {
         await promptDate(input, session, deps);
         return { handled: true };
@@ -681,6 +833,7 @@ export async function processWhatsAppConversation(
       }
       if (token === "confirm:change") {
         session.state = "choose_date";
+        session.datePage = 0;
         await deps.saveSession(input.from, session);
         await promptDate(input, session, deps);
         return { handled: true };
