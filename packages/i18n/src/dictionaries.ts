@@ -56,10 +56,10 @@ const publicIt: Dictionary = {
   "public.booking.loadCatalogFailed": "Impossibile caricare il catalogo.",
   "public.booking.loadSlotsFailed": "Impossibile caricare le disponibilita.",
   "public.booking.createFailed": "Impossibile creare la prenotazione.",
-  "public.booking.created": "Prenotazione creata: {bookingId}",
+  "public.booking.created": "Richiesta prenotazione ricevuta: {bookingId}",
   "public.booking.selected": "Selezionato: {dateTime} con {masterName}",
-  "public.booking.successTitle": "Prenotazione confermata",
-  "public.booking.successText": "Grazie. La richiesta e stata registrata correttamente.",
+  "public.booking.successTitle": "Richiesta inviata",
+  "public.booking.successText": "La richiesta e stata ricevuta. Attenda la conferma dell'amministratore.",
   "public.booking.bookAnother": "Nuova prenotazione",
   "public.booking.backHome": "Torna alla home"
 };
@@ -80,10 +80,10 @@ const publicEn: Dictionary = {
   "public.booking.loadCatalogFailed": "Failed to load catalog.",
   "public.booking.loadSlotsFailed": "Failed to load slots.",
   "public.booking.createFailed": "Failed to create booking.",
-  "public.booking.created": "Booking created: {bookingId}",
+  "public.booking.created": "Booking request received: {bookingId}",
   "public.booking.selected": "Selected: {dateTime} with {masterName}",
-  "public.booking.successTitle": "Booking confirmed",
-  "public.booking.successText": "Thank you. Your request has been recorded successfully.",
+  "public.booking.successTitle": "Request submitted",
+  "public.booking.successText": "Your booking request has been received. Please wait for admin confirmation.",
   "public.booking.bookAnother": "Book another",
   "public.booking.backHome": "Back to home"
 };

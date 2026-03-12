@@ -514,8 +514,8 @@ async function processIncomingText(input: {
         clientName: name || undefined
       });
       return input.locale === "it"
-        ? `Prenotazione creata con successo. Codice: ${bookingId}`
-        : `Booking created successfully. Code: ${bookingId}`;
+        ? `Richiesta prenotazione ricevuta. Codice: ${bookingId}. Attendi conferma dall'amministratore.`
+        : `Booking request received. Code: ${bookingId}. Please wait for admin confirmation.`;
     } catch {
       return input.locale === "it"
         ? "Impossibile creare la prenotazione. Verifica i dati e riprova."
