@@ -541,7 +541,7 @@ async function runCreateOrReschedule(
   }
 
   if (session.intent === "reschedule_booking" && session.bookingIdToReschedule) {
-    const newBookingId = await deps.rescheduleBooking({
+    await deps.rescheduleBooking({
       bookingId: session.bookingIdToReschedule,
       phone: input.from,
       serviceId: session.serviceId,
@@ -552,11 +552,11 @@ async function runCreateOrReschedule(
     await deps.sendText(
       input.from,
       session.locale === "it"
-        ? `Prenotazione spostata con successo. Nuovo codice: ${newBookingId}`
-        : `Booking rescheduled successfully. New code: ${newBookingId}`
+        ? "Prenotazione spostata con successo."
+        : "Booking rescheduled successfully."
     );
   } else {
-    const newBookingId = await deps.createBooking({
+    await deps.createBooking({
       serviceId: session.serviceId,
       masterId: session.masterId,
       startAtIso: session.slotStartAt,
@@ -567,8 +567,8 @@ async function runCreateOrReschedule(
     await deps.sendText(
       input.from,
       session.locale === "it"
-        ? `Richiesta prenotazione ricevuta. Codice: ${newBookingId}. Attendi conferma dall'amministratore.`
-        : `Booking request received. Code: ${newBookingId}. Please wait for admin confirmation.`
+        ? "Richiesta prenotazione ricevuta. Attendi conferma dall'amministratore."
+        : "Booking request received. Please wait for admin confirmation."
     );
   }
 
@@ -768,15 +768,15 @@ export async function processWhatsAppConversation(
         return { handled: true };
       }
       try {
-        const cancelledId = await deps.cancelBooking({
+        await deps.cancelBooking({
           bookingId: bookingToken.trim(),
           phone: input.from
         });
         await deps.sendText(
           input.from,
           session.locale === "it"
-            ? `Prenotazione annullata. Codice: ${cancelledId}`
-            : `Booking cancelled. Code: ${cancelledId}`
+            ? "Prenotazione annullata."
+            : "Booking cancelled."
         );
       } catch {
         await deps.sendText(
