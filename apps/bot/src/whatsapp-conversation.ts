@@ -305,6 +305,15 @@ async function promptService(
 
   const bodyText =
     session.locale === "it" ? "Seleziona il servizio." : "Select a service.";
+  if (services.length <= 3) {
+    const directChoices = services.map((service) => ({
+      id: `service:${service.id}`,
+      title: truncateForChoice(service.displayName, 24)
+    }));
+    await deps.sendButtons(input.from, bodyText, directChoices);
+    return;
+  }
+
   const { choices, safePage, totalPages } = buildPaginatedButtons({
     items: services.slice(0, 10),
     page: session.servicePage ?? 0,
