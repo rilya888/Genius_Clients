@@ -418,11 +418,24 @@ async function promptSlot(
   });
 
   if (slots.length === 0) {
-    await deps.sendText(
+    const timezone = await deps.getTenantTimezone();
+    const days = buildNext7Days(timezone).filter((day) => day !== session.date);
+    const dayChoices = days.slice(0, 8).map((day) => ({
+      id: `date:${day}`,
+      title: truncateForChoice(formatDateLabel(day, session.locale, timezone), 24),
+      description: day
+    }));
+
+    session.state = "choose_date";
+    session.datePage = 0;
+    await deps.saveSession(input.from, session);
+    await deps.sendList(
       input.from,
       session.locale === "it"
         ? "Nessuno slot disponibile per questa data. Scegli un'altra data."
-        : "No slots are available for this date. Please choose another date."
+        : "No slots are available for this date. Please choose another date.",
+      session.locale === "it" ? "Date" : "Dates",
+      appendFlowRows({ choices: dayChoices, locale: session.locale })
     );
     return;
   }
