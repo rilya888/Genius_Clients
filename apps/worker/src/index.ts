@@ -7,7 +7,9 @@ import {
   idempotencyKeys,
   notificationDeliveries,
   passwordResetTokens,
-  refreshTokens
+  refreshTokens,
+  services,
+  tenants
 } from "@genius/db";
 import { captureException } from "@genius/shared";
 import Redis from "ioredis";
@@ -288,21 +290,85 @@ async function sendTelegramMessage(input: { chatId: string; text: string }) {
   return String(messageId ?? "telegram_sent");
 }
 
+async function buildBookingDetailsText(input: { bookingId: string; notificationType: string }) {
+  if (!db) {
+    return null;
+  }
+
+  const row = await db
+    .select({
+      startAt: bookings.startAt,
+      clientLocale: bookings.clientLocale,
+      serviceName: services.displayName,
+      timezone: tenants.timezone
+    })
+    .from(bookings)
+    .innerJoin(services, eq(services.id, bookings.serviceId))
+    .innerJoin(tenants, eq(tenants.id, bookings.tenantId))
+    .where(eq(bookings.id, input.bookingId))
+    .limit(1);
+
+  const details = row[0];
+  if (!details) {
+    return null;
+  }
+
+  const locale = details.clientLocale === "it" ? "it-IT" : "en-GB";
+  const when = new Intl.DateTimeFormat(locale, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: details.timezone || "Europe/Rome"
+  }).format(details.startAt);
+
+  if (input.notificationType === "booking_confirmed_client") {
+    return details.clientLocale === "it"
+      ? `Prenotazione confermata: ${details.serviceName}, ${when}.`
+      : `Booking confirmed: ${details.serviceName}, ${when}.`;
+  }
+
+  if (input.notificationType === "booking_cancelled") {
+    return details.clientLocale === "it"
+      ? `Prenotazione annullata: ${details.serviceName}, ${when}.`
+      : `Booking cancelled: ${details.serviceName}, ${when}.`;
+  }
+
+  if (input.notificationType === "booking_completed_client") {
+    return details.clientLocale === "it"
+      ? `Servizio completato: ${details.serviceName}, ${when}.`
+      : `Service completed: ${details.serviceName}, ${when}.`;
+  }
+
+  return null;
+}
+
 async function sendByChannel(input: {
   channel: string;
   recipient: string;
   notificationType: string;
   bookingId: string | null;
 }) {
+  const detailedText =
+    input.bookingId &&
+    (input.notificationType === "booking_confirmed_client" ||
+      input.notificationType === "booking_cancelled" ||
+      input.notificationType === "booking_completed_client")
+      ? await buildBookingDetailsText({ bookingId: input.bookingId, notificationType: input.notificationType })
+      : null;
+
   const bookingCode = input.bookingId ?? "n/a";
   const textByType: Record<string, string> = {
-    booking_confirmed_client: `Booking confirmed. Your booking code is ${bookingCode}.`,
-    booking_completed_client: `Booking completed. Thank you for your visit. Code: ${bookingCode}.`,
-    booking_cancelled: `Booking cancelled. Booking code ${bookingCode}.`,
+    booking_confirmed_client: `Booking confirmed.`,
+    booking_completed_client: `Booking completed.`,
+    booking_cancelled: `Booking cancelled.`,
     booking_reminder_24h: `Reminder: your booking is in 24 hours. Code: ${bookingCode}.`,
     booking_reminder_2h: `Reminder: your booking is in 2 hours. Code: ${bookingCode}.`
   };
-  const text = textByType[input.notificationType] ?? `[${input.notificationType}] booking=${bookingCode}`;
+  const text =
+    detailedText ?? textByType[input.notificationType] ?? `[${input.notificationType}] booking=${bookingCode}`;
 
   if (input.channel === "telegram") {
     return sendTelegramMessage({ chatId: input.recipient, text });
