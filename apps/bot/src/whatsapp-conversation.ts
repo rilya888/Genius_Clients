@@ -155,6 +155,18 @@ function formatDateLabel(dateIso: string, locale: SupportedLocale, timezone: str
   }).format(new Date(`${dateIso}T00:00:00.000Z`));
 }
 
+function formatDateTimeLabel(dateIso: string, locale: SupportedLocale, timezone: string): string {
+  return new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-GB", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: timezone
+  }).format(new Date(dateIso));
+}
+
 function buildNext7Days(timezone: string): string[] {
   const out: string[] = [];
   for (let i = 0; i < 7; i += 1) {
@@ -263,6 +275,7 @@ async function promptBookingSelectionForAction(input: {
   action: "cancel" | "reschedule";
   deps: WhatsAppConversationDeps;
 }) {
+  const timezone = await input.deps.getTenantTimezone();
   const items = await input.deps.listBookingsByPhone({ phone: input.from, limit: 10 });
   if (items.length === 0) {
     await input.deps.sendText(
@@ -288,8 +301,7 @@ async function promptBookingSelectionForAction(input: {
     page: input.page,
     mapChoice: (item) => ({
       id: `booking:${item.id}`,
-      title: truncateForChoice(`${item.startAt.slice(0, 16).replace("T", " ")}`, 24),
-      description: item.id.slice(0, 8)
+      title: truncateForChoice(formatDateTimeLabel(item.startAt, input.locale, timezone), 24)
     }),
     navPrefix: "bookingpage",
     locale: input.locale
@@ -458,8 +470,7 @@ async function promptSlot(
 
   const choices: Choice[] = pageItems.map((slot) => ({
     id: `slot:${encodeURIComponent(slot.startAt)}`,
-    title: truncateForChoice(slot.displayTime, 24),
-    description: new Date(slot.startAt).toISOString().slice(0, 16).replace("T", " ")
+    title: truncateForChoice(slot.displayTime, 24)
   }));
   if (pageStart > 0) {
     choices.push({
