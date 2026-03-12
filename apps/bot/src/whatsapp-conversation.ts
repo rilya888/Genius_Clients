@@ -634,7 +634,25 @@ export async function processWhatsAppConversation(
         await deps.saveSession(input.from, session);
         await promptIntent(input, deps);
         return { handled: true };
+      }
+  }
+
+  if (normalizedToken === "/cancel" || normalizedToken === "cancel" || normalizedToken === "annulla") {
+    session.intent = "cancel_booking";
+    session.state = "cancel_wait_booking_id";
+    session.bookingPage = 0;
+    await deps.saveSession(input.from, session);
+    const shown = await promptBookingSelectionForAction({
+      from: input.from,
+      locale: session.locale,
+      page: session.bookingPage,
+      action: "cancel",
+      deps
+    });
+    if (!shown) {
+      await deps.clearSession(input.from);
     }
+    return { handled: true };
   }
 
   if (!session.intent && session.state !== "choose_intent") {
