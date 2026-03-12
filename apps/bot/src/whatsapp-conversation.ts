@@ -196,7 +196,7 @@ function buildPaginatedList<T>(input: {
   navPrefix: string;
   locale: SupportedLocale;
 }) {
-  const pageSize = 8;
+  const pageSize = 6;
   const totalPages = Math.max(1, Math.ceil(input.items.length / pageSize));
   const safePage = Math.min(Math.max(input.page, 0), totalPages - 1);
   const startIndex = safePage * pageSize;
@@ -221,17 +221,15 @@ function buildPaginatedList<T>(input: {
   return { choices: choices.slice(0, 10), safePage, totalPages };
 }
 
-async function sendNavigationButtons(
-  deps: WhatsAppConversationDeps,
-  input: { to: string; locale: SupportedLocale }
-) {
-  await deps.sendButtons(input.to, input.locale === "it" ? "Navigazione" : "Navigation", [
+function appendFlowRows(input: { choices: Choice[]; locale: SupportedLocale }): Choice[] {
+  return [
+    ...input.choices,
     {
       id: BACK_FLOW_TOKEN,
       title: input.locale === "it" ? "Indietro" : "Back"
     },
     buildRestartChoice(input.locale)
-  ]);
+  ].slice(0, 10);
 }
 
 async function promptIntent(input: ConversationInput, deps: WhatsAppConversationDeps) {
@@ -239,7 +237,8 @@ async function promptIntent(input: ConversationInput, deps: WhatsAppConversation
     input.locale === "it"
       ? "Cosa vuoi fare?"
       : "What would you like to do?";
-  await deps.sendList(input.from, bodyText, input.locale === "it" ? "Scegli" : "Choose", [
+  await deps.sendList(input.from, bodyText, input.locale === "it" ? "Scegli" : "Choose", appendFlowRows({
+    choices: [
     {
       id: "intent:new",
       title: input.locale === "it" ? "Nuova prenotazione" : "New booking"
@@ -252,8 +251,9 @@ async function promptIntent(input: ConversationInput, deps: WhatsAppConversation
       id: "intent:cancel",
       title: input.locale === "it" ? "Annulla prenotazione" : "Cancel booking"
     }
-  ]);
-  await sendNavigationButtons(deps, { to: input.from, locale: input.locale });
+    ],
+    locale: input.locale
+  }));
 }
 
 async function promptBookingSelectionForAction(input: {
@@ -298,9 +298,8 @@ async function promptBookingSelectionForAction(input: {
     input.from,
     `${labelPrefix} (${safePage + 1}/${totalPages})`,
     input.locale === "it" ? "Prenotazioni" : "Bookings",
-    choices
+    appendFlowRows({ choices, locale: input.locale })
   );
-  await sendNavigationButtons(input.deps, { to: input.from, locale: input.locale });
   return true;
 }
 
@@ -338,9 +337,8 @@ async function promptService(
     input.from,
     `${bodyText} (${safePage + 1}/${totalPages})`,
     session.locale === "it" ? "Servizi" : "Services",
-    choices
+    appendFlowRows({ choices, locale: session.locale })
   );
-  await sendNavigationButtons(deps, { to: input.from, locale: session.locale });
 }
 
 async function promptMaster(
@@ -372,9 +370,8 @@ async function promptMaster(
     input.from,
     `${bodyText} (${safePage + 1}/${totalPages})`,
     session.locale === "it" ? "Master" : "Masters",
-    choices
+    appendFlowRows({ choices, locale: session.locale })
   );
-  await sendNavigationButtons(deps, { to: input.from, locale: session.locale });
 }
 
 async function promptDate(
@@ -400,9 +397,8 @@ async function promptDate(
     input.from,
     `${session.locale === "it" ? "Scegli una data (7 giorni)." : "Choose a date (next 7 days)."} (${safePage + 1}/${totalPages})`,
     session.locale === "it" ? "Date" : "Dates",
-    choices
+    appendFlowRows({ choices, locale: session.locale })
   );
-  await sendNavigationButtons(deps, { to: input.from, locale: session.locale });
 }
 
 async function promptSlot(
@@ -470,9 +466,8 @@ async function promptSlot(
       ? `Scegli uno slot. Pagina ${page + 1}.`
       : `Choose a slot. Page ${page + 1}.`,
     session.locale === "it" ? "Orari" : "Times",
-    choices.slice(0, 10)
+    appendFlowRows({ choices: choices.slice(0, 8), locale: session.locale })
   );
-  await sendNavigationButtons(deps, { to: input.from, locale: session.locale });
 }
 
 async function promptConfirm(
@@ -498,8 +493,13 @@ async function promptConfirm(
       id: "confirm:cancel",
       title: session.locale === "it" ? "Annulla" : "Cancel"
     }
-  ]);
-  await sendNavigationButtons(deps, { to: input.from, locale: session.locale });
+  ,
+    {
+      id: BACK_FLOW_TOKEN,
+      title: session.locale === "it" ? "Indietro" : "Back"
+    },
+    buildRestartChoice(session.locale)
+  ].slice(0, 10));
 }
 
 async function runCreateOrReschedule(
