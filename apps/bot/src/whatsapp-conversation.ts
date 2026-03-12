@@ -543,8 +543,8 @@ async function runCreateOrReschedule(
     await deps.sendText(
       input.from,
       session.locale === "it"
-        ? `Prenotazione creata con successo. Codice: ${newBookingId}`
-        : `Booking created successfully. Code: ${newBookingId}`
+        ? `Richiesta prenotazione ricevuta. Codice: ${newBookingId}. Attendi conferma dall'amministratore.`
+        : `Booking request received. Code: ${newBookingId}. Please wait for admin confirmation.`
     );
   }
 
