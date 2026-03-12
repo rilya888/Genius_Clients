@@ -294,7 +294,14 @@ async function sendByChannel(input: {
   notificationType: string;
   bookingId: string | null;
 }) {
-  const text = `[${input.notificationType}] booking=${input.bookingId ?? "n/a"}`;
+  const bookingCode = input.bookingId ?? "n/a";
+  const textByType: Record<string, string> = {
+    booking_confirmed_client: `Booking confirmed. Your booking code is ${bookingCode}.`,
+    booking_cancelled: `Booking cancelled. Booking code ${bookingCode}.`,
+    booking_reminder_24h: `Reminder: your booking is in 24 hours. Code: ${bookingCode}.`,
+    booking_reminder_2h: `Reminder: your booking is in 2 hours. Code: ${bookingCode}.`
+  };
+  const text = textByType[input.notificationType] ?? `[${input.notificationType}] booking=${bookingCode}`;
 
   if (input.channel === "telegram") {
     return sendTelegramMessage({ chatId: input.recipient, text });
