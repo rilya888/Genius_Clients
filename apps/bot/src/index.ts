@@ -851,7 +851,7 @@ async function processIncomingText(input: {
     }
 
     try {
-      const bookingId = await createBookingFromBot({
+      await createBookingFromBot({
         serviceId,
         startAtIso,
         phone,
@@ -862,8 +862,8 @@ async function processIncomingText(input: {
         clientName: name || undefined
       });
       return input.locale === "it"
-        ? `Richiesta prenotazione ricevuta. Codice: ${bookingId}. Attendi conferma dall'amministratore.`
-        : `Booking request received. Code: ${bookingId}. Please wait for admin confirmation.`;
+        ? "Richiesta prenotazione ricevuta. Attendi conferma dall'amministratore."
+        : "Booking request received. Please wait for admin confirmation.";
     } catch {
       return input.locale === "it"
         ? "Impossibile creare la prenotazione. Verifica i dati e riprova."
@@ -883,10 +883,10 @@ async function processIncomingText(input: {
     }
 
     try {
-      const cancelledId = await cancelBookingFromBot({ bookingId, phone });
+      await cancelBookingFromBot({ bookingId, phone });
       return input.locale === "it"
-        ? `Prenotazione annullata. Codice: ${cancelledId}`
-        : `Booking cancelled. Code: ${cancelledId}`;
+        ? "Prenotazione annullata."
+        : "Booking cancelled.";
     } catch {
       return input.locale === "it"
         ? "Impossibile annullare la prenotazione. Verifica codice e telefono."
