@@ -27,6 +27,7 @@ export const bookingStatusEnum = pgEnum("booking_status", [
 export const notificationTypeEnum = pgEnum("notification_type", [
   "booking_created_admin",
   "booking_confirmed_client",
+  "booking_completed_client",
   "booking_reminder_24h",
   "booking_reminder_2h",
   "booking_cancelled"

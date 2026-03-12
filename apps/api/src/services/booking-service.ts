@@ -270,6 +270,29 @@ export class BookingService {
         recipient,
         idempotencyKey: `${updated.id}:booking_confirmed_client`
       });
+
+      const defaultChannel = this.resolveClientChannel(updated.source);
+      if (defaultChannel !== "whatsapp") {
+        await this.notificationRepository.enqueue({
+          tenantId: input.tenantId,
+          bookingId: updated.id,
+          notificationType: "booking_confirmed_client",
+          channel: "whatsapp",
+          recipient: updated.clientPhoneE164,
+          idempotencyKey: `${updated.id}:booking_confirmed_client:whatsapp`
+        });
+      }
+    }
+
+    if (input.nextStatus === "completed") {
+      await this.notificationRepository.enqueue({
+        tenantId: input.tenantId,
+        bookingId: updated.id,
+        notificationType: "booking_completed_client",
+        channel: "whatsapp",
+        recipient: updated.clientPhoneE164,
+        idempotencyKey: `${updated.id}:booking_completed_client:whatsapp`
+      });
     }
 
     if (input.nextStatus === "cancelled") {

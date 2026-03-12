@@ -297,6 +297,7 @@ async function sendByChannel(input: {
   const bookingCode = input.bookingId ?? "n/a";
   const textByType: Record<string, string> = {
     booking_confirmed_client: `Booking confirmed. Your booking code is ${bookingCode}.`,
+    booking_completed_client: `Booking completed. Thank you for your visit. Code: ${bookingCode}.`,
     booking_cancelled: `Booking cancelled. Booking code ${bookingCode}.`,
     booking_reminder_24h: `Reminder: your booking is in 24 hours. Code: ${bookingCode}.`,
     booking_reminder_2h: `Reminder: your booking is in 2 hours. Code: ${bookingCode}.`
