@@ -47,6 +47,10 @@ export const tenants = pgTable(
     adminNotificationTelegramChatId: bigint("admin_notification_telegram_chat_id", {
       mode: "number"
     }),
+    adminNotificationWhatsappE164: varchar("admin_notification_whatsapp_e164", { length: 32 }),
+    openaiEnabled: boolean("openai_enabled").notNull().default(true),
+    openaiModel: varchar("openai_model", { length: 80 }).notNull().default("gpt-5-mini"),
+    humanHandoffEnabled: boolean("human_handoff_enabled").notNull().default(true),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()

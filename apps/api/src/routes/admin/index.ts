@@ -544,6 +544,10 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       bookingBufferMinutes?: number;
       adminNotificationEmail?: string | null;
       adminNotificationTelegramChatId?: number | null;
+      adminNotificationWhatsappE164?: string | null;
+      openaiEnabled?: boolean;
+      openaiModel?: string;
+      humanHandoffEnabled?: boolean;
     }>();
 
     const updated = await adminService.updateTenantSettings({
@@ -556,7 +560,11 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       bookingMinAdvanceMinutes: body.bookingMinAdvanceMinutes,
       bookingBufferMinutes: body.bookingBufferMinutes,
       adminNotificationEmail: body.adminNotificationEmail,
-      adminNotificationTelegramChatId: body.adminNotificationTelegramChatId
+      adminNotificationTelegramChatId: body.adminNotificationTelegramChatId,
+      adminNotificationWhatsappE164: body.adminNotificationWhatsappE164,
+      openaiEnabled: body.openaiEnabled,
+      openaiModel: body.openaiModel,
+      humanHandoffEnabled: body.humanHandoffEnabled
     });
 
     return c.json({ data: updated });

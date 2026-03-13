@@ -5,6 +5,8 @@ import { captureException } from "@genius/shared";
 import Redis from "ioredis";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { processWhatsAppConversation, type WhatsAppConversationSession } from "./whatsapp-conversation";
+import { processAiWhatsAppMessage } from "./ai-orchestrator";
+import { OpenAIResponsesClient } from "./openai-responses-client";
 
 const app = new Hono();
 const telegramWebhookSecret = process.env.TG_WEBHOOK_SECRET_TOKEN ?? "";
@@ -14,7 +16,8 @@ const waAccessToken = process.env.WA_ACCESS_TOKEN ?? "";
 const waVerifyToken = process.env.WA_VERIFY_TOKEN ?? "";
 const waWebhookSecret = process.env.WA_WEBHOOK_SECRET ?? "";
 const openAiApiKey = process.env.OPENAI_API_KEY ?? "";
-const openAiModel = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+const openAiModel = process.env.OPENAI_MODEL ?? "gpt-5-mini";
+const openAiResponsesEnabled = process.env.OPENAI_RESPONSES_ENABLED !== "false";
 const apiUrl = process.env.API_URL ?? "";
 const internalApiSecret = process.env.INTERNAL_API_SECRET ?? "";
 const botTenantSlug = process.env.BOT_TENANT_SLUG ?? "";
@@ -260,6 +263,20 @@ function normalizeWhatsAppPhone(value: string): string {
     return `+${trimmed}`;
   }
   return trimmed;
+}
+
+function isStructuredControlMessage(value: string) {
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized === "/start" ||
+    normalized === "start" ||
+    normalized === "menu" ||
+    normalized === "back" ||
+    normalized === "restart" ||
+    normalized === "/cancel" ||
+    normalized === "cancel" ||
+    normalized === "annulla"
+  );
 }
 
 function extractWhatsAppInbound(payload: unknown): WhatsAppInbound[] {
@@ -534,6 +551,72 @@ async function getTenantTimezoneForConversation() {
   return "Europe/Rome";
 }
 
+async function getTenantBotConfig() {
+  if (botTenantSlug && apiUrl && internalApiSecret) {
+    const response = await fetch(`${apiUrl}/api/v1/public/tenants/${botTenantSlug}`, {
+      method: "GET",
+      headers: buildInternalHeaders()
+    });
+    const payload = await response.json().catch(() => null);
+    if (response.ok && payload?.data) {
+      return {
+        name: String(payload.data.name ?? "Tenant"),
+        defaultLocale: resolveLocale({
+          requested:
+            payload.data.defaultLocale === "it" || payload.data.defaultLocale === "en"
+              ? payload.data.defaultLocale
+              : undefined,
+          tenantDefault: "it",
+          fallback: "en"
+        }),
+        timezone: typeof payload.data.timezone === "string" && payload.data.timezone ? payload.data.timezone : "Europe/Rome",
+        openaiEnabled: payload.data.botConfig?.openaiEnabled !== false,
+        openaiModel:
+          typeof payload.data.botConfig?.openaiModel === "string" && payload.data.botConfig.openaiModel
+            ? payload.data.botConfig.openaiModel
+            : openAiModel,
+        humanHandoffEnabled: payload.data.botConfig?.humanHandoffEnabled !== false,
+        adminNotificationWhatsappE164:
+          typeof payload.data.botConfig?.adminNotificationWhatsappE164 === "string"
+            ? payload.data.botConfig.adminNotificationWhatsappE164
+            : null
+      };
+    }
+  }
+
+  return {
+    name: "Tenant",
+    defaultLocale: "it" as SupportedLocale,
+    timezone: "Europe/Rome",
+    openaiEnabled: true,
+    openaiModel: openAiModel,
+    humanHandoffEnabled: true,
+    adminNotificationWhatsappE164: null as string | null
+  };
+}
+
+async function notifyAdminWhatsAppHandoff(input: {
+  phone: string;
+  summary: string;
+  locale: SupportedLocale;
+}) {
+  const config = await getTenantBotConfig();
+  if (!config.humanHandoffEnabled || !config.adminNotificationWhatsappE164) {
+    return false;
+  }
+
+  const text =
+    input.locale === "it"
+      ? `Nuova richiesta di assistenza umana.\nCliente: ${maskPhone(input.phone)}\nTenant: ${config.name}\nRichiesta: ${input.summary}`
+      : `New human handoff request.\nClient: ${maskPhone(input.phone)}\nTenant: ${config.name}\nRequest: ${input.summary}`;
+
+  const result = await sendWhatsAppMessage({
+    to: config.adminNotificationWhatsappE164,
+    text: text.slice(0, 1024)
+  });
+  return result.sent;
+}
+
 async function fetchServiceDuration(serviceId: string): Promise<number | null> {
   if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
     return null;
@@ -791,38 +874,26 @@ async function generateAiReply(input: { text: string; locale: SupportedLocale })
     input.locale === "it"
       ? "Sei un assistente formale per prenotazioni. Rispondi in italiano, massimo 3 frasi, tono professionale."
       : "You are a formal booking assistant. Reply in English, max 3 sentences, professional tone.";
-
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${openAiApiKey}`
-    },
-    body: JSON.stringify({
+  try {
+    const client = new OpenAIResponsesClient(openAiApiKey, 12000);
+    const response = await client.create({
       model: openAiModel,
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: input.text }
-      ]
-    })
-  });
+      instructions: systemPrompt,
+      input: input.text
+    });
 
-  if (!response.ok) {
+    if (!response.outputText.trim()) {
+      return input.locale === "it"
+        ? "Messaggio ricevuto. Un operatore la ricontattera a breve."
+        : "Message received. An operator will contact you shortly.";
+    }
+
+    return response.outputText.trim();
+  } catch {
     return input.locale === "it"
       ? "Messaggio ricevuto. Un operatore la ricontattera a breve."
       : "Message received. An operator will contact you shortly.";
   }
-
-  const payload = await response.json().catch(() => null);
-  const aiText = payload?.choices?.[0]?.message?.content;
-  if (typeof aiText !== "string" || !aiText.trim()) {
-    return input.locale === "it"
-      ? "Messaggio ricevuto. Un operatore la ricontattera a breve."
-      : "Message received. An operator will contact you shortly.";
-  }
-
-  return aiText.trim();
 }
 
 async function processIncomingText(input: {
@@ -1016,6 +1087,15 @@ app.post("/webhooks/whatsapp", async (c) => {
     console.info("[bot] whatsapp webhook accepted", { inboundCount: inbound.length });
 
     for (const item of inbound) {
+      const notDuplicate = await dedupInboundMessage(item.messageId);
+      if (!notDuplicate) {
+        console.info("[bot] whatsapp duplicate ignored", {
+          messageId: item.messageId,
+          from: maskPhone(item.from)
+        });
+        continue;
+      }
+
       console.info("[bot] whatsapp inbound message", {
         messageId: item.messageId,
         from: maskPhone(item.from),
@@ -1024,47 +1104,108 @@ app.post("/webhooks/whatsapp", async (c) => {
         locale: item.locale
       });
 
-      const flowResult = await processWhatsAppConversation(
-        {
-          messageId: item.messageId,
-          from: item.from,
-          locale: item.locale,
-          text: item.text,
-          replyId: item.replyId
+      const conversationDeps = {
+        dedupInboundMessage,
+        loadSession: loadWhatsAppSession,
+        saveSession: saveWhatsAppSession,
+        clearSession: clearWhatsAppSession,
+        sendText: async (to: string, text: string) => {
+          await sendWhatsAppMessage({ to, text });
         },
-        {
-          dedupInboundMessage,
-          loadSession: loadWhatsAppSession,
-          saveSession: saveWhatsAppSession,
-          clearSession: clearWhatsAppSession,
-          sendText: async (to, text) => {
-            await sendWhatsAppMessage({ to, text });
+        sendList: async (to: string, bodyText: string, buttonText: string, choices: Array<{ id: string; title: string; description?: string }>) => {
+          await sendWhatsAppList({ to, bodyText, buttonText, choices });
+        },
+        sendButtons: async (to: string, bodyText: string, choices: Array<{ id: string; title: string; description?: string }>) => {
+          await sendWhatsAppButtons({ to, bodyText, choices });
+        },
+        fetchServices: fetchServicesForConversation,
+        fetchMasters: fetchMastersForConversation,
+        fetchSlots: async (input: {
+          serviceId: string;
+          masterId?: string;
+          date: string;
+          locale: SupportedLocale;
+        }) => fetchSlotsFromApi(input),
+        listBookingsByPhone: listBookingsByPhoneFromBot,
+        createBooking: async (input: {
+          serviceId: string;
+          masterId?: string;
+          startAtIso: string;
+          phone: string;
+          locale: SupportedLocale;
+          clientName?: string;
+        }) =>
+          createBookingFromBot({
+            serviceId: input.serviceId,
+            startAtIso: input.startAtIso,
+            phone: input.phone,
+            locale: input.locale,
+            source: "whatsapp",
+            masterId: input.masterId,
+            clientName: input.clientName
+          }),
+        cancelBooking: cancelBookingFromBot,
+        rescheduleBooking: rescheduleBookingFromBot,
+        getTenantTimezone: getTenantTimezoneForConversation
+      };
+
+      let flowResult = { handled: false };
+      if (!item.replyId && item.text && !isStructuredControlMessage(item.text)) {
+        const aiResult = await processAiWhatsAppMessage(
+          {
+            from: item.from,
+            text: item.text,
+            locale: item.locale,
+            openAiApiKey,
+            globalModel: openAiModel,
+            globalEnabled: openAiResponsesEnabled
           },
-          sendList: async (to, bodyText, buttonText, choices) => {
-            await sendWhatsAppList({ to, bodyText, buttonText, choices });
+          {
+            loadSession: loadWhatsAppSession,
+            saveSession: saveWhatsAppSession,
+            clearSession: clearWhatsAppSession,
+            sendText: async (to, text) => {
+              await sendWhatsAppMessage({ to, text });
+            },
+            sendList: async (to, bodyText, buttonText, choices) => {
+              await sendWhatsAppList({ to, bodyText, buttonText, choices });
+            },
+            fetchServices: fetchServicesForConversation,
+            fetchMasters: fetchMastersForConversation,
+            fetchSlots: async (payload) => fetchSlotsFromApi(payload),
+            listBookingsByPhone: listBookingsByPhoneFromBot,
+            createBooking: async (payload) =>
+              createBookingFromBot({
+                serviceId: payload.serviceId,
+                startAtIso: payload.startAtIso,
+                phone: payload.phone,
+                locale: payload.locale,
+                source: "whatsapp",
+                masterId: payload.masterId,
+                clientName: payload.clientName
+              }),
+            cancelBooking: cancelBookingFromBot,
+            rescheduleBooking: rescheduleBookingFromBot,
+            getTenantConfig: getTenantBotConfig,
+            notifyAdminHandoff: notifyAdminWhatsAppHandoff
+          }
+        );
+        flowResult = aiResult;
+      }
+
+      if (!flowResult.handled) {
+        flowResult = await processWhatsAppConversation(
+          {
+            messageId: item.messageId,
+            from: item.from,
+            locale: item.locale,
+            text: item.text,
+            replyId: item.replyId
           },
-          sendButtons: async (to, bodyText, choices) => {
-            await sendWhatsAppButtons({ to, bodyText, choices });
-          },
-          fetchServices: fetchServicesForConversation,
-          fetchMasters: fetchMastersForConversation,
-          fetchSlots: async (input) => fetchSlotsFromApi(input),
-          listBookingsByPhone: listBookingsByPhoneFromBot,
-          createBooking: async (input) =>
-            createBookingFromBot({
-              serviceId: input.serviceId,
-              startAtIso: input.startAtIso,
-              phone: input.phone,
-              locale: input.locale,
-              source: "whatsapp",
-              masterId: input.masterId,
-              clientName: input.clientName
-            }),
-          cancelBooking: cancelBookingFromBot,
-          rescheduleBooking: rescheduleBookingFromBot,
-          getTenantTimezone: getTenantTimezoneForConversation
-        }
-      );
+          conversationDeps,
+          { skipDedup: true }
+        );
+      }
 
       console.info("[bot] whatsapp flow result", {
         messageId: item.messageId,

@@ -32,12 +32,15 @@ type ConversationState =
   | "cancel_wait_booking_id"
   | "reschedule_wait_booking_id";
 
-type ConversationIntent = "new_booking" | "cancel_booking" | "reschedule_booking";
+export type ConversationIntent = "new_booking" | "cancel_booking" | "reschedule_booking";
+export type ConversationMode = "deterministic" | "ai_assisted" | "human_handoff";
+export type ConversationHandoffStatus = "inactive" | "pending" | "active";
 
 export type WhatsAppConversationSession = {
   flowVersion: number;
   locale: SupportedLocale;
   state: ConversationState;
+  currentMode?: ConversationMode;
   intent?: ConversationIntent;
   serviceId?: string;
   serviceName?: string;
@@ -52,6 +55,21 @@ export type WhatsAppConversationSession = {
   slotStartAt?: string;
   slotDisplayTime?: string;
   bookingIdToReschedule?: string;
+  bookingIdInContext?: string;
+  collectedEntities?: {
+    serviceNameCandidate?: string;
+    masterNameCandidate?: string;
+    dateCandidate?: string;
+    timeCandidate?: string;
+    timeRangeCandidate?: string;
+    bookingReferenceCandidate?: string;
+  };
+  lastAiSummary?: string;
+  lastOpenaiResponseId?: string;
+  handoffStatus?: ConversationHandoffStatus;
+  lastUserMessageAt?: string;
+  aiFailureCount?: number;
+  conversationTraceId?: string;
 };
 
 type ConversationInput = {
@@ -119,16 +137,19 @@ function truncateForChoice(input: string, maxLength: number): string {
   return `${input.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
-function createInitialSession(locale: SupportedLocale): WhatsAppConversationSession {
+export function createInitialSession(locale: SupportedLocale): WhatsAppConversationSession {
   return {
     flowVersion: FLOW_VERSION,
     locale,
     state: "choose_intent",
+    currentMode: "deterministic",
     servicePage: 0,
     masterPage: 0,
     datePage: 0,
     bookingPage: 0,
-    slotPage: 0
+    slotPage: 0,
+    handoffStatus: "inactive",
+    aiFailureCount: 0
   };
 }
 
@@ -577,11 +598,14 @@ async function runCreateOrReschedule(
 
 export async function processWhatsAppConversation(
   input: ConversationInput,
-  deps: WhatsAppConversationDeps
+  deps: WhatsAppConversationDeps,
+  options?: { skipDedup?: boolean }
 ): Promise<{ handled: boolean }> {
-  const notDuplicate = await deps.dedupInboundMessage(input.messageId);
-  if (!notDuplicate) {
-    return { handled: true };
+  if (!options?.skipDedup) {
+    const notDuplicate = await deps.dedupInboundMessage(input.messageId);
+    if (!notDuplicate) {
+      return { handled: true };
+    }
   }
 
   const token = normalizeToken(input);
