@@ -16,7 +16,10 @@ export class TenantRepository {
         slug: input.slug,
         name: input.name,
         defaultLocale: input.defaultLocale ?? "it",
-        timezone: input.timezone ?? "Europe/Rome"
+        timezone: input.timezone ?? "Europe/Rome",
+        openaiEnabled: true,
+        openaiModel: "gpt-5-mini",
+        humanHandoffEnabled: true
       })
       .returning();
 
@@ -44,6 +47,10 @@ export class TenantRepository {
     bookingBufferMinutes?: number;
     adminNotificationEmail?: string | null;
     adminNotificationTelegramChatId?: number | null;
+    adminNotificationWhatsappE164?: string | null;
+    openaiEnabled?: boolean;
+    openaiModel?: string;
+    humanHandoffEnabled?: boolean;
   }) {
     const db = getDb();
     const [tenant] = await db
@@ -56,6 +63,10 @@ export class TenantRepository {
         bookingBufferMinutes: input.bookingBufferMinutes,
         adminNotificationEmail: input.adminNotificationEmail,
         adminNotificationTelegramChatId: input.adminNotificationTelegramChatId,
+        adminNotificationWhatsappE164: input.adminNotificationWhatsappE164,
+        openaiEnabled: input.openaiEnabled,
+        openaiModel: input.openaiModel,
+        humanHandoffEnabled: input.humanHandoffEnabled,
         updatedAt: new Date()
       })
       .where(eq(tenants.id, input.tenantId))

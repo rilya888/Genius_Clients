@@ -24,7 +24,13 @@ export const publicRoutes = new Hono<ApiAppEnv>()
         slug: tenant.slug,
         name: tenant.name,
         defaultLocale: tenant.defaultLocale,
-        timezone: tenant.timezone
+        timezone: tenant.timezone,
+        botConfig: {
+          openaiEnabled: tenant.openaiEnabled,
+          openaiModel: tenant.openaiModel,
+          humanHandoffEnabled: tenant.humanHandoffEnabled,
+          adminNotificationWhatsappE164: tenant.adminNotificationWhatsappE164
+        }
       }
     });
   })

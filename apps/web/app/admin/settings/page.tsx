@@ -11,6 +11,10 @@ export default function TenantSettingsPage() {
   const [bookingMinAdvanceMinutes, setBookingMinAdvanceMinutes] = useState("0");
   const [bookingBufferMinutes, setBookingBufferMinutes] = useState("0");
   const [adminNotificationEmail, setAdminNotificationEmail] = useState("");
+  const [adminNotificationWhatsappE164, setAdminNotificationWhatsappE164] = useState("");
+  const [openaiEnabled, setOpenaiEnabled] = useState(true);
+  const [openaiModel, setOpenaiModel] = useState("gpt-5-mini");
+  const [humanHandoffEnabled, setHumanHandoffEnabled] = useState(true);
   const [status, setStatus] = useState("");
 
   useEffect(() => {
@@ -25,6 +29,10 @@ export default function TenantSettingsPage() {
             bookingMinAdvanceMinutes?: number;
             bookingBufferMinutes?: number;
             adminNotificationEmail?: string | null;
+            adminNotificationWhatsappE164?: string | null;
+            openaiEnabled?: boolean;
+            openaiModel?: string;
+            humanHandoffEnabled?: boolean;
           };
           error?: { message?: string };
         }>("/api/admin/tenant-settings")
@@ -47,6 +55,10 @@ export default function TenantSettingsPage() {
       setBookingMinAdvanceMinutes(String(data?.bookingMinAdvanceMinutes ?? 0));
       setBookingBufferMinutes(String(data?.bookingBufferMinutes ?? 0));
       setAdminNotificationEmail(data?.adminNotificationEmail ?? "");
+      setAdminNotificationWhatsappE164(data?.adminNotificationWhatsappE164 ?? "");
+      setOpenaiEnabled(data?.openaiEnabled ?? true);
+      setOpenaiModel(data?.openaiModel ?? "gpt-5-mini");
+      setHumanHandoffEnabled(data?.humanHandoffEnabled ?? true);
     }
 
     void load();
@@ -69,7 +81,11 @@ export default function TenantSettingsPage() {
         bookingHorizonDays: Number(bookingHorizonDays),
         bookingMinAdvanceMinutes: Number(bookingMinAdvanceMinutes),
         bookingBufferMinutes: Number(bookingBufferMinutes),
-        adminNotificationEmail: adminNotificationEmail || null
+        adminNotificationEmail: adminNotificationEmail || null,
+        adminNotificationWhatsappE164: adminNotificationWhatsappE164 || null,
+        openaiEnabled,
+        openaiModel,
+        humanHandoffEnabled
       })
       }
     );
@@ -139,6 +155,44 @@ export default function TenantSettingsPage() {
             value={adminNotificationEmail}
             onChange={(e) => setAdminNotificationEmail(e.target.value)}
           />
+        </label>
+
+        <label className="gc-form-label">
+          Admin WhatsApp E.164
+          <input
+            className="gc-input"
+            value={adminNotificationWhatsappE164}
+            onChange={(e) => setAdminNotificationWhatsappE164(e.target.value)}
+          />
+        </label>
+
+        <label className="gc-form-label">
+          OpenAI Enabled
+          <select
+            className="gc-select"
+            value={openaiEnabled ? "true" : "false"}
+            onChange={(e) => setOpenaiEnabled(e.target.value === "true")}
+          >
+            <option value="true">true</option>
+            <option value="false">false</option>
+          </select>
+        </label>
+
+        <label className="gc-form-label">
+          OpenAI Model
+          <input className="gc-input" value={openaiModel} onChange={(e) => setOpenaiModel(e.target.value)} />
+        </label>
+
+        <label className="gc-form-label">
+          Human Handoff Enabled
+          <select
+            className="gc-select"
+            value={humanHandoffEnabled ? "true" : "false"}
+            onChange={(e) => setHumanHandoffEnabled(e.target.value === "true")}
+          >
+            <option value="true">true</option>
+            <option value="false">false</option>
+          </select>
         </label>
 
         <button className="gc-action-btn" onClick={save} disabled={role !== "owner"}>
