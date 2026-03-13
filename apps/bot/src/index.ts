@@ -233,6 +233,39 @@ function resolveLocaleFromWhatsApp(payloadLocale?: string): SupportedLocale {
   });
 }
 
+function detectLocaleFromUserText(
+  text: string | undefined,
+  fallbackLocale: SupportedLocale,
+  tenantDefaultLocale: SupportedLocale = "it"
+): SupportedLocale {
+  const normalized = text?.trim().toLowerCase() ?? "";
+  if (!normalized) {
+    return fallbackLocale;
+  }
+
+  if (
+    /\b(ciao|buongiorno|buonasera|prenotazione|servizio|servizi|annulla|sposta|domani|oggi|sera|orario|orari|operatore|umano)\b/.test(
+      normalized
+    )
+  ) {
+    return "it";
+  }
+
+  if (
+    /\b(hello|hi|booking|service|services|cancel|reschedule|tomorrow|today|evening|time|times|operator|human)\b/.test(
+      normalized
+    )
+  ) {
+    return "en";
+  }
+
+  return resolveLocale({
+    requested: fallbackLocale,
+    tenantDefault: tenantDefaultLocale,
+    fallback: "en"
+  });
+}
+
 function assertWhatsAppSignature(signatureHeader: string | undefined, rawBody: string) {
   if (!waWebhookSecret) {
     return;
@@ -1087,6 +1120,7 @@ app.post("/webhooks/whatsapp", async (c) => {
     console.info("[bot] whatsapp webhook accepted", { inboundCount: inbound.length });
 
     for (const item of inbound) {
+      const effectiveLocale = detectLocaleFromUserText(item.text, item.locale, "it");
       const notDuplicate = await dedupInboundMessage(item.messageId);
       if (!notDuplicate) {
         console.info("[bot] whatsapp duplicate ignored", {
@@ -1101,7 +1135,7 @@ app.post("/webhooks/whatsapp", async (c) => {
         from: maskPhone(item.from),
         hasText: Boolean(item.text),
         hasReplyId: Boolean(item.replyId),
-        locale: item.locale
+        locale: effectiveLocale
       });
 
       const conversationDeps = {
@@ -1155,7 +1189,7 @@ app.post("/webhooks/whatsapp", async (c) => {
           {
             from: item.from,
             text: item.text,
-            locale: item.locale,
+            locale: effectiveLocale,
             openAiApiKey,
             globalModel: openAiModel,
             globalEnabled: openAiResponsesEnabled
@@ -1198,7 +1232,7 @@ app.post("/webhooks/whatsapp", async (c) => {
           {
             messageId: item.messageId,
             from: item.from,
-            locale: item.locale,
+            locale: effectiveLocale,
             text: item.text,
             replyId: item.replyId
           },
@@ -1216,7 +1250,7 @@ app.post("/webhooks/whatsapp", async (c) => {
       if (!flowResult.handled && item.text) {
         const replyText = await processIncomingText({
           text: item.text,
-          locale: item.locale,
+          locale: effectiveLocale,
           source: "whatsapp",
           senderPhoneE164: item.from
         });
