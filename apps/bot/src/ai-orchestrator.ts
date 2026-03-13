@@ -198,17 +198,18 @@ export async function processAiWhatsAppMessage(
   const client = new OpenAIResponsesClient(input.openAiApiKey);
 
   try {
-    const parsed = await parseUserMessage(
-      {
-        client,
-        model: tenantConfig.openaiModel || input.globalModel,
-        locale: detectedLocale,
-        tenantConfig,
-        session,
-        userText: input.text,
-        traceId
-      }
-    );
+    const fastPath = detectFastPathIntent(input.text, detectedLocale);
+    const parsed = fastPath
+      ? fastPath
+      : await parseUserMessage({
+          client,
+          model: tenantConfig.openaiModel || input.globalModel,
+          locale: detectedLocale,
+          tenantConfig,
+          session,
+          userText: input.text,
+          traceId
+        });
 
     console.info("[bot][ai] parsed", {
       traceId,
@@ -1059,6 +1060,59 @@ function isParsedIntent(value: string): value is ParsedIntent {
   return ["new_booking", "cancel_booking", "reschedule_booking", "catalog", "check_availability", "human_handoff", "unknown"].includes(value);
 }
 
+function detectFastPathIntent(text: string, locale: SupportedLocale): AiParseResult | null {
+  const normalized = normalizeSearch(text);
+  if (!normalized) {
+    return null;
+  }
+
+  if (/\b(human|operator|person|admin|support|operatore|umano|assistenza|amministratore)\b/.test(normalized)) {
+    return {
+      intent: "human_handoff",
+      confidence: "high",
+      replyText: undefined,
+      handoffSummary: text.trim().slice(0, 240)
+    };
+  }
+
+  if (/\b(cancel|cancel booking|annulla|annullare)\b/.test(normalized) && !/[0-9a-f]{8}-/i.test(normalized)) {
+    return {
+      intent: "cancel_booking",
+      confidence: "high",
+      replyText: locale === "it" ? "Scegli la prenotazione da annullare." : "Choose the booking to cancel."
+    };
+  }
+
+  if (/\b(reschedule|move booking|change booking|sposta|spostare|cambia prenotazione)\b/.test(normalized)) {
+    return {
+      intent: "reschedule_booking",
+      confidence: "high",
+      replyText: locale === "it" ? "Scegli la prenotazione da spostare." : "Choose the booking to reschedule."
+    };
+  }
+
+  if (/\b(what services|services|catalog|service list|servizi|elenco servizi|catalogo)\b/.test(normalized)) {
+    return {
+      intent: "catalog",
+      confidence: "high",
+      replyText: locale === "it" ? "Seleziona il servizio." : "Select a service."
+    };
+  }
+
+  if (
+    /\b(book|booking|book appointment|new booking|prenota|prenotazione|voglio prenotare)\b/.test(normalized) &&
+    !containsDateOrTime(normalized)
+  ) {
+    return {
+      intent: "new_booking",
+      confidence: "high",
+      replyText: locale === "it" ? "Seleziona il servizio." : "Select a service."
+    };
+  }
+
+  return null;
+}
+
 function buildSessionSummary(session: WhatsAppConversationSession, parsed: AiParseResult) {
   return [
     `intent=${parsed.intent}`,
@@ -1076,6 +1130,16 @@ function normalizeSearch(value: string) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ");
+}
+
+function containsDateOrTime(value: string) {
+  return (
+    /\b(today|tomorrow|oggi|domani|monday|tuesday|wednesday|thursday|friday|saturday|sunday|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)\b/.test(
+      value
+    ) ||
+    /\b\d{1,2}:\d{2}\b/.test(value) ||
+    /\b\d{1,2}\s?(am|pm)\b/.test(value)
+  );
 }
 
 function appendFlowRows(choices: Choice[], locale: SupportedLocale) {
@@ -1132,11 +1196,6 @@ function detectMessageLocale(
       normalized
     )
   ) {
-    return "en";
-  }
-
-  const asciiLetters = normalized.replace(/[^a-z]/g, "");
-  if (asciiLetters.length >= 6 && /^[\x00-\x7F\s\d.,!?':;"()/-]+$/.test(normalized)) {
     return "en";
   }
 
