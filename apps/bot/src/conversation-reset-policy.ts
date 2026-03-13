@@ -30,7 +30,9 @@ export type ApplyConversationResetPolicyResult = {
   reason?: ConversationResetReason;
   detectedIntent: ResetDetectedIntent;
   idleMinutes?: number;
-  shouldSkipAi: boolean;
+  shouldResetSession: boolean;
+  shouldRerouteCurrentMessage: boolean;
+  shouldFallbackToMenuImmediately: boolean;
   currentStepContinuationMatched: boolean;
   continuationClassifier: ContinuationClassifier;
   matchedCandidateCount: number;
@@ -68,8 +70,10 @@ export async function applyConversationResetPolicy(
       reason: session.currentMode === "human_handoff" ? "handoff_restart" : "explicit_reset_command",
       detectedIntent,
       idleMinutes,
-      shouldSkipAi: true,
-      currentStepContinuationMatched: false,
+        shouldResetSession: true,
+        shouldRerouteCurrentMessage: false,
+        shouldFallbackToMenuImmediately: true,
+        currentStepContinuationMatched: false,
       continuationClassifier: "none",
       matchedCandidateCount: 0,
       matchedCandidateType: null
@@ -87,8 +91,10 @@ export async function applyConversationResetPolicy(
       reason: "idle_timeout",
       detectedIntent,
       idleMinutes,
-      shouldSkipAi: true,
-      currentStepContinuationMatched: false,
+        shouldResetSession: true,
+        shouldRerouteCurrentMessage: true,
+        shouldFallbackToMenuImmediately: false,
+        currentStepContinuationMatched: false,
       continuationClassifier: "none",
       matchedCandidateCount: 0,
       matchedCandidateType: null
@@ -107,7 +113,9 @@ export async function applyConversationResetPolicy(
         reason: "handoff_restart",
         detectedIntent,
         idleMinutes,
-        shouldSkipAi: false,
+        shouldResetSession: true,
+        shouldRerouteCurrentMessage: true,
+        shouldFallbackToMenuImmediately: false,
         currentStepContinuationMatched: false,
         continuationClassifier: "none",
         matchedCandidateCount: 0,
@@ -126,7 +134,9 @@ export async function applyConversationResetPolicy(
         reason: "handoff_restart",
         detectedIntent,
         idleMinutes,
-        shouldSkipAi: false,
+        shouldResetSession: true,
+        shouldRerouteCurrentMessage: true,
+        shouldFallbackToMenuImmediately: false,
         currentStepContinuationMatched: false,
         continuationClassifier: "none",
         matchedCandidateCount: 0,
@@ -162,8 +172,10 @@ export async function applyConversationResetPolicy(
       reason: "intent_conflict",
       detectedIntent,
       idleMinutes,
-      shouldSkipAi: false,
-      currentStepContinuationMatched: false,
+        shouldResetSession: true,
+        shouldRerouteCurrentMessage: true,
+        shouldFallbackToMenuImmediately: false,
+        currentStepContinuationMatched: false,
       continuationClassifier: "none",
       matchedCandidateCount: 0,
       matchedCandidateType: null
@@ -181,7 +193,9 @@ export async function applyConversationResetPolicy(
       reason: session.intent ? "intent_conflict" : "non_continuation_message",
       detectedIntent,
       idleMinutes,
-      shouldSkipAi: false,
+      shouldResetSession: true,
+      shouldRerouteCurrentMessage: true,
+      shouldFallbackToMenuImmediately: false,
       currentStepContinuationMatched: false,
       continuationClassifier: "none",
       matchedCandidateCount: 0,
@@ -205,7 +219,9 @@ export async function applyConversationResetPolicy(
       reason: "non_continuation_message",
       detectedIntent,
       idleMinutes,
-      shouldSkipAi: false,
+      shouldResetSession: true,
+      shouldRerouteCurrentMessage: true,
+      shouldFallbackToMenuImmediately: false,
       currentStepContinuationMatched: false,
       continuationClassifier: "none",
       matchedCandidateCount: 0,
@@ -286,7 +302,9 @@ function buildContinueResult(
     decision: "continue_current_flow",
     detectedIntent,
     idleMinutes,
-    shouldSkipAi: false,
+    shouldResetSession: false,
+    shouldRerouteCurrentMessage: false,
+    shouldFallbackToMenuImmediately: false,
     currentStepContinuationMatched: continuation.matched,
     continuationClassifier: continuation.classifier,
     matchedCandidateCount: continuation.count,

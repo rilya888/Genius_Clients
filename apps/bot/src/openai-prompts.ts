@@ -30,6 +30,12 @@ export function buildBookingParserInstructions(input: {
     "Use one intent only: new_booking, cancel_booking, reschedule_booking, catalog, check_availability, human_handoff, unknown.",
     "Use one confidence only: high, medium, low.",
     "If unclear, use unknown and set a very short reply_text.",
+    "Examples:",
+    'Input: "I want to book haircut tomorrow" -> {"intent":"new_booking","confidence":"high","service_query":"haircut","master_query":null,"date_text":"tomorrow","time_text":null,"booking_reference":null,"reply_text":null,"handoff_summary":null}',
+    'Input: "Book Alex on Friday at 15:00" -> {"intent":"new_booking","confidence":"high","service_query":null,"master_query":"Alex","date_text":"Friday","time_text":"15:00","booking_reference":null,"reply_text":null,"handoff_summary":null}',
+    'Input: "What services do you have?" -> {"intent":"catalog","confidence":"high","service_query":null,"master_query":null,"date_text":null,"time_text":null,"booking_reference":null,"reply_text":null,"handoff_summary":null}',
+    'Input: "Cancel my booking" -> {"intent":"cancel_booking","confidence":"high","service_query":null,"master_query":null,"date_text":null,"time_text":null,"booking_reference":null,"reply_text":null,"handoff_summary":null}',
+    'Input: "I need a human" -> {"intent":"human_handoff","confidence":"high","service_query":null,"master_query":null,"date_text":null,"time_text":null,"booking_reference":null,"reply_text":null,"handoff_summary":"User requests human help."}',
     "Output JSON schema:",
     '{"intent":"new_booking|cancel_booking|reschedule_booking|catalog|check_availability|human_handoff|unknown","confidence":"high|medium|low","service_query":"string|null","master_query":"string|null","date_text":"string|null","time_text":"string|null","booking_reference":"string|null","reply_text":"string|null","handoff_summary":"string|null"}'
   ].join("\n");
