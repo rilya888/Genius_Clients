@@ -1133,7 +1133,12 @@ function truncate(value: string, maxLength: number) {
 }
 
 function sanitizeUserText(value: string) {
-  return value.replace(/\b(?:code|codice)\b\s*:\s*[^\n]+/gi, "").replace(/\n{3,}/g, "\n\n").trim();
+  return value
+    .replace(/\b(?:code|codice)\b\s*:\s*[^\n]+/gi, "")
+    .replace(/\n{2,}/g, "\n")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 280);
 }
 
 function asOptionalString(value: unknown) {

@@ -26,6 +26,7 @@ export function buildBookingAssistantInstructions(input: {
     `Tenant timezone: ${input.tenantTimezone}.`,
     sessionSummary,
     "Keep replies short and practical.",
+    "When you answer with plain text, use one short sentence whenever possible.",
     "Never invent services, masters, dates, slots, availability, booking codes, or booking status.",
     "Never confirm, cancel, or reschedule a booking unless a backend tool succeeds.",
     "If data is ambiguous, use a tool first. If multiple options remain, ask for a choice or let the caller render a list.",
