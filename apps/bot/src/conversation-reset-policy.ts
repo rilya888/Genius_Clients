@@ -8,6 +8,11 @@ import {
   type WhatsAppConversationSession
 } from "./whatsapp-conversation";
 
+type CandidateItem = {
+  id: string;
+  displayName: string;
+};
+
 export type ResetDetectedIntent = ConversationIntent | "human_handoff" | "unknown";
 
 export type ConversationResetDecision =
@@ -16,6 +21,9 @@ export type ConversationResetDecision =
   | "hard_reset_to_new_intent"
   | "reset_due_to_timeout";
 
+export type ContinuationClassifier = "token" | "semantic" | "none";
+export type ContinuationCandidateType = "service" | "master" | "date" | "slot" | "confirm" | "booking" | null;
+
 export type ApplyConversationResetPolicyResult = {
   session: WhatsAppConversationSession;
   decision: ConversationResetDecision;
@@ -23,16 +31,26 @@ export type ApplyConversationResetPolicyResult = {
   detectedIntent: ResetDetectedIntent;
   idleMinutes?: number;
   shouldSkipAi: boolean;
+  currentStepContinuationMatched: boolean;
+  continuationClassifier: ContinuationClassifier;
+  matchedCandidateCount: number;
+  matchedCandidateType: ContinuationCandidateType;
 };
 
-export function applyConversationResetPolicy(input: {
-  session: WhatsAppConversationSession | null;
-  locale: SupportedLocale;
-  text?: string;
-  replyId?: string;
-  now: Date;
-  idleResetMinutes: number;
-}): ApplyConversationResetPolicyResult {
+export async function applyConversationResetPolicy(
+  input: {
+    session: WhatsAppConversationSession | null;
+    locale: SupportedLocale;
+    text?: string;
+    replyId?: string;
+    now: Date;
+    idleResetMinutes: number;
+  },
+  deps: {
+    fetchServices: (locale: SupportedLocale) => Promise<Array<{ id: string; displayName: string }>>;
+    fetchMasters: (locale: SupportedLocale, serviceId?: string) => Promise<Array<{ id: string; displayName: string }>>;
+  }
+): Promise<ApplyConversationResetPolicyResult> {
   const nowIso = input.now.toISOString();
   const session = input.session ?? createInitialSession(input.locale);
   const normalizedText = normalizeText(input.text);
@@ -50,7 +68,11 @@ export function applyConversationResetPolicy(input: {
       reason: session.currentMode === "human_handoff" ? "handoff_restart" : "explicit_reset_command",
       detectedIntent,
       idleMinutes,
-      shouldSkipAi: true
+      shouldSkipAi: true,
+      currentStepContinuationMatched: false,
+      continuationClassifier: "none",
+      matchedCandidateCount: 0,
+      matchedCandidateType: null
     };
   }
 
@@ -65,7 +87,11 @@ export function applyConversationResetPolicy(input: {
       reason: "idle_timeout",
       detectedIntent,
       idleMinutes,
-      shouldSkipAi: true
+      shouldSkipAi: true,
+      currentStepContinuationMatched: false,
+      continuationClassifier: "none",
+      matchedCandidateCount: 0,
+      matchedCandidateType: null
     };
   }
 
@@ -81,27 +107,29 @@ export function applyConversationResetPolicy(input: {
         reason: "handoff_restart",
         detectedIntent,
         idleMinutes,
-        shouldSkipAi: false
+        shouldSkipAi: false,
+        currentStepContinuationMatched: false,
+        continuationClassifier: "none",
+        matchedCandidateCount: 0,
+        matchedCandidateType: null
       };
     }
 
-    return {
-      session: touchSession(session, nowIso, input.locale),
-      decision: "continue_current_flow",
-      detectedIntent,
-      idleMinutes,
-      shouldSkipAi: false
-    };
+    return buildContinueResult(session, nowIso, input.locale, detectedIntent, idleMinutes, {
+      matched: false,
+      classifier: "none",
+      count: 0,
+      type: null
+    });
   }
 
   if (input.replyId) {
-    return {
-      session: touchSession(session, nowIso, input.locale),
-      decision: "continue_current_flow",
-      detectedIntent,
-      idleMinutes,
-      shouldSkipAi: false
-    };
+    return buildContinueResult(session, nowIso, input.locale, detectedIntent, idleMinutes, {
+      matched: true,
+      classifier: "token",
+      count: 1,
+      type: classifyTokenType(input.replyId)
+    });
   }
 
   if (detectedIntent !== "unknown" && session.intent && isIntentConflict(session.intent, detectedIntent)) {
@@ -115,7 +143,11 @@ export function applyConversationResetPolicy(input: {
       reason: "intent_conflict",
       detectedIntent,
       idleMinutes,
-      shouldSkipAi: false
+      shouldSkipAi: false,
+      currentStepContinuationMatched: false,
+      continuationClassifier: "none",
+      matchedCandidateCount: 0,
+      matchedCandidateType: null
     };
   }
 
@@ -130,18 +162,17 @@ export function applyConversationResetPolicy(input: {
       reason: session.intent ? "intent_conflict" : "non_continuation_message",
       detectedIntent,
       idleMinutes,
-      shouldSkipAi: false
+      shouldSkipAi: false,
+      currentStepContinuationMatched: false,
+      continuationClassifier: "none",
+      matchedCandidateCount: 0,
+      matchedCandidateType: null
     };
   }
 
-  if (isContinuationOfCurrentStep(session.state, normalizedText, session)) {
-    return {
-      session: touchSession(session, nowIso, input.locale),
-      decision: "continue_current_flow",
-      detectedIntent,
-      idleMinutes,
-      shouldSkipAi: false
-    };
+  const continuation = await classifyContinuation(session, normalizedText, input.locale, deps);
+  if (continuation.matched) {
+    return buildContinueResult(session, nowIso, input.locale, detectedIntent, idleMinutes, continuation);
   }
 
   if (normalizedText) {
@@ -155,17 +186,20 @@ export function applyConversationResetPolicy(input: {
       reason: "non_continuation_message",
       detectedIntent,
       idleMinutes,
-      shouldSkipAi: true
+      shouldSkipAi: true,
+      currentStepContinuationMatched: false,
+      continuationClassifier: "none",
+      matchedCandidateCount: 0,
+      matchedCandidateType: null
     };
   }
 
-  return {
-    session: touchSession(session, nowIso, input.locale),
-    decision: "continue_current_flow",
-    detectedIntent,
-    idleMinutes,
-    shouldSkipAi: false
-  };
+  return buildContinueResult(session, nowIso, input.locale, detectedIntent, idleMinutes, {
+    matched: false,
+    classifier: "none",
+    count: 0,
+    type: null
+  });
 }
 
 export function detectIntentForReset(text: string): ResetDetectedIntent {
@@ -181,9 +215,7 @@ export function detectIntentForReset(text: string): ResetDetectedIntent {
     return "human_handoff";
   }
 
-  if (
-    /\b(cancel|annulla|delete booking|remove booking|cancel booking|annullare)\b/.test(text)
-  ) {
+  if (/\b(cancel|annulla|delete booking|remove booking|cancel booking|annullare)\b/.test(text)) {
     return "cancel_booking";
   }
 
@@ -204,40 +236,6 @@ export function detectIntentForReset(text: string): ResetDetectedIntent {
   return "unknown";
 }
 
-export function isContinuationOfCurrentStep(
-  state: ConversationState,
-  text: string,
-  session: WhatsAppConversationSession
-): boolean {
-  if (!text) {
-    return false;
-  }
-
-  if (text.startsWith("service:") || text.startsWith("master:") || text.startsWith("date:") || text.startsWith("slot:") || text.startsWith("confirm:") || text.startsWith("booking:")) {
-    return true;
-  }
-
-  switch (state) {
-    case "choose_intent":
-      return false;
-    case "choose_service":
-      return isShortSelectionLike(text, session.serviceName);
-    case "choose_master":
-      return isShortSelectionLike(text, session.masterName);
-    case "choose_date":
-      return /\b(today|tomorrow|oggi|domani)\b/.test(text) || isDateLike(text);
-    case "choose_slot":
-      return isTimeLike(text);
-    case "confirm":
-      return /\b(yes|confirm|change|cancel|si|sì|conferma|cambia|annulla|no)\b/.test(text);
-    case "cancel_wait_booking_id":
-    case "reschedule_wait_booking_id":
-      return isUuidLike(text) || text.startsWith("booking:");
-    default:
-      return false;
-  }
-}
-
 export function toDeterministicIntentToken(intent: ResetDetectedIntent): string | undefined {
   switch (intent) {
     case "new_booking":
@@ -249,6 +247,109 @@ export function toDeterministicIntentToken(intent: ResetDetectedIntent): string 
     default:
       return undefined;
   }
+}
+
+function buildContinueResult(
+  session: WhatsAppConversationSession,
+  nowIso: string,
+  locale: SupportedLocale,
+  detectedIntent: ResetDetectedIntent,
+  idleMinutes: number | undefined,
+  continuation: {
+    matched: boolean;
+    classifier: ContinuationClassifier;
+    count: number;
+    type: ContinuationCandidateType;
+  }
+): ApplyConversationResetPolicyResult {
+  return {
+    session: touchSession(session, nowIso, locale),
+    decision: "continue_current_flow",
+    detectedIntent,
+    idleMinutes,
+    shouldSkipAi: false,
+    currentStepContinuationMatched: continuation.matched,
+    continuationClassifier: continuation.classifier,
+    matchedCandidateCount: continuation.count,
+    matchedCandidateType: continuation.type
+  };
+}
+
+async function classifyContinuation(
+  session: WhatsAppConversationSession,
+  text: string,
+  locale: SupportedLocale,
+  deps: {
+    fetchServices: (locale: SupportedLocale) => Promise<Array<{ id: string; displayName: string }>>;
+    fetchMasters: (locale: SupportedLocale, serviceId?: string) => Promise<Array<{ id: string; displayName: string }>>;
+  }
+) {
+  if (!text) {
+    return { matched: false, classifier: "none" as const, count: 0, type: null };
+  }
+
+  const tokenType = classifyTokenType(text);
+  if (tokenType) {
+    return { matched: true, classifier: "token" as const, count: 1, type: tokenType };
+  }
+
+  switch (session.state) {
+    case "choose_service": {
+      const services = await deps.fetchServices(locale);
+      const count = countCandidateMatches(text, services);
+      return { matched: count > 0, classifier: count > 0 ? ("semantic" as const) : ("none" as const), count, type: count > 0 ? ("service" as const) : null };
+    }
+    case "choose_master": {
+      const masters = await deps.fetchMasters(locale, session.serviceId);
+      const count = countCandidateMatches(text, masters);
+      return { matched: count > 0, classifier: count > 0 ? ("semantic" as const) : ("none" as const), count, type: count > 0 ? ("master" as const) : null };
+    }
+    case "choose_date": {
+      const matched = /\b(today|tomorrow|oggi|domani)\b/.test(text) || isDateLike(text);
+      return { matched, classifier: matched ? ("semantic" as const) : ("none" as const), count: matched ? 1 : 0, type: matched ? ("date" as const) : null };
+    }
+    case "choose_slot": {
+      const matched = isTimeLike(text);
+      return { matched, classifier: matched ? ("semantic" as const) : ("none" as const), count: matched ? 1 : 0, type: matched ? ("slot" as const) : null };
+    }
+    case "confirm": {
+      const matched = /\b(yes|confirm|change|cancel|si|sì|conferma|cambia|annulla|no)\b/.test(text);
+      return { matched, classifier: matched ? ("semantic" as const) : ("none" as const), count: matched ? 1 : 0, type: matched ? ("confirm" as const) : null };
+    }
+    case "cancel_wait_booking_id":
+    case "reschedule_wait_booking_id": {
+      const matched = isUuidLike(text);
+      return { matched, classifier: matched ? ("semantic" as const) : ("none" as const), count: matched ? 1 : 0, type: matched ? ("booking" as const) : null };
+    }
+    default:
+      return { matched: false, classifier: "none" as const, count: 0, type: null };
+  }
+}
+
+function classifyTokenType(text: string): ContinuationCandidateType {
+  if (text.startsWith("service:")) return "service";
+  if (text.startsWith("master:")) return "master";
+  if (text.startsWith("date:")) return "date";
+  if (text.startsWith("slot:")) return "slot";
+  if (text.startsWith("confirm:")) return "confirm";
+  if (text.startsWith("booking:")) return "booking";
+  return null;
+}
+
+function countCandidateMatches(text: string, items: CandidateItem[]) {
+  const normalizedText = normalizeForMatch(text);
+  if (!normalizedText) {
+    return 0;
+  }
+
+  return items.filter((item) => {
+    const candidate = normalizeForMatch(item.displayName);
+    return candidate === normalizedText || candidate.includes(normalizedText) || normalizedText.includes(candidate);
+  }).length;
+}
+
+function normalizeForMatch(value: string) {
+  return value.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
 
 function touchSession(
@@ -295,19 +396,6 @@ function isIntentConflict(currentIntent: ConversationIntent, detectedIntent: Res
 
 function isStandaloneIntentMessage(text: string) {
   return text.length >= 8 || text.split(/\s+/).length >= 2;
-}
-
-function isShortSelectionLike(text: string, selectedName?: string) {
-  if (text.length <= 40 && text.split(/\s+/).length <= 5) {
-    return true;
-  }
-
-  const normalizedSelected = selectedName?.trim().toLowerCase();
-  if (normalizedSelected && text.includes(normalizedSelected)) {
-    return true;
-  }
-
-  return false;
 }
 
 function isDateLike(text: string) {

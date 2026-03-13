@@ -19,6 +19,8 @@ type ResponseFunctionCall = {
   arguments: string;
 };
 
+export type OpenAITurnType = "user_input" | "tool_output";
+
 type ResponseUsage = {
   input_tokens?: number;
   output_tokens?: number;
@@ -39,6 +41,19 @@ export type OpenAIResponseResult = {
   usage: ResponseUsage | null;
 };
 
+export class OpenAIResponsesError extends Error {
+  constructor(
+    readonly code:
+      | "openai_previous_response_not_found"
+      | "openai_tool_chain_invalid"
+      | "openai_transport_error",
+    readonly status: number,
+    readonly details: string
+  ) {
+    super(`${code}:${status}:${details.slice(0, 400)}`);
+  }
+}
+
 export class OpenAIResponsesClient {
   constructor(
     private readonly apiKey: string,
@@ -49,6 +64,7 @@ export class OpenAIResponsesClient {
     model: string;
     instructions: string;
     input: string | ResponseFunctionCallOutput[];
+    turnType: OpenAITurnType;
     tools?: ResponseFunctionTool[];
     previousResponseId?: string;
     metadata?: Record<string, string>;
@@ -57,6 +73,7 @@ export class OpenAIResponsesClient {
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");
       if (
+        input.turnType === "user_input" &&
         input.previousResponseId &&
         response.status === 400 &&
         errorText.includes("previous_response_not_found")
@@ -65,14 +82,21 @@ export class OpenAIResponsesClient {
           ...input,
           previousResponseId: undefined
         });
+      } else if (
+        input.turnType === "tool_output" &&
+        response.status === 400 &&
+        (errorText.includes("previous_response_not_found") ||
+          errorText.includes("No tool call found for function call output"))
+      ) {
+        throw new OpenAIResponsesError("openai_tool_chain_invalid", response.status, errorText);
       } else {
-        throw new Error(`openai_responses_failed:${response.status}:${errorText.slice(0, 400)}`);
+        throw classifyOpenAIError(response.status, errorText);
       }
     }
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");
-      throw new Error(`openai_responses_failed:${response.status}:${errorText.slice(0, 400)}`);
+      throw classifyOpenAIError(response.status, errorText);
     }
 
     const payload = (await response.json()) as ResponsePayload;
@@ -88,6 +112,7 @@ export class OpenAIResponsesClient {
     model: string;
     instructions: string;
     input: string | ResponseFunctionCallOutput[];
+    turnType: OpenAITurnType;
     tools?: ResponseFunctionTool[];
     previousResponseId?: string;
     metadata?: Record<string, string>;
@@ -110,6 +135,13 @@ export class OpenAIResponsesClient {
       signal: AbortSignal.timeout(this.timeoutMs)
     });
   }
+}
+
+function classifyOpenAIError(status: number, errorText: string) {
+  if (status === 400 && errorText.includes("previous_response_not_found")) {
+    return new OpenAIResponsesError("openai_previous_response_not_found", status, errorText);
+  }
+  return new OpenAIResponsesError("openai_transport_error", status, errorText);
 }
 
 function extractOutputText(payload: ResponsePayload): string {

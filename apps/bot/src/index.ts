@@ -914,7 +914,8 @@ async function generateAiReply(input: { text: string; locale: SupportedLocale })
     const response = await client.create({
       model: openAiModel,
       instructions: systemPrompt,
-      input: input.text
+      input: input.text,
+      turnType: "user_input"
     });
 
     if (!response.outputText.trim()) {
@@ -1141,14 +1142,20 @@ app.post("/webhooks/whatsapp", async (c) => {
       });
 
       const existingSession = await loadWhatsAppSession(item.from);
-      const resetResult = applyConversationResetPolicy({
-        session: existingSession,
-        locale: effectiveLocale,
-        text: item.text,
-        replyId: item.replyId,
-        now: new Date(),
-        idleResetMinutes: sessionIdleResetMinutes
-      });
+      const resetResult = await applyConversationResetPolicy(
+        {
+          session: existingSession,
+          locale: effectiveLocale,
+          text: item.text,
+          replyId: item.replyId,
+          now: new Date(),
+          idleResetMinutes: sessionIdleResetMinutes
+        },
+        {
+          fetchServices: fetchServicesForConversation,
+          fetchMasters: fetchMastersForConversation
+        }
+      );
       await saveWhatsAppSession(item.from, resetResult.session);
       console.info("[bot] whatsapp reset policy", {
         messageId: item.messageId,
@@ -1161,7 +1168,11 @@ app.post("/webhooks/whatsapp", async (c) => {
         hadPreviousResponseId: Boolean(existingSession?.lastOpenaiResponseId),
         idleMinutes: resetResult.idleMinutes ?? null,
         detectedIntent: resetResult.detectedIntent,
-        hasReplyId: Boolean(item.replyId)
+        hasReplyId: Boolean(item.replyId),
+        currentStepContinuationMatched: resetResult.currentStepContinuationMatched,
+        continuationClassifier: resetResult.continuationClassifier,
+        matchedCandidateCount: resetResult.matchedCandidateCount,
+        matchedCandidateType: resetResult.matchedCandidateType
       });
 
       const conversationDeps = {
