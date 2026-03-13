@@ -329,7 +329,7 @@ async function promptBookingSelectionForAction(input: {
   });
   await input.deps.sendList(
     input.from,
-    `${labelPrefix} (${safePage + 1}/${totalPages})`,
+    labelPrefix,
     input.locale === "it" ? "Prenotazioni" : "Bookings",
     appendFlowRows({ choices, locale: input.locale })
   );
@@ -368,7 +368,7 @@ async function promptService(
   });
   await deps.sendList(
     input.from,
-    `${bodyText} (${safePage + 1}/${totalPages})`,
+    bodyText,
     session.locale === "it" ? "Servizi" : "Services",
     appendFlowRows({ choices, locale: session.locale })
   );
@@ -401,7 +401,7 @@ async function promptMaster(
   });
   await deps.sendList(
     input.from,
-    `${bodyText} (${safePage + 1}/${totalPages})`,
+    bodyText,
     session.locale === "it" ? "Master" : "Masters",
     appendFlowRows({ choices, locale: session.locale })
   );
@@ -428,7 +428,7 @@ async function promptDate(
 
   await deps.sendList(
     input.from,
-    `${session.locale === "it" ? "Scegli una data (7 giorni)." : "Choose a date (next 7 days)."} (${safePage + 1}/${totalPages})`,
+    session.locale === "it" ? "Scegli una data." : "Choose a date.",
     session.locale === "it" ? "Date" : "Dates",
     appendFlowRows({ choices, locale: session.locale })
   );
@@ -480,12 +480,6 @@ async function promptSlot(
   if (pageItems.length === 0) {
     session.slotPage = 0;
     await deps.saveSession(input.from, session);
-    await deps.sendText(
-      input.from,
-      session.locale === "it"
-        ? "Questa pagina non ha slot. Torno alla prima pagina."
-        : "This page has no slots. Returning to the first page."
-    );
     return promptSlot(input, session, deps);
   }
 
@@ -507,9 +501,7 @@ async function promptSlot(
   }
   await deps.sendList(
     input.from,
-    session.locale === "it"
-      ? `Scegli uno slot. Pagina ${page + 1}.`
-      : `Choose a slot. Page ${page + 1}.`,
+    session.locale === "it" ? "Scegli un orario." : "Choose a time.",
     session.locale === "it" ? "Orari" : "Times",
     appendFlowRows({ choices: choices.slice(0, 8), locale: session.locale })
   );
