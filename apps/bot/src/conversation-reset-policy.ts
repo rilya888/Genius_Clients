@@ -208,6 +208,15 @@ export async function applyConversationResetPolicy(
     return buildContinueResult(session, nowIso, input.locale, detectedIntent, idleMinutes, continuation);
   }
 
+  if (normalizedText && session.state === "choose_intent" && !session.intent) {
+    return buildContinueResult(session, nowIso, input.locale, detectedIntent, idleMinutes, {
+      matched: false,
+      classifier: "none",
+      count: 0,
+      type: null
+    });
+  }
+
   if (normalizedText) {
     return {
       session: resetSessionForNewConversation({

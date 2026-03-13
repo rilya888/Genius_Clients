@@ -246,6 +246,7 @@ export async function processAiWhatsAppMessage(
         tenantConfig,
         session,
         parsed,
+        rawText: input.text,
         phone: input.from,
         traceId
       },
@@ -353,6 +354,7 @@ async function resolveAiPlan(
     tenantConfig: TenantBotConfig;
     session: WhatsAppConversationSession;
     parsed: AiParseResult;
+    rawText: string;
     phone: string;
     traceId: string;
   },
@@ -442,7 +444,12 @@ async function resolveAiPlan(
         };
       }
       return {
-        artifact: { kind: "none" }
+        artifact: { kind: "none" },
+        outputText:
+          input.parsed.replyText ||
+          (input.locale === "it"
+            ? "Posso aiutarti con prenotazioni, annullamenti e spostamenti. Scrivi cosa ti serve."
+            : "I can help with bookings, cancellations, and rescheduling. Tell me what you need.")
       };
     }
   }
@@ -454,6 +461,7 @@ async function resolveBookingLikeIntent(
     tenantConfig: TenantBotConfig;
     session: WhatsAppConversationSession;
     parsed: AiParseResult;
+    rawText: string;
     phone: string;
     traceId: string;
   },
@@ -462,8 +470,10 @@ async function resolveBookingLikeIntent(
   input.session.intent = input.parsed.intent === "new_booking" || input.parsed.intent === "check_availability" ? "new_booking" : "new_booking";
 
   const services = await deps.fetchServices(input.locale);
-  const serviceResolution = resolveNamedChoice(services, input.parsed.serviceQuery, (item) => item.displayName);
-  if (!input.parsed.serviceQuery) {
+  const inferredServiceQuery = inferEntityFromCatalog(input.rawText, services, (item) => item.displayName);
+  const effectiveServiceQuery = input.parsed.serviceQuery ?? inferredServiceQuery;
+  const serviceResolution = resolveNamedChoice(services, effectiveServiceQuery, (item) => item.displayName);
+  if (!effectiveServiceQuery) {
     return {
       artifact: {
         kind: "service_list",
@@ -492,12 +502,14 @@ async function resolveBookingLikeIntent(
   input.session.serviceName = service.displayName;
   input.session.collectedEntities = {
     ...input.session.collectedEntities,
-    serviceNameCandidate: input.parsed.serviceQuery
+    serviceNameCandidate: effectiveServiceQuery
   };
 
   const masters = await deps.fetchMasters(input.locale, service.id);
-  const masterResolution = resolveNamedChoice(masters, input.parsed.masterQuery, (item) => item.displayName);
-  if (!input.parsed.masterQuery) {
+  const inferredMasterQuery = inferEntityFromCatalog(input.rawText, masters, (item) => item.displayName);
+  const effectiveMasterQuery = input.parsed.masterQuery ?? inferredMasterQuery;
+  const masterResolution = resolveNamedChoice(masters, effectiveMasterQuery, (item) => item.displayName);
+  if (!effectiveMasterQuery) {
     if (masters.length === 1) {
       input.session.masterId = masters[0]?.id;
       input.session.masterName = masters[0]?.displayName;
@@ -533,11 +545,12 @@ async function resolveBookingLikeIntent(
     input.session.masterName = master.displayName;
     input.session.collectedEntities = {
       ...input.session.collectedEntities,
-      masterNameCandidate: input.parsed.masterQuery
+      masterNameCandidate: effectiveMasterQuery
     };
   }
 
-  const dateIso = normalizeDateCandidate(input.parsed.dateText, input.locale, input.tenantConfig.timezone);
+  const effectiveDateText = input.parsed.dateText ?? extractFastDateText(normalizeSearch(input.rawText));
+  const dateIso = normalizeDateCandidate(effectiveDateText, input.locale, input.tenantConfig.timezone);
   if (!dateIso) {
     const dates = await listDatesWithSlots(
       {
@@ -566,7 +579,7 @@ async function resolveBookingLikeIntent(
   input.session.date = dateIso;
   input.session.collectedEntities = {
     ...input.session.collectedEntities,
-    dateCandidate: input.parsed.dateText
+    dateCandidate: effectiveDateText
   };
 
   const slots = await deps.fetchSlots({
@@ -605,8 +618,9 @@ async function resolveBookingLikeIntent(
     };
   }
 
-  const slotResolution = resolveSlotChoice(slots, input.parsed.timeText);
-  if (!input.parsed.timeText || slotResolution.matches.length !== 1) {
+  const effectiveTimeText = input.parsed.timeText ?? extractFastTimeText(normalizeSearch(input.rawText));
+  const slotResolution = resolveSlotChoice(slots, effectiveTimeText);
+  if (!effectiveTimeText || slotResolution.matches.length !== 1) {
     return {
       artifact: {
         kind: "slot_list",
@@ -629,7 +643,7 @@ async function resolveBookingLikeIntent(
   input.session.currentMode = "ai_assisted";
   input.session.collectedEntities = {
     ...input.session.collectedEntities,
-    timeCandidate: input.parsed.timeText
+    timeCandidate: effectiveTimeText
   };
 
   return {
@@ -1152,6 +1166,17 @@ function detectFastPathIntent(text: string, locale: SupportedLocale): AiParseRes
     };
   }
 
+  if (/^(hi|hello|hey|ciao|salve|buongiorno|buonasera)$/.test(normalized)) {
+    return {
+      intent: "unknown",
+      confidence: "high",
+      replyText:
+        locale === "it"
+          ? "Ciao. Posso aiutarti con prenotazioni, annullamenti e spostamenti."
+          : "Hi. I can help with bookings, cancellations, and rescheduling."
+    };
+  }
+
   if (extractedDate || extractedTime) {
     return {
       intent: "check_availability",
@@ -1193,6 +1218,26 @@ function extractFastDateText(value: string) {
 function extractFastTimeText(value: string) {
   const match = value.match(/\b(\d{1,2}(?::\d{2})?\s?(?:am|pm)?)\b/);
   return match?.[1];
+}
+
+function inferEntityFromCatalog<T>(
+  rawText: string,
+  items: T[],
+  readLabel: (item: T) => string
+): string | undefined {
+  const normalizedText = normalizeSearch(rawText);
+  if (!normalizedText) {
+    return undefined;
+  }
+
+  const candidates = items.filter((item) => {
+    const label = normalizeSearch(readLabel(item));
+    return label.length > 2 && normalizedText.includes(label);
+  });
+  if (candidates.length !== 1) {
+    return undefined;
+  }
+  return readLabel(candidates[0] as T);
 }
 
 function appendFlowRows(choices: Choice[], locale: SupportedLocale) {
