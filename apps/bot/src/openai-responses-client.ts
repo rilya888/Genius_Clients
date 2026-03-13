@@ -53,7 +53,46 @@ export class OpenAIResponsesClient {
     previousResponseId?: string;
     metadata?: Record<string, string>;
   }): Promise<OpenAIResponseResult> {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    let response = await this.request(input);
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      if (
+        input.previousResponseId &&
+        response.status === 400 &&
+        errorText.includes("previous_response_not_found")
+      ) {
+        response = await this.request({
+          ...input,
+          previousResponseId: undefined
+        });
+      } else {
+        throw new Error(`openai_responses_failed:${response.status}:${errorText.slice(0, 400)}`);
+      }
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw new Error(`openai_responses_failed:${response.status}:${errorText.slice(0, 400)}`);
+    }
+
+    const payload = (await response.json()) as ResponsePayload;
+    return {
+      id: typeof payload.id === "string" ? payload.id : undefined,
+      outputText: extractOutputText(payload),
+      functionCalls: extractFunctionCalls(payload),
+      usage: payload.usage ?? null
+    };
+  }
+
+  private request(input: {
+    model: string;
+    instructions: string;
+    input: string | ResponseFunctionCallOutput[];
+    tools?: ResponseFunctionTool[];
+    previousResponseId?: string;
+    metadata?: Record<string, string>;
+  }) {
+    return fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -70,19 +109,6 @@ export class OpenAIResponsesClient {
       }),
       signal: AbortSignal.timeout(this.timeoutMs)
     });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      throw new Error(`openai_responses_failed:${response.status}:${errorText.slice(0, 400)}`);
-    }
-
-    const payload = (await response.json()) as ResponsePayload;
-    return {
-      id: typeof payload.id === "string" ? payload.id : undefined,
-      outputText: extractOutputText(payload),
-      functionCalls: extractFunctionCalls(payload),
-      usage: payload.usage ?? null
-    };
   }
 }
 
