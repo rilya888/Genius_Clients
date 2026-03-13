@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { SupportedLocale } from "@genius/i18n";
 import { createInitialSession, type ConversationIntent, type WhatsAppConversationSession } from "./whatsapp-conversation";
-import { OPENAI_PROMPT_VERSION, buildBookingAssistantInstructions, buildConversationInput } from "./openai-prompts";
-import { OpenAIResponsesClient, OpenAIResponsesError, type OpenAITurnType } from "./openai-responses-client";
+import { OPENAI_PROMPT_VERSION, buildBookingParserInput, buildBookingParserInstructions } from "./openai-prompts";
+import { OpenAIResponsesClient, OpenAIResponsesError } from "./openai-responses-client";
 
 type ServiceItem = {
   id: string;
@@ -42,6 +42,25 @@ type TenantBotConfig = {
   adminNotificationWhatsappE164?: string | null;
 };
 
+type ParsedIntent =
+  | ConversationIntent
+  | "catalog"
+  | "check_availability"
+  | "human_handoff"
+  | "unknown";
+
+type AiParseResult = {
+  intent: ParsedIntent;
+  confidence: "high" | "medium" | "low";
+  serviceQuery?: string;
+  masterQuery?: string;
+  dateText?: string;
+  timeText?: string;
+  bookingReference?: string;
+  replyText?: string;
+  handoffSummary?: string;
+};
+
 type ToolArtifact =
   | { kind: "service_list"; prompt: string; items: ServiceItem[]; intent?: ConversationIntent }
   | {
@@ -78,6 +97,13 @@ type ToolArtifact =
       prompt: string;
       action: "cancel" | "reschedule";
       items: BookingItem[];
+    }
+  | {
+      kind: "confirm_booking";
+      serviceName?: string;
+      masterName?: string;
+      date?: string;
+      slotDisplayTime?: string;
     }
   | { kind: "handoff"; prompt: string; summary: string; notified: boolean }
   | { kind: "none" };
@@ -120,8 +146,6 @@ export type AiOrchestratorDeps = {
 
 const RESTART_FLOW_TOKEN = "flow:restart";
 const BACK_FLOW_TOKEN = "flow:back";
-const MAX_TOOL_LOOPS = 6;
-const MAX_CHAIN_RESTARTS_PER_MESSAGE = 1;
 
 export async function processAiWhatsAppMessage(
   input: {
@@ -145,7 +169,7 @@ export async function processAiWhatsAppMessage(
 
   const detectedLocale = detectMessageLocale(input.text, input.locale, tenantConfig.defaultLocale);
   const traceId = randomUUID();
-  let session = (await deps.loadSession(input.from)) ?? createInitialSession(detectedLocale);
+  const session = (await deps.loadSession(input.from)) ?? createInitialSession(detectedLocale);
   session.locale = detectedLocale;
   session.lastUserMessageAt = new Date().toISOString();
   session.currentMode = session.currentMode === "human_handoff" ? "human_handoff" : "ai_assisted";
@@ -174,7 +198,7 @@ export async function processAiWhatsAppMessage(
   const client = new OpenAIResponsesClient(input.openAiApiKey);
 
   try {
-    const result = await runAiLoop(
+    const parsed = await parseUserMessage(
       {
         client,
         model: tenantConfig.openaiModel || input.globalModel,
@@ -182,14 +206,35 @@ export async function processAiWhatsAppMessage(
         tenantConfig,
         session,
         userText: input.text,
+        traceId
+      }
+    );
+
+    console.info("[bot][ai] parsed", {
+      traceId,
+      intent: parsed.intent,
+      confidence: parsed.confidence,
+      hasServiceQuery: Boolean(parsed.serviceQuery),
+      hasMasterQuery: Boolean(parsed.masterQuery),
+      hasDateText: Boolean(parsed.dateText),
+      hasTimeText: Boolean(parsed.timeText),
+      hasBookingReference: Boolean(parsed.bookingReference)
+    });
+
+    const result = await resolveAiPlan(
+      {
+        locale: detectedLocale,
+        tenantConfig,
+        session,
+        parsed,
         phone: input.from,
         traceId
       },
       deps
     );
 
-    session.lastOpenaiResponseId = result.lastResponseId;
-    session.lastAiSummary = result.summary;
+    session.lastOpenaiResponseId = undefined;
+    session.lastAiSummary = buildSessionSummary(session, parsed);
     session.aiFailureCount = 0;
 
     if (result.artifact.kind !== "none") {
@@ -202,8 +247,7 @@ export async function processAiWhatsAppMessage(
       await deps.sendText(input.from, sanitizeUserText(result.outputText));
       console.info("[bot][ai] final render", {
         traceId,
-        mode: "text",
-        usage: result.usage
+        mode: "text"
       });
       return { handled: true };
     }
@@ -213,6 +257,7 @@ export async function processAiWhatsAppMessage(
     const errorClass = classifyAiError(error);
     session.aiFailureCount = (session.aiFailureCount ?? 0) + 1;
     session.currentMode = "deterministic";
+    session.lastOpenaiResponseId = undefined;
     await deps.saveSession(input.from, session);
     console.error("[bot][ai] failure", {
       traceId,
@@ -243,662 +288,319 @@ export async function processAiWhatsAppMessage(
   }
 }
 
-async function runAiLoop(
+async function parseUserMessage(input: {
+  client: OpenAIResponsesClient;
+  model: string;
+  locale: SupportedLocale;
+  tenantConfig: TenantBotConfig;
+  session: WhatsAppConversationSession;
+  userText: string;
+  traceId: string;
+}): Promise<AiParseResult> {
+  const response = await input.client.create({
+    model: input.model,
+    instructions: buildBookingParserInstructions({
+      locale: input.locale,
+      tenantName: input.tenantConfig.name,
+      tenantTimezone: input.tenantConfig.timezone,
+      session: input.session
+    }),
+    input: buildBookingParserInput({
+      locale: input.locale,
+      userText: input.userText,
+      session: input.session
+    }),
+    turnType: "user_input",
+    metadata: {
+      trace_id: input.traceId,
+      prompt_version: OPENAI_PROMPT_VERSION,
+      locale: input.locale
+    }
+  });
+
+  const payload = extractJsonObject(response.outputText);
+  if (!payload) {
+    throw new Error("ai_parse_invalid_json");
+  }
+
+  return normalizeAiParseResult(payload, input.locale);
+}
+
+async function resolveAiPlan(
   input: {
-    client: OpenAIResponsesClient;
-    model: string;
     locale: SupportedLocale;
     tenantConfig: TenantBotConfig;
     session: WhatsAppConversationSession;
-    userText: string;
+    parsed: AiParseResult;
     phone: string;
     traceId: string;
   },
   deps: AiOrchestratorDeps
-) {
-  const instructions = buildBookingAssistantInstructions({
-    locale: input.locale,
-    tenantName: input.tenantConfig.name,
-    tenantTimezone: input.tenantConfig.timezone,
-    session: input.session
-  });
-
-  let previousResponseId = input.session.lastOpenaiResponseId;
-  let requestInput: string | Array<{ type: "function_call_output"; call_id: string; output: string }> =
-    buildConversationInput({
-      locale: input.locale,
-      userText: input.userText,
-      session: input.session
-    });
-  let latestArtifact: ToolArtifact = { kind: "none" };
-  let lastResponseId = previousResponseId;
-  let lastUsage: Record<string, number> | null = null;
-  let summary = input.userText.slice(0, 280);
-  let turnType: OpenAITurnType = "user_input";
-  let chainRestarts = 0;
-
-  for (let step = 0; step < MAX_TOOL_LOOPS; step += 1) {
-    console.info("[bot][ai] request", {
-      traceId: input.traceId,
-      step,
-      turnType,
-      chainRestarted: chainRestarts > 0,
-      previousResponseIdPresent: Boolean(previousResponseId)
-    });
-
-    let response;
-    try {
-      response = await input.client.create({
-        model: input.model,
-        instructions,
-        input: requestInput,
-        turnType,
-        tools: [...buildTools()],
-        previousResponseId,
-        metadata: {
-          trace_id: input.traceId,
-          prompt_version: OPENAI_PROMPT_VERSION,
-          locale: input.locale
-        }
-      });
-    } catch (error) {
-      if (
-        error instanceof OpenAIResponsesError &&
-        error.code === "openai_tool_chain_invalid" &&
-        chainRestarts < MAX_CHAIN_RESTARTS_PER_MESSAGE
-      ) {
-        chainRestarts += 1;
-        previousResponseId = undefined;
-        requestInput = buildConversationInput({
-          locale: input.locale,
-          userText: input.userText,
-          session: input.session
-        });
-        latestArtifact = { kind: "none" };
-        lastResponseId = undefined;
-        lastUsage = null;
-        summary = input.userText.slice(0, 280);
-        turnType = "user_input";
-        console.warn("[bot][ai] chain restart", {
-          traceId: input.traceId,
-          step,
-          chainRestarted: true,
-          chainRestartReason: error.code
-        });
-        step = -1;
-        continue;
-      }
-      throw error;
-    }
-
-    lastResponseId = response.id;
-    lastUsage = response.usage;
-    previousResponseId = response.id;
-
-    console.info("[bot][ai] response", {
-      traceId: input.traceId,
-      step,
-      turnType,
-      chainRestarted: chainRestarts > 0,
-      previousResponseIdPresent: Boolean(previousResponseId),
-      functionCalls: response.functionCalls.length,
-      toolCallNames: response.functionCalls.map((call) => call.name),
-      usage: response.usage
-    });
-
-    if (response.functionCalls.length === 0) {
-      return {
-        outputText: response.outputText,
-        artifact: latestArtifact,
-        lastResponseId,
-        usage: lastUsage,
-        summary
-      };
-    }
-
-    const toolOutputs: Array<{ type: "function_call_output"; call_id: string; output: string }> = [];
-    for (const call of response.functionCalls) {
-      const args = safeJsonParse(call.arguments);
-      const toolResult = await executeTool(call.name, args, {
-        locale: input.locale,
-        tenantConfig: input.tenantConfig,
-        session: input.session,
-        phone: input.phone
-      }, deps);
-      latestArtifact = toolResult.artifact;
-      summary = toolResult.summary ?? summary;
-      toolOutputs.push({
-        type: "function_call_output",
-        call_id: call.call_id,
-        output: JSON.stringify(toolResult.output)
-      });
-      console.info("[bot][ai] tool execution", {
-        traceId: input.traceId,
-        tool: call.name,
-        artifact: toolResult.artifact.kind
-      });
-    }
-
-    requestInput = toolOutputs;
-    turnType = "tool_output";
-    console.info("[bot][ai] tool output prepared", {
-      traceId: input.traceId,
-      step,
-      toolOutputCount: toolOutputs.length
-    });
-  }
-
-  throw new Error(chainRestarts > 0 ? "openai_chain_restart_exhausted" : "openai_tool_loop_limit_exceeded");
-}
-
-function buildTools() {
-  return [
-    {
-      type: "function",
-      name: "list_services",
-      description: "List available services and optionally resolve a service by user text.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          query: { type: "string" },
-          intent: { type: "string", enum: ["new_booking", "check_availability"] }
-        }
-      }
-    },
-    {
-      type: "function",
-      name: "list_masters",
-      description: "List available masters and optionally resolve a master by user text.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          serviceId: { type: "string" },
-          query: { type: "string" },
-          intent: { type: "string", enum: ["new_booking", "check_availability", "reschedule_booking"] }
-        }
-      }
-    },
-    {
-      type: "function",
-      name: "list_dates_with_slots",
-      description: "List upcoming dates with available slots for a service and optional master.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["serviceId"],
-        properties: {
-          serviceId: { type: "string" },
-          serviceName: { type: "string" },
-          masterId: { type: "string" },
-          masterName: { type: "string" },
-          days: { type: "integer" },
-          intent: { type: "string", enum: ["new_booking", "check_availability", "reschedule_booking"] }
-        }
-      }
-    },
-    {
-      type: "function",
-      name: "list_slots",
-      description: "List available slots for a date, service, and optional master.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["serviceId", "date"],
-        properties: {
-          serviceId: { type: "string" },
-          serviceName: { type: "string" },
-          masterId: { type: "string" },
-          masterName: { type: "string" },
-          date: { type: "string" },
-          intent: { type: "string", enum: ["new_booking", "check_availability", "reschedule_booking"] }
-        }
-      }
-    },
-    {
-      type: "function",
-      name: "list_user_bookings",
-      description: "List the user's recent bookings for cancel or reschedule flows.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          action: { type: "string", enum: ["cancel", "reschedule"] }
-        }
-      }
-    },
-    {
-      type: "function",
-      name: "create_booking_request",
-      description: "Create a booking request after all booking fields are known.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["serviceId", "slotStartAt"],
-        properties: {
-          serviceId: { type: "string" },
-          masterId: { type: "string" },
-          slotStartAt: { type: "string" },
-          clientName: { type: "string" }
-        }
-      }
-    },
-    {
-      type: "function",
-      name: "cancel_booking",
-      description: "Cancel a booking that belongs to the current WhatsApp user.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["bookingId"],
-        properties: {
-          bookingId: { type: "string" }
-        }
-      }
-    },
-    {
-      type: "function",
-      name: "reschedule_booking",
-      description: "Reschedule an existing booking after the new slot is known.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["bookingId", "serviceId", "slotStartAt"],
-        properties: {
-          bookingId: { type: "string" },
-          serviceId: { type: "string" },
-          masterId: { type: "string" },
-          slotStartAt: { type: "string" }
-        }
-      }
-    },
-    {
-      type: "function",
-      name: "notify_admin_whatsapp_handoff",
-      description: "Forward the request to the administrator via WhatsApp when human help is needed.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["summary"],
-        properties: {
-          summary: { type: "string" }
-        }
-      }
-    }
-  ] as const;
-}
-
-async function executeTool(
-  toolName: string,
-  args: Record<string, unknown>,
-  context: {
-    locale: SupportedLocale;
-    tenantConfig: TenantBotConfig;
-    session: WhatsAppConversationSession;
-    phone: string;
-  },
-  deps: AiOrchestratorDeps
-): Promise<{ output: Record<string, unknown>; artifact: ToolArtifact; summary?: string }> {
-  switch (toolName) {
-    case "list_services": {
-      const services = await deps.fetchServices(context.locale);
-      const query = asOptionalString(args.query);
-      const intent = asIntent(args.intent) ?? "new_booking";
-      const matched = findMatches(services, query, (item) => item.displayName);
-      if (query && matched.length === 1) {
-        const picked = matched[0];
-        if (!picked) {
-          return {
-            output: { ok: false, reason: "service_resolution_failed" },
-            artifact: { kind: "none" },
-            summary: "Service resolution failed."
-          };
-        }
-        context.session.intent = intent;
-        context.session.serviceId = picked.id;
-        context.session.serviceName = picked.displayName;
-        context.session.collectedEntities = {
-          ...context.session.collectedEntities,
-          serviceNameCandidate: picked.displayName
-        };
-        return {
-          output: {
-            ok: true,
-            requiresSelection: false,
-            service: {
-              id: picked.id,
-              displayName: picked.displayName
-            }
-          },
-          artifact: { kind: "none" },
-          summary: `Service resolved: ${picked.displayName}.`
-        };
-      }
-
-      return {
-        output: {
-          ok: true,
-          requiresSelection: true,
-          items: services.slice(0, 8).map((item) => ({
-            id: item.id,
-            displayName: item.displayName,
-            durationMinutes: item.durationMinutes ?? null
-          }))
-        },
-        artifact: {
-          kind: "service_list",
-          prompt: context.locale === "it" ? "Seleziona il servizio." : "Select a service.",
-          items: services.slice(0, 8),
-          intent
-        },
-        summary: "Service selection needed."
-      };
-    }
-    case "list_masters": {
-      const query = asOptionalString(args.query);
-      const serviceId = asOptionalString(args.serviceId) ?? context.session.serviceId;
-      const serviceName = asOptionalString(args.serviceName) ?? context.session.serviceName;
-      const intent = asIntent(args.intent) ?? context.session.intent ?? "new_booking";
-      const masters = await deps.fetchMasters(context.locale, serviceId);
-      const matched = findMatches(masters, query, (item) => item.displayName);
-      if (query && matched.length === 1) {
-        const picked = matched[0];
-        if (!picked) {
-          return {
-            output: { ok: false, reason: "master_resolution_failed" },
-            artifact: { kind: "none" },
-            summary: "Master resolution failed."
-          };
-        }
-        context.session.intent = intent;
-        context.session.serviceId = serviceId;
-        context.session.serviceName = serviceName;
-        context.session.masterId = picked.id;
-        context.session.masterName = picked.displayName;
-        context.session.collectedEntities = {
-          ...context.session.collectedEntities,
-          masterNameCandidate: picked.displayName
-        };
-        return {
-          output: {
-            ok: true,
-            requiresSelection: false,
-            master: {
-              id: picked.id,
-              displayName: picked.displayName
-            }
-          },
-          artifact: { kind: "none" },
-          summary: `Master resolved: ${picked.displayName}.`
-        };
-      }
-
-      return {
-        output: {
-          ok: true,
-          requiresSelection: true,
-          items: masters.slice(0, 8).map((item) => ({
-            id: item.id,
-            displayName: item.displayName
-          }))
-        },
-        artifact: {
-          kind: "master_list",
-          prompt: context.locale === "it" ? "Scegli il master." : "Choose a master.",
-          serviceId,
-          serviceName,
-          items: masters.slice(0, 8),
-          intent
-        },
-        summary: "Master selection needed."
-      };
-    }
-    case "list_dates_with_slots": {
-      const serviceId = asOptionalString(args.serviceId) ?? context.session.serviceId;
-      if (!serviceId) {
-        return {
-          output: { ok: false, reason: "missing_service_id" },
-          artifact: { kind: "none" },
-          summary: "Missing service for date listing."
-        };
-      }
-      const serviceName = asOptionalString(args.serviceName) ?? context.session.serviceName;
-      const masterId = asOptionalString(args.masterId) ?? context.session.masterId;
-      const masterName = asOptionalString(args.masterName) ?? context.session.masterName;
-      const intent = asIntent(args.intent) ?? context.session.intent ?? "new_booking";
-      const dates = await listDatesWithSlots({
-        locale: context.locale,
-        timezone: context.tenantConfig.timezone,
-        serviceId,
-        masterId,
-        days: asPositiveInt(args.days) ?? 7
-      }, deps);
-
-      return {
-        output: {
-          ok: true,
-          requiresSelection: true,
-          items: dates.map((item) => ({
-            date: item.date,
-            title: item.title,
-            description: item.description ?? null
-          }))
-        },
-        artifact: {
-          kind: "date_list",
-          prompt: context.locale === "it" ? "Scegli una data." : "Choose a date.",
-          serviceId,
-          serviceName,
-          masterId,
-          masterName,
-          items: dates,
-          intent
-        },
-        summary: "Date selection needed."
-      };
-    }
-    case "list_slots": {
-      const serviceId = asOptionalString(args.serviceId) ?? context.session.serviceId;
-      const date = asOptionalString(args.date) ?? context.session.date;
-      if (!serviceId || !date) {
-        return {
-          output: { ok: false, reason: "missing_service_or_date" },
-          artifact: { kind: "none" },
-          summary: "Missing service or date for slot listing."
-        };
-      }
-      const serviceName = asOptionalString(args.serviceName) ?? context.session.serviceName;
-      const masterId = asOptionalString(args.masterId) ?? context.session.masterId;
-      const masterName = asOptionalString(args.masterName) ?? context.session.masterName;
-      const intent = asIntent(args.intent) ?? context.session.intent ?? "new_booking";
-      const slots = await deps.fetchSlots({
-        serviceId,
-        masterId,
-        date,
-        locale: context.locale
-      });
-
-      if (slots.length === 0) {
-        const alternativeDates = await listDatesWithSlots({
-          locale: context.locale,
-          timezone: context.tenantConfig.timezone,
-          serviceId,
-          masterId,
-          days: 7,
-          excludedDate: date
-        }, deps);
-        return {
-          output: {
-            ok: true,
-            requiresSelection: true,
-            items: alternativeDates.map((item) => ({
-              date: item.date,
-              title: item.title,
-              description: item.description ?? null
-            }))
-          },
-          artifact: {
-            kind: "date_list",
-            prompt:
-              context.locale === "it"
-                ? "Per questa data non ci sono slot. Scegli un'altra data."
-                : "There are no slots for this date. Please choose another date.",
-            serviceId,
-            serviceName,
-            masterId,
-            masterName,
-            items: alternativeDates,
-            intent
-          },
-          summary: "Alternative date selection needed."
-        };
-      }
-
-      return {
-        output: {
-          ok: true,
-          requiresSelection: true,
-          items: slots.slice(0, 8).map((item) => ({
-            startAt: item.startAt,
-            displayTime: item.displayTime
-          }))
-        },
-        artifact: {
-          kind: "slot_list",
-          prompt: context.locale === "it" ? "Scegli un orario." : "Choose a time.",
-          serviceId,
-          serviceName,
-          masterId,
-          masterName,
-          date,
-          items: slots.slice(0, 8),
-          intent
-        },
-        summary: "Slot selection needed."
-      };
-    }
-    case "list_user_bookings": {
-      const action = args.action === "reschedule" ? "reschedule" : "cancel";
-      const items = await deps.listBookingsByPhone({ phone: context.phone, limit: 10 });
-      return {
-        output: {
-          ok: true,
-          items: items.map((item) => ({
-            id: item.id,
-            startAt: item.startAt,
-            status: item.status
-          }))
-        },
-        artifact: {
-          kind: "booking_list",
-          prompt:
-            action === "cancel"
-              ? context.locale === "it"
-                ? "Scegli la prenotazione da annullare."
-                : "Choose the booking to cancel."
-              : context.locale === "it"
-                ? "Scegli la prenotazione da spostare."
-                : "Choose the booking to reschedule.",
-          action,
-          items
-        },
-        summary: "Booking selection needed."
-      };
-    }
-    case "create_booking_request": {
-      const serviceId = asOptionalString(args.serviceId) ?? context.session.serviceId;
-      const slotStartAt = asOptionalString(args.slotStartAt) ?? context.session.slotStartAt;
-      if (!serviceId || !slotStartAt) {
-        return {
-          output: { ok: false, reason: "missing_booking_fields" },
-          artifact: { kind: "none" },
-          summary: "Booking creation blocked by missing fields."
-        };
-      }
-      const bookingId = await deps.createBooking({
-        serviceId,
-        masterId: asOptionalString(args.masterId) ?? context.session.masterId,
-        startAtIso: slotStartAt,
-        phone: context.phone,
-        locale: context.locale,
-        clientName: asOptionalString(args.clientName) ?? "WhatsApp Client"
-      });
-      context.session.bookingIdInContext = bookingId;
-      return {
-        output: { ok: true, bookingId, status: "pending" },
-        artifact: { kind: "none" },
-        summary: "Booking request created."
-      };
-    }
-    case "cancel_booking": {
-      const bookingId = asOptionalString(args.bookingId) ?? context.session.bookingIdInContext;
-      if (!bookingId) {
-        return {
-          output: { ok: false, reason: "missing_booking_id" },
-          artifact: { kind: "none" },
-          summary: "Booking cancel blocked by missing booking id."
-        };
-      }
-      await deps.cancelBooking({ bookingId, phone: context.phone });
-      context.session.bookingIdInContext = bookingId;
-      return {
-        output: { ok: true, bookingId, status: "cancelled" },
-        artifact: { kind: "none" },
-        summary: "Booking cancelled."
-      };
-    }
-    case "reschedule_booking": {
-      const bookingId =
-        asOptionalString(args.bookingId) ?? context.session.bookingIdToReschedule ?? context.session.bookingIdInContext;
-      const serviceId = asOptionalString(args.serviceId) ?? context.session.serviceId;
-      const slotStartAt = asOptionalString(args.slotStartAt) ?? context.session.slotStartAt;
-      if (!bookingId || !serviceId || !slotStartAt) {
-        return {
-          output: { ok: false, reason: "missing_reschedule_fields" },
-          artifact: { kind: "none" },
-          summary: "Booking reschedule blocked by missing fields."
-        };
-      }
-      const newBookingId = await deps.rescheduleBooking({
-        bookingId,
-        phone: context.phone,
-        serviceId,
-        masterId: asOptionalString(args.masterId) ?? context.session.masterId,
-        startAtIso: slotStartAt,
-        locale: context.locale
-      });
-      context.session.bookingIdInContext = newBookingId;
-      return {
-        output: { ok: true, bookingId: newBookingId, status: "pending" },
-        artifact: { kind: "none" },
-        summary: "Booking rescheduled."
-      };
-    }
-    case "notify_admin_whatsapp_handoff": {
-      const summary = asOptionalString(args.summary) ?? "User requested human assistance.";
+): Promise<{ artifact: ToolArtifact; outputText?: string }> {
+  switch (input.parsed.intent) {
+    case "human_handoff": {
+      const summary =
+        input.parsed.handoffSummary?.trim() || input.parsed.replyText?.trim() || input.parsed.serviceQuery?.trim() || "Human assistance requested.";
       const notified = await deps.notifyAdminHandoff({
-        phone: context.phone,
+        phone: input.phone,
         summary,
-        locale: context.locale
+        locale: input.locale
       });
       return {
-        output: { ok: notified, status: notified ? "notified" : "skipped" },
         artifact: {
           kind: "handoff",
           prompt:
-            context.locale === "it"
+            input.locale === "it"
               ? "La richiesta e stata inoltrata all'amministratore."
               : "The request has been forwarded to the administrator.",
           summary,
           notified
-        },
-        summary: "Human handoff requested."
+        }
       };
     }
-    default:
-      throw new Error(`unsupported_tool:${toolName}`);
+
+    case "cancel_booking": {
+      const items = await deps.listBookingsByPhone({ phone: input.phone, limit: 10 });
+      return {
+        artifact: {
+          kind: "booking_list",
+          prompt:
+            input.locale === "it"
+              ? "Scegli la prenotazione da annullare."
+              : "Choose the booking to cancel.",
+          action: "cancel",
+          items
+        }
+      };
+    }
+
+    case "reschedule_booking": {
+      const items = await deps.listBookingsByPhone({ phone: input.phone, limit: 10 });
+      return {
+        artifact: {
+          kind: "booking_list",
+          prompt:
+            input.locale === "it"
+              ? "Scegli la prenotazione da spostare."
+              : "Choose the booking to reschedule.",
+          action: "reschedule",
+          items
+        }
+      };
+    }
+
+    case "catalog":
+    case "check_availability":
+    case "new_booking": {
+      return resolveBookingLikeIntent(input, deps);
+    }
+
+    case "unknown": {
+      return {
+        artifact: { kind: "none" },
+        outputText:
+          input.parsed.replyText ||
+          (input.locale === "it"
+            ? "Posso aiutarti con prenotazioni, annullamenti e spostamenti."
+            : "I can help with bookings, cancellations, and rescheduling.")
+      };
+    }
   }
+}
+
+async function resolveBookingLikeIntent(
+  input: {
+    locale: SupportedLocale;
+    tenantConfig: TenantBotConfig;
+    session: WhatsAppConversationSession;
+    parsed: AiParseResult;
+    phone: string;
+    traceId: string;
+  },
+  deps: AiOrchestratorDeps
+): Promise<{ artifact: ToolArtifact; outputText?: string }> {
+  input.session.intent = input.parsed.intent === "new_booking" || input.parsed.intent === "check_availability" ? "new_booking" : "new_booking";
+
+  const services = await deps.fetchServices(input.locale);
+  const serviceResolution = resolveNamedChoice(services, input.parsed.serviceQuery, (item) => item.displayName);
+  if (!input.parsed.serviceQuery) {
+    return {
+      artifact: {
+        kind: "service_list",
+        prompt: input.locale === "it" ? "Seleziona il servizio." : "Select a service.",
+        items: services.slice(0, 8),
+        intent: "new_booking"
+      }
+    };
+  }
+  if (serviceResolution.matches.length !== 1) {
+    return {
+      artifact: {
+        kind: "service_list",
+        prompt:
+          input.locale === "it"
+            ? "Ho trovato piu servizi. Scegline uno."
+            : "I found multiple services. Please choose one.",
+        items: (serviceResolution.matches.length > 0 ? serviceResolution.matches : services).slice(0, 8),
+        intent: "new_booking"
+      }
+    };
+  }
+
+  const service = serviceResolution.matches[0] as ServiceItem;
+  input.session.serviceId = service.id;
+  input.session.serviceName = service.displayName;
+  input.session.collectedEntities = {
+    ...input.session.collectedEntities,
+    serviceNameCandidate: input.parsed.serviceQuery
+  };
+
+  const masters = await deps.fetchMasters(input.locale, service.id);
+  const masterResolution = resolveNamedChoice(masters, input.parsed.masterQuery, (item) => item.displayName);
+  if (!input.parsed.masterQuery) {
+    if (masters.length === 1) {
+      input.session.masterId = masters[0]?.id;
+      input.session.masterName = masters[0]?.displayName;
+    } else {
+      return {
+        artifact: {
+          kind: "master_list",
+          prompt: input.locale === "it" ? "Scegli il master." : "Choose a master.",
+          serviceId: service.id,
+          serviceName: service.displayName,
+          items: masters.slice(0, 8),
+          intent: "new_booking"
+        }
+      };
+    }
+  } else if (masterResolution.matches.length !== 1) {
+    return {
+      artifact: {
+        kind: "master_list",
+        prompt:
+          input.locale === "it"
+            ? "Ho trovato piu master. Scegline uno."
+            : "I found multiple masters. Please choose one.",
+        serviceId: service.id,
+        serviceName: service.displayName,
+        items: (masterResolution.matches.length > 0 ? masterResolution.matches : masters).slice(0, 8),
+        intent: "new_booking"
+      }
+    };
+  } else {
+    const master = masterResolution.matches[0] as MasterItem;
+    input.session.masterId = master.id;
+    input.session.masterName = master.displayName;
+    input.session.collectedEntities = {
+      ...input.session.collectedEntities,
+      masterNameCandidate: input.parsed.masterQuery
+    };
+  }
+
+  const dateIso = normalizeDateCandidate(input.parsed.dateText, input.locale, input.tenantConfig.timezone);
+  if (!dateIso) {
+    const dates = await listDatesWithSlots(
+      {
+        locale: input.locale,
+        timezone: input.tenantConfig.timezone,
+        serviceId: service.id,
+        masterId: input.session.masterId,
+        days: 7
+      },
+      deps
+    );
+    return {
+      artifact: {
+        kind: "date_list",
+        prompt: input.locale === "it" ? "Scegli una data." : "Choose a date.",
+        serviceId: service.id,
+        serviceName: service.displayName,
+        masterId: input.session.masterId,
+        masterName: input.session.masterName,
+        items: dates,
+        intent: "new_booking"
+      }
+    };
+  }
+
+  input.session.date = dateIso;
+  input.session.collectedEntities = {
+    ...input.session.collectedEntities,
+    dateCandidate: input.parsed.dateText
+  };
+
+  const slots = await deps.fetchSlots({
+    serviceId: service.id,
+    masterId: input.session.masterId,
+    date: dateIso,
+    locale: input.locale
+  });
+
+  if (slots.length === 0) {
+    const alternativeDates = await listDatesWithSlots(
+      {
+        locale: input.locale,
+        timezone: input.tenantConfig.timezone,
+        serviceId: service.id,
+        masterId: input.session.masterId,
+        days: 7,
+        excludedDate: dateIso
+      },
+      deps
+    );
+    return {
+      artifact: {
+        kind: "date_list",
+        prompt:
+          input.locale === "it"
+            ? "Per questa data non ci sono slot. Scegli un'altra data."
+            : "There are no slots for this date. Please choose another date.",
+        serviceId: service.id,
+        serviceName: service.displayName,
+        masterId: input.session.masterId,
+        masterName: input.session.masterName,
+        items: alternativeDates,
+        intent: "new_booking"
+      }
+    };
+  }
+
+  const slotResolution = resolveSlotChoice(slots, input.parsed.timeText);
+  if (!input.parsed.timeText || slotResolution.matches.length !== 1) {
+    return {
+      artifact: {
+        kind: "slot_list",
+        prompt: input.locale === "it" ? "Scegli un orario." : "Choose a time.",
+        serviceId: service.id,
+        serviceName: service.displayName,
+        masterId: input.session.masterId,
+        masterName: input.session.masterName,
+        date: dateIso,
+        items: (slotResolution.matches.length > 0 ? slotResolution.matches : slots).slice(0, 8),
+        intent: "new_booking"
+      }
+    };
+  }
+
+  const slot = slotResolution.matches[0] as SlotItem;
+  input.session.slotStartAt = slot.startAt;
+  input.session.slotDisplayTime = slot.displayTime;
+  input.session.state = "confirm";
+  input.session.currentMode = "ai_assisted";
+  input.session.collectedEntities = {
+    ...input.session.collectedEntities,
+    timeCandidate: input.parsed.timeText
+  };
+
+  return {
+    artifact: {
+      kind: "confirm_booking",
+      serviceName: input.session.serviceName,
+      masterName: input.session.masterName,
+      date: input.session.date,
+      slotDisplayTime: input.session.slotDisplayTime
+    }
+  };
 }
 
 async function renderArtifact(
@@ -931,8 +633,7 @@ async function renderArtifact(
           input.artifact.items.map((item) => ({
             id: `service:${item.id}`,
             title: truncate(item.displayName, 24),
-            description:
-              typeof item.durationMinutes === "number" ? `${item.durationMinutes} min` : undefined
+            description: typeof item.durationMinutes === "number" ? `${item.durationMinutes} min` : undefined
           })),
           input.locale
         )
@@ -1042,8 +743,7 @@ async function renderArtifact(
         return;
       }
       input.session.currentMode = "ai_assisted";
-      input.session.intent =
-        input.artifact.action === "cancel" ? "cancel_booking" : "reschedule_booking";
+      input.session.intent = input.artifact.action === "cancel" ? "cancel_booking" : "reschedule_booking";
       input.session.state =
         input.artifact.action === "cancel" ? "cancel_wait_booking_id" : "reschedule_wait_booking_id";
       await deps.saveSession(input.from, input.session);
@@ -1060,6 +760,38 @@ async function renderArtifact(
           input.locale
         )
       );
+      return;
+    }
+    case "confirm_booking": {
+      input.session.currentMode = "ai_assisted";
+      input.session.state = "confirm";
+      await deps.saveSession(input.from, input.session);
+      const summary =
+        input.locale === "it"
+          ? `Confermi prenotazione?\nServizio: ${input.artifact.serviceName ?? "-"}\nMaster: ${input.artifact.masterName ?? "-"}\nData: ${input.artifact.date ?? "-"}\nOrario: ${input.artifact.slotDisplayTime ?? "-"}`
+          : `Confirm booking?\nService: ${input.artifact.serviceName ?? "-"}\nMaster: ${input.artifact.masterName ?? "-"}\nDate: ${input.artifact.date ?? "-"}\nTime: ${input.artifact.slotDisplayTime ?? "-"}`;
+      await deps.sendList(input.from, summary, input.locale === "it" ? "Conferma" : "Confirm", [
+        {
+          id: "confirm:yes",
+          title: input.locale === "it" ? "Conferma" : "Confirm"
+        },
+        {
+          id: "confirm:change",
+          title: input.locale === "it" ? "Cambia data" : "Change date"
+        },
+        {
+          id: "confirm:cancel",
+          title: input.locale === "it" ? "Annulla" : "Cancel"
+        },
+        {
+          id: BACK_FLOW_TOKEN,
+          title: input.locale === "it" ? "Indietro" : "Back"
+        },
+        {
+          id: RESTART_FLOW_TOKEN,
+          title: input.locale === "it" ? "Inizio" : "Start over"
+        }
+      ].slice(0, 10));
       return;
     }
     case "handoff": {
@@ -1104,8 +836,7 @@ async function listDatesWithSlots(
     items.push({
       date,
       title: formatDateLabel(date, input.locale, input.timezone),
-      description:
-        input.locale === "it" ? `${slots.length} slot disponibili` : `${slots.length} slots available`
+      description: input.locale === "it" ? `${slots.length} slot disponibili` : `${slots.length} slots available`
     });
   }
   return items.slice(0, 8);
@@ -1151,16 +882,200 @@ function formatBookingChoice(startAtIso: string, locale: SupportedLocale) {
   }).format(new Date(startAtIso));
 }
 
+function resolveNamedChoice<T>(items: T[], query: string | undefined, readLabel: (item: T) => string) {
+  if (!query?.trim()) {
+    return { matches: [] as T[] };
+  }
+  return {
+    matches: findMatches(items, query, readLabel)
+  };
+}
+
 function findMatches<T>(items: T[], query: string | undefined, readLabel: (item: T) => string) {
   if (!query?.trim()) {
     return [];
   }
   const normalized = normalizeSearch(query);
+  const exact = items.filter((item) => normalizeSearch(readLabel(item)) === normalized);
+  if (exact.length > 0) {
+    return exact;
+  }
   return items.filter((item) => normalizeSearch(readLabel(item)).includes(normalized));
 }
 
+function resolveSlotChoice(slots: SlotItem[], timeText: string | undefined) {
+  if (!timeText?.trim()) {
+    return { matches: [] as SlotItem[] };
+  }
+  const normalizedTime = normalizeTimeCandidate(timeText);
+  if (!normalizedTime) {
+    return { matches: [] as SlotItem[] };
+  }
+  const exact = slots.filter((item) => normalizeTimeCandidate(item.displayTime) === normalizedTime);
+  if (exact.length > 0) {
+    return { matches: exact };
+  }
+  return {
+    matches: slots.filter((item) => normalizeSearch(item.displayTime).includes(normalizedTime))
+  };
+}
+
+function normalizeDateCandidate(
+  value: string | undefined,
+  locale: SupportedLocale,
+  timezone: string
+): string | undefined {
+  if (!value?.trim()) {
+    return undefined;
+  }
+  const normalized = normalizeSearch(value);
+  const nextDays = buildNextDays(timezone, 14);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return normalized;
+  }
+  if (normalized === "today" || normalized === "oggi") {
+    return nextDays[0];
+  }
+  if (normalized === "tomorrow" || normalized === "domani") {
+    return nextDays[1];
+  }
+  const weekdayIndex = mapWeekday(normalized, locale);
+  if (weekdayIndex === undefined) {
+    return undefined;
+  }
+  return nextDays.find((date) => getWeekdayIndex(date, timezone) === weekdayIndex);
+}
+
+function mapWeekday(value: string, locale: SupportedLocale) {
+  const enMap: Record<string, number> = {
+    monday: 1,
+    mon: 1,
+    tuesday: 2,
+    tue: 2,
+    wednesday: 3,
+    wed: 3,
+    thursday: 4,
+    thu: 4,
+    friday: 5,
+    fri: 5,
+    saturday: 6,
+    sat: 6,
+    sunday: 0,
+    sun: 0
+  };
+  const itMap: Record<string, number> = {
+    lunedi: 1,
+    lun: 1,
+    martedi: 2,
+    mar: 2,
+    mercoledi: 3,
+    mer: 3,
+    giovedi: 4,
+    gio: 4,
+    venerdi: 5,
+    ven: 5,
+    sabato: 6,
+    sab: 6,
+    domenica: 0,
+    dom: 0
+  };
+  return locale === "it" ? itMap[value] : enMap[value];
+}
+
+function getWeekdayIndex(dateIso: string, timezone: string) {
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    timeZone: timezone
+  }).format(new Date(`${dateIso}T00:00:00.000Z`));
+  return mapWeekday(weekday.toLowerCase(), "en");
+}
+
+function normalizeTimeCandidate(value: string) {
+  const normalized = value.trim().toLowerCase();
+  const match = normalized.match(/(\d{1,2})(?::?(\d{2}))?\s*(am|pm)?/);
+  if (!match) {
+    return undefined;
+  }
+  let hours = Number(match[1]);
+  const minutes = Number(match[2] ?? "00");
+  const suffix = match[3];
+  if (Number.isNaN(hours) || Number.isNaN(minutes) || minutes > 59) {
+    return undefined;
+  }
+  if (suffix === "pm" && hours < 12) {
+    hours += 12;
+  }
+  if (suffix === "am" && hours === 12) {
+    hours = 0;
+  }
+  if (hours > 23) {
+    return undefined;
+  }
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function extractJsonObject(value: string): Record<string, unknown> | null {
+  const trimmed = value.trim();
+  const direct = safeJsonParse(trimmed);
+  if (direct) {
+    return direct;
+  }
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) {
+    return null;
+  }
+  return safeJsonParse(trimmed.slice(start, end + 1));
+}
+
+function safeJsonParse(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return typeof parsed === "object" && parsed ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeAiParseResult(payload: Record<string, unknown>, locale: SupportedLocale): AiParseResult {
+  const rawIntent = asOptionalString(payload.intent) ?? "unknown";
+  const rawConfidence = asOptionalString(payload.confidence) ?? "low";
+  return {
+    intent: isParsedIntent(rawIntent) ? rawIntent : "unknown",
+    confidence: rawConfidence === "high" || rawConfidence === "medium" ? rawConfidence : "low",
+    serviceQuery: asOptionalString(payload.service_query),
+    masterQuery: asOptionalString(payload.master_query),
+    dateText: asOptionalString(payload.date_text),
+    timeText: asOptionalString(payload.time_text),
+    bookingReference: asOptionalString(payload.booking_reference),
+    replyText:
+      asOptionalString(payload.reply_text) ||
+      (locale === "it" ? "Posso aiutarti con prenotazioni, annullamenti e spostamenti." : "I can help with bookings, cancellations, and rescheduling."),
+    handoffSummary: asOptionalString(payload.handoff_summary)
+  };
+}
+
+function isParsedIntent(value: string): value is ParsedIntent {
+  return ["new_booking", "cancel_booking", "reschedule_booking", "catalog", "check_availability", "human_handoff", "unknown"].includes(value);
+}
+
+function buildSessionSummary(session: WhatsAppConversationSession, parsed: AiParseResult) {
+  return [
+    `intent=${parsed.intent}`,
+    `service=${session.serviceName ?? parsed.serviceQuery ?? "none"}`,
+    `master=${session.masterName ?? parsed.masterQuery ?? "none"}`,
+    `date=${session.date ?? parsed.dateText ?? "none"}`,
+    `time=${session.slotDisplayTime ?? parsed.timeText ?? "none"}`
+  ].join("; ").slice(0, 280);
+}
+
 function normalizeSearch(value: string) {
-  return value.trim().toLowerCase().replace(/\s+/g, " ");
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 }
 
 function appendFlowRows(choices: Choice[], locale: SupportedLocale) {
@@ -1192,29 +1107,6 @@ function sanitizeUserText(value: string) {
 
 function asOptionalString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function asPositiveInt(value: unknown) {
-  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
-    return undefined;
-  }
-  return value;
-}
-
-function safeJsonParse(value: string) {
-  try {
-    const parsed = JSON.parse(value) as Record<string, unknown>;
-    return typeof parsed === "object" && parsed ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function asIntent(value: unknown): ConversationIntent | undefined {
-  if (value === "new_booking" || value === "cancel_booking" || value === "reschedule_booking") {
-    return value;
-  }
-  return undefined;
 }
 
 function detectMessageLocale(
@@ -1253,16 +1145,11 @@ function detectMessageLocale(
 
 function classifyAiError(error: unknown) {
   if (error instanceof OpenAIResponsesError) {
-    if (error.code === "openai_tool_chain_invalid" || error.code === "openai_previous_response_not_found") {
-      return "openai_chain_error";
-    }
     return "openai_transport_error";
   }
-
-  if (error instanceof Error && error.message.startsWith("unsupported_tool:")) {
-    return "tool_schema_error";
+  if (error instanceof Error && error.message === "ai_parse_invalid_json") {
+    return "ai_parse_error";
   }
-
   return "tool_domain_error";
 }
 
