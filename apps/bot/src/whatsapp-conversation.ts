@@ -33,6 +33,12 @@ export type ConversationState =
   | "reschedule_wait_booking_id";
 
 export type ConversationIntent = "new_booking" | "cancel_booking" | "reschedule_booking";
+export type ParsedConversationIntent =
+  | ConversationIntent
+  | "catalog"
+  | "check_availability"
+  | "human_handoff"
+  | "unknown";
 export type ConversationMode = "deterministic" | "ai_assisted" | "human_handoff";
 export type ConversationHandoffStatus = "inactive" | "pending" | "active";
 export type ConversationResetReason =
@@ -75,6 +81,8 @@ export type WhatsAppConversationSession = {
   handoffStatus?: ConversationHandoffStatus;
   lastUserMessageAt?: string;
   aiFailureCount?: number;
+  unknownTurnCount?: number;
+  lastResolvedIntent?: ParsedConversationIntent;
   conversationTraceId?: string;
   lastResetAt?: string;
   lastResetReason?: ConversationResetReason;

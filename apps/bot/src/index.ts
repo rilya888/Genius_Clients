@@ -8,6 +8,7 @@ import { processWhatsAppConversation, type WhatsAppConversationSession } from ".
 import { processAiWhatsAppMessage } from "./ai-orchestrator";
 import { OpenAIResponsesClient } from "./openai-responses-client";
 import { applyConversationResetPolicy, toDeterministicIntentToken } from "./conversation-reset-policy";
+import { resolveConversationLocale } from "./conversation-locale";
 
 const app = new Hono();
 const telegramWebhookSecret = process.env.TG_WEBHOOK_SECRET_TOKEN ?? "";
@@ -231,39 +232,6 @@ function resolveLocaleFromWhatsApp(payloadLocale?: string): SupportedLocale {
     requested:
       normalized?.startsWith("it") ? "it" : normalized?.startsWith("en") ? "en" : undefined,
     tenantDefault: "it",
-    fallback: "en"
-  });
-}
-
-function detectLocaleFromUserText(
-  text: string | undefined,
-  fallbackLocale: SupportedLocale,
-  tenantDefaultLocale: SupportedLocale = "it"
-): SupportedLocale {
-  const normalized = text?.trim().toLowerCase() ?? "";
-  if (!normalized) {
-    return fallbackLocale;
-  }
-
-  if (
-    /\b(ciao|buongiorno|buonasera|prenotazione|servizio|servizi|annulla|sposta|domani|oggi|sera|orario|orari|operatore|umano)\b/.test(
-      normalized
-    )
-  ) {
-    return "it";
-  }
-
-  if (
-    /\b(hello|hi|booking|service|services|cancel|reschedule|tomorrow|today|evening|time|times|operator|human)\b/.test(
-      normalized
-    )
-  ) {
-    return "en";
-  }
-
-  return resolveLocale({
-    requested: fallbackLocale,
-    tenantDefault: tenantDefaultLocale,
     fallback: "en"
   });
 }
@@ -1123,7 +1091,6 @@ app.post("/webhooks/whatsapp", async (c) => {
     console.info("[bot] whatsapp webhook accepted", { inboundCount: inbound.length });
 
     for (const item of inbound) {
-      const effectiveLocale = detectLocaleFromUserText(item.text, item.locale, "it");
       const notDuplicate = await dedupInboundMessage(item.messageId);
       if (!notDuplicate) {
         console.info("[bot] whatsapp duplicate ignored", {
@@ -1133,15 +1100,24 @@ app.post("/webhooks/whatsapp", async (c) => {
         continue;
       }
 
+      const existingSession = await loadWhatsAppSession(item.from);
+      const localeResolution = resolveConversationLocale({
+        text: item.text,
+        rawInboundLocale: item.locale,
+        sessionLocale: existingSession?.locale,
+        tenantDefaultLocale: "it"
+      });
+      const effectiveLocale = localeResolution.resolvedLocale;
+
       console.info("[bot] whatsapp inbound message", {
         messageId: item.messageId,
         from: maskPhone(item.from),
         hasText: Boolean(item.text),
         hasReplyId: Boolean(item.replyId),
-        locale: effectiveLocale
+        locale: effectiveLocale,
+        localeReason: localeResolution.localeReason
       });
 
-      const existingSession = await loadWhatsAppSession(item.from);
       const resetResult = await applyConversationResetPolicy(
         {
           session: existingSession,
@@ -1169,6 +1145,9 @@ app.post("/webhooks/whatsapp", async (c) => {
         idleMinutes: resetResult.idleMinutes ?? null,
         detectedIntent: resetResult.detectedIntent,
         hasReplyId: Boolean(item.replyId),
+        localeReason: localeResolution.localeReason,
+        resetApplied: resetResult.shouldResetSession,
+        rerouteAfterReset: resetResult.shouldRerouteCurrentMessage,
         currentStepContinuationMatched: resetResult.currentStepContinuationMatched,
         continuationClassifier: resetResult.continuationClassifier,
         matchedCandidateCount: resetResult.matchedCandidateCount,
@@ -1222,7 +1201,8 @@ app.post("/webhooks/whatsapp", async (c) => {
 
       let flowResult = { handled: false };
       if (
-        !resetResult.shouldSkipAi &&
+        !resetResult.shouldFallbackToMenuImmediately &&
+        resetResult.shouldRerouteCurrentMessage &&
         !item.replyId &&
         item.text &&
         !isStructuredControlMessage(item.text)

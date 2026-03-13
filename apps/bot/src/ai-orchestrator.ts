@@ -1,8 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { SupportedLocale } from "@genius/i18n";
-import { createInitialSession, type ConversationIntent, type WhatsAppConversationSession } from "./whatsapp-conversation";
+import {
+  createInitialSession,
+  type ConversationIntent,
+  type ParsedConversationIntent,
+  type WhatsAppConversationSession
+} from "./whatsapp-conversation";
 import { OPENAI_PROMPT_VERSION, buildBookingParserInput, buildBookingParserInstructions } from "./openai-prompts";
 import { OpenAIResponsesClient, OpenAIResponsesError } from "./openai-responses-client";
+import { resolveConversationLocale } from "./conversation-locale";
 
 type ServiceItem = {
   id: string;
@@ -167,9 +173,16 @@ export async function processAiWhatsAppMessage(
     return { handled: false };
   }
 
-  const detectedLocale = detectMessageLocale(input.text, input.locale, tenantConfig.defaultLocale);
+  const existingSession = await deps.loadSession(input.from);
+  const localeResolution = resolveConversationLocale({
+    text: input.text,
+    rawInboundLocale: input.locale,
+    sessionLocale: existingSession?.locale,
+    tenantDefaultLocale: tenantConfig.defaultLocale
+  });
+  const detectedLocale = localeResolution.resolvedLocale;
   const traceId = randomUUID();
-  const session = (await deps.loadSession(input.from)) ?? createInitialSession(detectedLocale);
+  const session = existingSession ?? createInitialSession(detectedLocale);
   session.locale = detectedLocale;
   session.lastUserMessageAt = new Date().toISOString();
   session.currentMode = session.currentMode === "human_handoff" ? "human_handoff" : "ai_assisted";
@@ -190,6 +203,7 @@ export async function processAiWhatsAppMessage(
     traceId,
     from: maskPhone(input.from),
     locale: detectedLocale,
+    localeReason: localeResolution.localeReason,
     state: session.state,
     intent: session.intent ?? "unknown",
     promptVersion: OPENAI_PROMPT_VERSION
@@ -199,6 +213,7 @@ export async function processAiWhatsAppMessage(
 
   try {
     const fastPath = detectFastPathIntent(input.text, detectedLocale);
+    const aiStartedAt = Date.now();
     const parsed = fastPath
       ? fastPath
       : await parseUserMessage({
@@ -209,10 +224,13 @@ export async function processAiWhatsAppMessage(
           session,
           userText: input.text,
           traceId
-        });
+      });
 
     console.info("[bot][ai] parsed", {
       traceId,
+      usedFastPath: Boolean(fastPath),
+      usedAiParser: !fastPath,
+      aiParserLatencyMs: fastPath ? 0 : Date.now() - aiStartedAt,
       intent: parsed.intent,
       confidence: parsed.confidence,
       hasServiceQuery: Boolean(parsed.serviceQuery),
@@ -237,6 +255,8 @@ export async function processAiWhatsAppMessage(
     session.lastOpenaiResponseId = undefined;
     session.lastAiSummary = buildSessionSummary(session, parsed);
     session.aiFailureCount = 0;
+    session.lastResolvedIntent = parsed.intent as ParsedConversationIntent;
+    session.unknownTurnCount = parsed.intent === "unknown" ? (session.unknownTurnCount ?? 0) + 1 : 0;
 
     if (result.artifact.kind !== "none") {
       await renderArtifact({ from: input.from, locale: detectedLocale, session, artifact: result.artifact }, deps);
@@ -338,6 +358,11 @@ async function resolveAiPlan(
   },
   deps: AiOrchestratorDeps
 ): Promise<{ artifact: ToolArtifact; outputText?: string }> {
+  console.info("[bot][ai] resolver branch", {
+    traceId: input.traceId,
+    intent: input.parsed.intent
+  });
+
   switch (input.parsed.intent) {
     case "human_handoff": {
       const summary =
@@ -397,13 +422,27 @@ async function resolveAiPlan(
     }
 
     case "unknown": {
+      if ((input.session.unknownTurnCount ?? 0) >= 2 && input.tenantConfig.humanHandoffEnabled) {
+        const summary = input.parsed.replyText?.trim() || "Repeated unclear WhatsApp request.";
+        const notified = await deps.notifyAdminHandoff({
+          phone: input.phone,
+          summary,
+          locale: input.locale
+        });
+        return {
+          artifact: {
+            kind: "handoff",
+            prompt:
+              input.locale === "it"
+                ? "La richiesta non e chiara. La inoltro all'amministratore."
+                : "The request is unclear. I am forwarding it to the administrator.",
+            summary,
+            notified
+          }
+        };
+      }
       return {
-        artifact: { kind: "none" },
-        outputText:
-          input.parsed.replyText ||
-          (input.locale === "it"
-            ? "Posso aiutarti con prenotazioni, annullamenti e spostamenti."
-            : "I can help with bookings, cancellations, and rescheduling.")
+        artifact: { kind: "none" }
       };
     }
   }
@@ -1065,6 +1104,8 @@ function detectFastPathIntent(text: string, locale: SupportedLocale): AiParseRes
   if (!normalized) {
     return null;
   }
+  const extractedDate = extractFastDateText(normalized);
+  const extractedTime = extractFastTimeText(normalized);
 
   if (/\b(human|operator|person|admin|support|operatore|umano|assistenza|amministratore)\b/.test(normalized)) {
     return {
@@ -1100,13 +1141,23 @@ function detectFastPathIntent(text: string, locale: SupportedLocale): AiParseRes
   }
 
   if (
-    /\b(book|booking|book appointment|new booking|prenota|prenotazione|voglio prenotare)\b/.test(normalized) &&
-    !containsDateOrTime(normalized)
+    /\b(book|booking|book appointment|new booking|prenota|prenotazione|voglio prenotare)\b/.test(normalized)
   ) {
     return {
       intent: "new_booking",
       confidence: "high",
+      dateText: extractedDate,
+      timeText: extractedTime,
       replyText: locale === "it" ? "Seleziona il servizio." : "Select a service."
+    };
+  }
+
+  if (extractedDate || extractedTime) {
+    return {
+      intent: "check_availability",
+      confidence: "medium",
+      dateText: extractedDate,
+      timeText: extractedTime
     };
   }
 
@@ -1132,14 +1183,16 @@ function normalizeSearch(value: string) {
     .replace(/\s+/g, " ");
 }
 
-function containsDateOrTime(value: string) {
-  return (
-    /\b(today|tomorrow|oggi|domani|monday|tuesday|wednesday|thursday|friday|saturday|sunday|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)\b/.test(
-      value
-    ) ||
-    /\b\d{1,2}:\d{2}\b/.test(value) ||
-    /\b\d{1,2}\s?(am|pm)\b/.test(value)
+function extractFastDateText(value: string) {
+  const match = value.match(
+    /\b(today|tomorrow|oggi|domani|monday|tuesday|wednesday|thursday|friday|saturday|sunday|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)\b/
   );
+  return match?.[1];
+}
+
+function extractFastTimeText(value: string) {
+  const match = value.match(/\b(\d{1,2}(?::\d{2})?\s?(?:am|pm)?)\b/);
+  return match?.[1];
 }
 
 function appendFlowRows(choices: Choice[], locale: SupportedLocale) {
@@ -1171,35 +1224,6 @@ function sanitizeUserText(value: string) {
 
 function asOptionalString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function detectMessageLocale(
-  text: string,
-  sessionLocale: SupportedLocale,
-  tenantDefaultLocale: SupportedLocale
-): SupportedLocale {
-  const normalized = text.trim().toLowerCase();
-  if (!normalized) {
-    return sessionLocale ?? tenantDefaultLocale;
-  }
-
-  if (
-    /\b(ciao|salve|buongiorno|buonasera|vorrei|prenotazione|prenotare|annulla|sposta|domani|oggi|sera|servizio|servizi|orario|orari|operatore|umano|grazie|per favore|disponibilita)\b/.test(
-      normalized
-    )
-  ) {
-    return "it";
-  }
-
-  if (
-    /\b(hello|hi|hey|booking|book|cancel|reschedule|service|services|tomorrow|today|evening|time|times|operator|human|please|thanks|thank you|availability|available|need|want|schedule)\b/.test(
-      normalized
-    )
-  ) {
-    return "en";
-  }
-
-  return sessionLocale ?? tenantDefaultLocale;
 }
 
 function classifyAiError(error: unknown) {
