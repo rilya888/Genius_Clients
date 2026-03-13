@@ -1168,13 +1168,32 @@ function detectMessageLocale(
   sessionLocale: SupportedLocale,
   tenantDefaultLocale: SupportedLocale
 ): SupportedLocale {
-  const normalized = text.toLowerCase();
-  if (/\b(ciao|vorrei|prenotazione|annulla|sposta|domani|oggi|sera|servizio|operatore)\b/.test(normalized)) {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) {
+    return sessionLocale ?? tenantDefaultLocale;
+  }
+
+  if (
+    /\b(ciao|salve|buongiorno|buonasera|vorrei|prenotazione|prenotare|annulla|sposta|domani|oggi|sera|servizio|servizi|orario|orari|operatore|umano|grazie|per favore|disponibilita)\b/.test(
+      normalized
+    )
+  ) {
     return "it";
   }
-  if (/\b(hello|booking|cancel|reschedule|service|tomorrow|today|evening|operator)\b/.test(normalized)) {
+
+  if (
+    /\b(hello|hi|hey|booking|book|cancel|reschedule|service|services|tomorrow|today|evening|time|times|operator|human|please|thanks|thank you|availability|available|need|want|schedule)\b/.test(
+      normalized
+    )
+  ) {
     return "en";
   }
+
+  const asciiLetters = normalized.replace(/[^a-z]/g, "");
+  if (asciiLetters.length >= 6 && /^[\x00-\x7F\s\d.,!?':;"()/-]+$/.test(normalized)) {
+    return "en";
+  }
+
   return sessionLocale ?? tenantDefaultLocale;
 }
 
