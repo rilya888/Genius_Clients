@@ -22,7 +22,7 @@ type BookingItem = {
   status: string;
 };
 
-type ConversationState =
+export type ConversationState =
   | "choose_intent"
   | "choose_service"
   | "choose_master"
@@ -35,6 +35,12 @@ type ConversationState =
 export type ConversationIntent = "new_booking" | "cancel_booking" | "reschedule_booking";
 export type ConversationMode = "deterministic" | "ai_assisted" | "human_handoff";
 export type ConversationHandoffStatus = "inactive" | "pending" | "active";
+export type ConversationResetReason =
+  | "explicit_reset_command"
+  | "intent_conflict"
+  | "idle_timeout"
+  | "non_continuation_message"
+  | "handoff_restart";
 
 export type WhatsAppConversationSession = {
   flowVersion: number;
@@ -70,6 +76,8 @@ export type WhatsAppConversationSession = {
   lastUserMessageAt?: string;
   aiFailureCount?: number;
   conversationTraceId?: string;
+  lastResetAt?: string;
+  lastResetReason?: ConversationResetReason;
 };
 
 type ConversationInput = {
@@ -150,6 +158,19 @@ export function createInitialSession(locale: SupportedLocale): WhatsAppConversat
     slotPage: 0,
     handoffStatus: "inactive",
     aiFailureCount: 0
+  };
+}
+
+export function resetSessionForNewConversation(input: {
+  locale: SupportedLocale;
+  nowIso: string;
+  reason: ConversationResetReason;
+}): WhatsAppConversationSession {
+  return {
+    ...createInitialSession(input.locale),
+    lastUserMessageAt: input.nowIso,
+    lastResetAt: input.nowIso,
+    lastResetReason: input.reason
   };
 }
 

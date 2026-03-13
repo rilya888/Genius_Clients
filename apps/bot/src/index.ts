@@ -7,6 +7,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { processWhatsAppConversation, type WhatsAppConversationSession } from "./whatsapp-conversation";
 import { processAiWhatsAppMessage } from "./ai-orchestrator";
 import { OpenAIResponsesClient } from "./openai-responses-client";
+import { applyConversationResetPolicy, toDeterministicIntentToken } from "./conversation-reset-policy";
 
 const app = new Hono();
 const telegramWebhookSecret = process.env.TG_WEBHOOK_SECRET_TOKEN ?? "";
@@ -18,6 +19,7 @@ const waWebhookSecret = process.env.WA_WEBHOOK_SECRET ?? "";
 const openAiApiKey = process.env.OPENAI_API_KEY ?? "";
 const openAiModel = process.env.OPENAI_MODEL ?? "gpt-5-mini";
 const openAiResponsesEnabled = process.env.OPENAI_RESPONSES_ENABLED !== "false";
+const sessionIdleResetMinutes = Math.max(1, Number.parseInt(process.env.SESSION_IDLE_RESET_MINUTES ?? "45", 10) || 45);
 const apiUrl = process.env.API_URL ?? "";
 const internalApiSecret = process.env.INTERNAL_API_SECRET ?? "";
 const botTenantSlug = process.env.BOT_TENANT_SLUG ?? "";
@@ -1138,6 +1140,30 @@ app.post("/webhooks/whatsapp", async (c) => {
         locale: effectiveLocale
       });
 
+      const existingSession = await loadWhatsAppSession(item.from);
+      const resetResult = applyConversationResetPolicy({
+        session: existingSession,
+        locale: effectiveLocale,
+        text: item.text,
+        replyId: item.replyId,
+        now: new Date(),
+        idleResetMinutes: sessionIdleResetMinutes
+      });
+      await saveWhatsAppSession(item.from, resetResult.session);
+      console.info("[bot] whatsapp reset policy", {
+        messageId: item.messageId,
+        from: maskPhone(item.from),
+        resetDecision: resetResult.decision,
+        resetReason: resetResult.reason ?? null,
+        previousState: existingSession?.state ?? null,
+        previousIntent: existingSession?.intent ?? null,
+        previousMode: existingSession?.currentMode ?? null,
+        hadPreviousResponseId: Boolean(existingSession?.lastOpenaiResponseId),
+        idleMinutes: resetResult.idleMinutes ?? null,
+        detectedIntent: resetResult.detectedIntent,
+        hasReplyId: Boolean(item.replyId)
+      });
+
       const conversationDeps = {
         dedupInboundMessage,
         loadSession: loadWhatsAppSession,
@@ -1184,7 +1210,12 @@ app.post("/webhooks/whatsapp", async (c) => {
       };
 
       let flowResult = { handled: false };
-      if (!item.replyId && item.text && !isStructuredControlMessage(item.text)) {
+      if (
+        !resetResult.shouldSkipAi &&
+        !item.replyId &&
+        item.text &&
+        !isStructuredControlMessage(item.text)
+      ) {
         const aiResult = await processAiWhatsAppMessage(
           {
             from: item.from,
@@ -1233,8 +1264,14 @@ app.post("/webhooks/whatsapp", async (c) => {
             messageId: item.messageId,
             from: item.from,
             locale: effectiveLocale,
-            text: item.text,
-            replyId: item.replyId
+            text:
+              !item.replyId && resetResult.decision === "hard_reset_to_new_intent"
+                ? toDeterministicIntentToken(resetResult.detectedIntent) ?? item.text
+                : item.text,
+            replyId:
+              !item.replyId && resetResult.decision === "hard_reset_to_new_intent"
+                ? toDeterministicIntentToken(resetResult.detectedIntent)
+                : item.replyId
           },
           conversationDeps,
           { skipDedup: true }
