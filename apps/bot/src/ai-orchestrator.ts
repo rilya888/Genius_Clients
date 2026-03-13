@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SupportedLocale } from "@genius/i18n";
 import { createInitialSession, type ConversationIntent, type WhatsAppConversationSession } from "./whatsapp-conversation";
 import { OPENAI_PROMPT_VERSION, buildBookingAssistantInstructions, buildConversationInput } from "./openai-prompts";
-import { OpenAIResponsesClient } from "./openai-responses-client";
+import { OpenAIResponsesClient, OpenAIResponsesError, type OpenAITurnType } from "./openai-responses-client";
 
 type ServiceItem = {
   id: string;
@@ -121,6 +121,7 @@ export type AiOrchestratorDeps = {
 const RESTART_FLOW_TOKEN = "flow:restart";
 const BACK_FLOW_TOKEN = "flow:back";
 const MAX_TOOL_LOOPS = 6;
+const MAX_CHAIN_RESTARTS_PER_MESSAGE = 1;
 
 export async function processAiWhatsAppMessage(
   input: {
@@ -209,12 +210,14 @@ export async function processAiWhatsAppMessage(
 
     return { handled: false };
   } catch (error) {
+    const errorClass = classifyAiError(error);
     session.aiFailureCount = (session.aiFailureCount ?? 0) + 1;
     session.currentMode = "deterministic";
     await deps.saveSession(input.from, session);
     console.error("[bot][ai] failure", {
       traceId,
       error: error instanceof Error ? error.message : "unknown_error",
+      errorClass,
       failures: session.aiFailureCount
     });
 
@@ -271,26 +274,62 @@ async function runAiLoop(
   let lastResponseId = previousResponseId;
   let lastUsage: Record<string, number> | null = null;
   let summary = input.userText.slice(0, 280);
+  let turnType: OpenAITurnType = "user_input";
+  let chainRestarts = 0;
 
   for (let step = 0; step < MAX_TOOL_LOOPS; step += 1) {
     console.info("[bot][ai] request", {
       traceId: input.traceId,
       step,
-      hasPreviousResponseId: Boolean(previousResponseId)
+      turnType,
+      chainRestarted: chainRestarts > 0,
+      previousResponseIdPresent: Boolean(previousResponseId)
     });
 
-    const response = await input.client.create({
-      model: input.model,
-      instructions,
-      input: requestInput,
+    let response;
+    try {
+      response = await input.client.create({
+        model: input.model,
+        instructions,
+        input: requestInput,
+        turnType,
         tools: [...buildTools()],
-      previousResponseId,
-      metadata: {
-        trace_id: input.traceId,
-        prompt_version: OPENAI_PROMPT_VERSION,
-        locale: input.locale
+        previousResponseId,
+        metadata: {
+          trace_id: input.traceId,
+          prompt_version: OPENAI_PROMPT_VERSION,
+          locale: input.locale
+        }
+      });
+    } catch (error) {
+      if (
+        error instanceof OpenAIResponsesError &&
+        error.code === "openai_tool_chain_invalid" &&
+        chainRestarts < MAX_CHAIN_RESTARTS_PER_MESSAGE
+      ) {
+        chainRestarts += 1;
+        previousResponseId = undefined;
+        requestInput = buildConversationInput({
+          locale: input.locale,
+          userText: input.userText,
+          session: input.session
+        });
+        latestArtifact = { kind: "none" };
+        lastResponseId = undefined;
+        lastUsage = null;
+        summary = input.userText.slice(0, 280);
+        turnType = "user_input";
+        console.warn("[bot][ai] chain restart", {
+          traceId: input.traceId,
+          step,
+          chainRestarted: true,
+          chainRestartReason: error.code
+        });
+        step = -1;
+        continue;
       }
-    });
+      throw error;
+    }
 
     lastResponseId = response.id;
     lastUsage = response.usage;
@@ -299,7 +338,11 @@ async function runAiLoop(
     console.info("[bot][ai] response", {
       traceId: input.traceId,
       step,
+      turnType,
+      chainRestarted: chainRestarts > 0,
+      previousResponseIdPresent: Boolean(previousResponseId),
       functionCalls: response.functionCalls.length,
+      toolCallNames: response.functionCalls.map((call) => call.name),
       usage: response.usage
     });
 
@@ -337,9 +380,15 @@ async function runAiLoop(
     }
 
     requestInput = toolOutputs;
+    turnType = "tool_output";
+    console.info("[bot][ai] tool output prepared", {
+      traceId: input.traceId,
+      step,
+      toolOutputCount: toolOutputs.length
+    });
   }
 
-  throw new Error("openai_tool_loop_limit_exceeded");
+  throw new Error(chainRestarts > 0 ? "openai_chain_restart_exhausted" : "openai_tool_loop_limit_exceeded");
 }
 
 function buildTools() {
@@ -1200,6 +1249,21 @@ function detectMessageLocale(
   }
 
   return sessionLocale ?? tenantDefaultLocale;
+}
+
+function classifyAiError(error: unknown) {
+  if (error instanceof OpenAIResponsesError) {
+    if (error.code === "openai_tool_chain_invalid" || error.code === "openai_previous_response_not_found") {
+      return "openai_chain_error";
+    }
+    return "openai_transport_error";
+  }
+
+  if (error instanceof Error && error.message.startsWith("unsupported_tool:")) {
+    return "tool_schema_error";
+  }
+
+  return "tool_domain_error";
 }
 
 function maskPhone(value: string): string {
