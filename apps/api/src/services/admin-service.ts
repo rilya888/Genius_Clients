@@ -462,6 +462,10 @@ export class AdminService {
     bookingBufferMinutes?: number;
     adminNotificationEmail?: string | null;
     adminNotificationTelegramChatId?: number | null;
+    adminNotificationWhatsappE164?: string | null;
+    openaiEnabled?: boolean;
+    openaiModel?: string;
+    humanHandoffEnabled?: boolean;
     requestId?: string;
   }) {
     if (input.defaultLocale && input.defaultLocale !== "it" && input.defaultLocale !== "en") {
@@ -485,6 +489,20 @@ export class AdminService {
         throw appError("VALIDATION_ERROR", { reason: "booking_buffer_minutes_invalid" });
       }
     }
+    if (input.openaiModel !== undefined) {
+      const normalized = input.openaiModel.trim();
+      if (!normalized) {
+        throw appError("VALIDATION_ERROR", { reason: "openai_model_invalid" });
+      }
+      input.openaiModel = normalized;
+    }
+    if (input.adminNotificationWhatsappE164 !== undefined) {
+      const value = input.adminNotificationWhatsappE164;
+      if (value !== null && value.trim() && !/^\+[1-9]\d{5,14}$/.test(value.trim())) {
+        throw appError("VALIDATION_ERROR", { reason: "admin_notification_whatsapp_e164_invalid" });
+      }
+      input.adminNotificationWhatsappE164 = value?.trim() ? value.trim() : null;
+    }
 
     const updated = await this.tenantRepository.updateSettings(input);
     if (!updated) {
@@ -506,7 +524,11 @@ export class AdminService {
           bookingMinAdvanceMinutes: input.bookingMinAdvanceMinutes,
           bookingBufferMinutes: input.bookingBufferMinutes,
           adminNotificationEmail: input.adminNotificationEmail,
-          adminNotificationTelegramChatId: input.adminNotificationTelegramChatId
+          adminNotificationTelegramChatId: input.adminNotificationTelegramChatId,
+          adminNotificationWhatsappE164: input.adminNotificationWhatsappE164,
+          openaiEnabled: input.openaiEnabled,
+          openaiModel: input.openaiModel,
+          humanHandoffEnabled: input.humanHandoffEnabled
         }
       }
     });
@@ -530,7 +552,11 @@ export class AdminService {
       bookingMinAdvanceMinutes: tenant.bookingMinAdvanceMinutes,
       bookingBufferMinutes: tenant.bookingBufferMinutes,
       adminNotificationEmail: tenant.adminNotificationEmail,
-      adminNotificationTelegramChatId: tenant.adminNotificationTelegramChatId
+      adminNotificationTelegramChatId: tenant.adminNotificationTelegramChatId,
+      adminNotificationWhatsappE164: tenant.adminNotificationWhatsappE164,
+      openaiEnabled: tenant.openaiEnabled,
+      openaiModel: tenant.openaiModel,
+      humanHandoffEnabled: tenant.humanHandoffEnabled
     };
   }
 }
