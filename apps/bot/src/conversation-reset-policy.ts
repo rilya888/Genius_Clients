@@ -115,6 +115,25 @@ export async function applyConversationResetPolicy(
       };
     }
 
+    if (!input.replyId && normalizedText) {
+      return {
+        session: resetSessionForNewConversation({
+          locale: input.locale,
+          nowIso,
+          reason: "handoff_restart"
+        }),
+        decision: "hard_reset_to_menu",
+        reason: "handoff_restart",
+        detectedIntent,
+        idleMinutes,
+        shouldSkipAi: true,
+        currentStepContinuationMatched: false,
+        continuationClassifier: "none",
+        matchedCandidateCount: 0,
+        matchedCandidateType: null
+      };
+    }
+
     return buildContinueResult(session, nowIso, input.locale, detectedIntent, idleMinutes, {
       matched: false,
       classifier: "none",
