@@ -31,14 +31,20 @@ git fetch origin main
 
 for service in "${services[@]}"; do
   branch="${BRANCH_PREFIX}/${service}"
-  dockerfile_path="apps/${service}/Dockerfile"
   case "$service" in
-    web) start_cmd="pnpm --filter @genius/web run start" ;;
+    web)
+      dockerfile_path="apps/web-vite/Dockerfile"
+      start_cmd="pnpm --filter @genius/web-vite run start"
+      ;;
     api) start_cmd="pnpm --filter @genius/api run start:runtime" ;;
     bot) start_cmd="node apps/bot/dist/index.js" ;;
     worker) start_cmd="node apps/worker/dist/index.js" ;;
     *) echo "Unsupported service: ${service}" >&2; exit 1 ;;
   esac
+
+  if [[ "$service" != "web" ]]; then
+    dockerfile_path="apps/${service}/Dockerfile"
+  fi
 
   git checkout -B "$branch" origin/main >/dev/null
 

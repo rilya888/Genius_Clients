@@ -17,7 +17,7 @@ Isolate deployments by service using Railway native GitHub integration, so a cha
 
 ## Service mapping
 
-- `web` -> repo `rilya888/Genius_Clients`, branch `deploy/web`, Dockerfile `apps/web/Dockerfile`
+- `web` -> repo `rilya888/Genius_Clients`, branch `deploy/web`, Dockerfile `apps/web-vite/Dockerfile`
 - `api` -> repo `rilya888/Genius_Clients`, branch `deploy/api`, Dockerfile `apps/api/Dockerfile`
 - `bot` -> repo `rilya888/Genius_Clients`, branch `deploy/bot`, Dockerfile `apps/bot/Dockerfile`
 - `worker` -> repo `rilya888/Genius_Clients`, branch `deploy/worker`, Dockerfile `apps/worker/Dockerfile`
