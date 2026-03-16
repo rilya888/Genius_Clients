@@ -19,18 +19,26 @@ export function resolveConversationLocale(input: {
   localeReason: ConversationLocaleReason;
 } {
   const normalized = input.text?.trim().toLowerCase() ?? "";
+  if (!normalized) {
+    if (input.sessionLocale) {
+      return { resolvedLocale: input.sessionLocale, localeReason: "session_locale" };
+    }
+    if (input.rawInboundLocale) {
+      return { resolvedLocale: input.rawInboundLocale, localeReason: "raw_inbound" };
+    }
+    return { resolvedLocale: input.tenantDefaultLocale, localeReason: "tenant_default" };
+  }
+
   const words = tokenize(normalized);
 
-  const italianMarkerPattern =
-    /\b(ciao|salve|buongiorno|buonasera|vorrei|prenotazione|prenotare|annulla|sposta|domani|oggi|sera|servizio|servizi|orario|orari|operatore|umano|grazie|per favore|disponibilita|venerdi|sabato|domenica|lunedi|martedi|mercoledi|giovedi|appuntamento|appuntamenti|mie|miei|ho|voglio|posso|aiutami)\b/;
-  const englishMarkerPattern =
-    /\b(hello|hi|hey|booking|book|cancel|reschedule|service|services|tomorrow|today|evening|time|times|operator|human|please|thanks|thank you|availability|available|need|want|schedule|friday|saturday|sunday|monday|tuesday|wednesday|thursday|appointment|appointments|my bookings|my booking|can you|i want|i need|show)\b/;
+  const italianMarkerScore = countMatches(normalized, words, ITALIAN_MARKERS, ITALIAN_PHRASES);
+  const englishMarkerScore = countMatches(normalized, words, ENGLISH_MARKERS, ENGLISH_PHRASES);
 
-  if (italianMarkerPattern.test(normalized)) {
+  if (italianMarkerScore > englishMarkerScore && italianMarkerScore > 0) {
     return { resolvedLocale: "it", localeReason: "text_marker_it" };
   }
 
-  if (englishMarkerPattern.test(normalized)) {
+  if (englishMarkerScore > italianMarkerScore && englishMarkerScore > 0) {
     return { resolvedLocale: "en", localeReason: "text_marker_en" };
   }
 
@@ -83,12 +91,13 @@ export function resolveConversationLocale(input: {
     return { resolvedLocale: "en", localeReason: "text_inferred_en" };
   }
 
-  if (words.length >= 3 && isMostlyAsciiLatin(words)) {
-    return { resolvedLocale: "en", localeReason: "text_inferred_en" };
-  }
-
+  // Keep active conversation language for neutral/ambiguous short replies.
   if (input.sessionLocale) {
     return { resolvedLocale: input.sessionLocale, localeReason: "session_locale" };
+  }
+
+  if (input.rawInboundLocale) {
+    return { resolvedLocale: input.rawInboundLocale, localeReason: "raw_inbound" };
   }
 
   return { resolvedLocale: input.tenantDefaultLocale, localeReason: "tenant_default" };
@@ -113,10 +122,103 @@ function scoreLanguage(words: string[], dictionary: string[]) {
   return score;
 }
 
-function isMostlyAsciiLatin(words: string[]) {
-  if (words.length === 0) {
-    return false;
+function countMatches(
+  normalized: string,
+  words: string[],
+  wordMarkers: string[],
+  phraseMarkers: string[]
+) {
+  const wordSet = new Set(wordMarkers);
+  let score = 0;
+  for (const word of words) {
+    if (wordSet.has(word)) {
+      score += 1;
+    }
   }
-  const asciiLike = words.filter((word) => /^[a-z0-9']+$/i.test(word)).length;
-  return asciiLike / words.length >= 0.8;
+  for (const phrase of phraseMarkers) {
+    if (normalized.includes(phrase)) {
+      score += 2;
+    }
+  }
+  return score;
 }
+
+const ITALIAN_MARKERS = [
+  "ciao",
+  "salve",
+  "buongiorno",
+  "buonasera",
+  "vorrei",
+  "prenotazione",
+  "prenotazioni",
+  "prenotare",
+  "annulla",
+  "annullare",
+  "sposta",
+  "riprogramma",
+  "domani",
+  "oggi",
+  "stasera",
+  "servizio",
+  "servizi",
+  "orario",
+  "orari",
+  "operatore",
+  "umano",
+  "grazie",
+  "disponibilita",
+  "disponibilità",
+  "venerdi",
+  "venerdì",
+  "sabato",
+  "domenica",
+  "lunedi",
+  "lunedì",
+  "martedi",
+  "martedì",
+  "mercoledi",
+  "mercoledì",
+  "giovedi",
+  "giovedì",
+  "appuntamento",
+  "appuntamenti",
+  "voglio",
+  "posso",
+  "aiutami"
+];
+
+const ENGLISH_MARKERS = [
+  "hello",
+  "hi",
+  "hey",
+  "booking",
+  "book",
+  "cancel",
+  "reschedule",
+  "service",
+  "services",
+  "tomorrow",
+  "today",
+  "evening",
+  "time",
+  "times",
+  "operator",
+  "human",
+  "please",
+  "thanks",
+  "availability",
+  "available",
+  "schedule",
+  "friday",
+  "saturday",
+  "sunday",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "appointment",
+  "appointments"
+];
+
+const ITALIAN_PHRASES = ["per favore", "mie prenotazioni", "i miei appuntamenti", "le mie prenotazioni"];
+const ENGLISH_PHRASES = ["thank you", "my bookings", "my booking", "can you", "i want", "i need"];
