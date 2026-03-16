@@ -965,6 +965,11 @@ async function resolveBookingLikeIntent(
   const effectiveServiceQuery = input.parsed.serviceQuery ?? inferredServiceQuery;
   const effectiveDateText = input.parsed.dateText ?? extractFastDateText(normalizeSearch(input.rawText));
   const effectiveTimeText = input.parsed.timeText ?? extractFastTimeText(normalizeSearch(input.rawText));
+  const normalizedDateCandidate = normalizeDateCandidate(
+    effectiveDateText,
+    input.locale,
+    input.tenantConfig.timezone
+  );
   const serviceResolution = resolveNamedChoice(services, effectiveServiceQuery, (item) => item.displayName);
   if (!effectiveServiceQuery) {
     input.session.collectedEntities = {
@@ -973,6 +978,9 @@ async function resolveBookingLikeIntent(
       dateCandidate: effectiveDateText ?? input.session.collectedEntities?.dateCandidate,
       timeCandidate: effectiveTimeText ?? input.session.collectedEntities?.timeCandidate
     };
+    if (normalizedDateCandidate) {
+      input.session.date = normalizedDateCandidate;
+    }
     logBookingFunnelStep(input.traceId, {
       step: "service_missing",
       locale: input.locale,
@@ -1022,6 +1030,9 @@ async function resolveBookingLikeIntent(
     dateCandidate: effectiveDateText ?? input.session.collectedEntities?.dateCandidate,
     timeCandidate: effectiveTimeText ?? input.session.collectedEntities?.timeCandidate
   };
+  if (normalizedDateCandidate) {
+    input.session.date = normalizedDateCandidate;
+  }
 
   const masters = await deps.fetchMasters(input.locale, service.id);
   const inferredMasterQuery = inferEntityFromCatalog(input.rawText, masters, (item) => item.displayName);

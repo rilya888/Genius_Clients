@@ -1038,12 +1038,21 @@ async function advanceWithDateAndTimeCandidates(
   }
   const dateCandidate = session.collectedEntities?.dateCandidate;
   const timeCandidate = session.collectedEntities?.timeCandidate;
-  if (!dateCandidate?.trim()) {
+  const timezone = await deps.getTenantTimezone();
+  const dateIsoFromCandidate = resolveDateCandidateToIso(dateCandidate, session.locale, timezone);
+  const dateIso = dateIsoFromCandidate ?? session.date;
+  if (!dateIso) {
+    console.info("[bot] candidate auto-apply", {
+      sourceStep,
+      locale: session.locale,
+      hasDateCandidate: Boolean(dateCandidate),
+      dateCandidateApplied: false,
+      hasTimeCandidate: Boolean(timeCandidate),
+      timeCandidateApplied: false,
+      reason: "missing_date_candidate"
+    });
     return false;
   }
-
-  const timezone = await deps.getTenantTimezone();
-  const dateIso = resolveDateCandidateToIso(dateCandidate, session.locale, timezone);
   if (!dateIso) {
     return false;
   }
@@ -1065,7 +1074,8 @@ async function advanceWithDateAndTimeCandidates(
     hasDateCandidate: Boolean(dateCandidate),
     dateCandidateApplied: Boolean(dateIso),
     hasTimeCandidate: Boolean(timeCandidate),
-    timeCandidateApplied: Boolean(matchedSlot)
+    timeCandidateApplied: Boolean(matchedSlot),
+    usedSessionDateFallback: !dateIsoFromCandidate && Boolean(session.date)
   });
 
   if (matchedSlot) {
