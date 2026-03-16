@@ -127,6 +127,12 @@
 - ручной sign-off
 3. Деплой только через `deploy/web`.
 
+### Текущий прогресс QA
+
+- Добавлен smoke-скрипт: `scripts/smoke/web-ui-v3-smoke.mjs`.
+- Скрипт проверяет ключевые маркеры по маршрутам `/`, `/public/book`, `/auth` на live-домене.
+- Smoke-проверка на production домене выполнена успешно (последний запуск: `ok: true`).
+
 ## Откат
 
 - Мгновенный rollback через `NEXT_PUBLIC_UI_V3_ENABLED=false`.
