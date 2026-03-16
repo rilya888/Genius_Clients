@@ -16,4 +16,4 @@ COPY --from=builder /app/apps/web-vite ./apps/web-vite
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/pnpm-workspace.yaml /app/package.json ./
 EXPOSE 4173
-CMD ["pnpm", "--filter", "@genius/web-vite", "run", "start"]
+CMD ["pnpm", "--dir", "apps/web-vite", "run", "start"]
