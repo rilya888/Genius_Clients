@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { resolveLocale, t, type SupportedLocale } from "@genius/i18n";
 import { parseLocaleCookie, setUiLocaleCookie } from "../../lib/ui-locale";
+import { isUiV2Enabled } from "../../lib/ui-flags";
 
 type SessionInfo = {
   userId: string;
@@ -14,6 +15,7 @@ type SessionInfo = {
 type StatusTone = "neutral" | "error" | "success";
 
 export default function AuthPage() {
+  const uiV2Enabled = isUiV2Enabled();
   const searchParams = useSearchParams();
   const [uiLocale, setUiLocale] = useState<SupportedLocale>("it");
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -200,28 +202,42 @@ export default function AuthPage() {
   }
 
   return (
-    <main className="gc-auth-page">
+    <main className={`gc-auth-page${uiV2Enabled ? " gc-auth-page-v2" : ""}`}>
       <h1 className="gc-auth-title">{t("auth.title", { locale: uiLocale })}</h1>
-      <p className="gc-auth-subtitle">
-        Secure authentication gateway for tenant onboarding and operator access.
-      </p>
+      {uiV2Enabled ? (
+        <p className="gc-auth-subtitle gc-v2-fade-up">
+          Secure authentication gateway for tenant onboarding and operator access.
+        </p>
+      ) : null}
 
-      <section className="gc-auth-layout">
-        <aside className="gc-card gc-auth-intro-card">
-          <h2 className="gc-auth-intro-title">Access and onboarding</h2>
-          <p className="gc-auth-intro-text">
-            Use login for existing operators or create a new tenant account to initialize your
-            business workspace.
-          </p>
-          <ul className="gc-auth-points">
-            <li>Session-based authentication via BFF routes</li>
-            <li>Tenant-aware onboarding with optional slug</li>
-            <li>Email verification flow for account trust</li>
-          </ul>
-        </aside>
+      <section className={uiV2Enabled ? "gc-auth-layout" : ""}>
+        {uiV2Enabled ? (
+          <aside className="gc-card gc-auth-intro-card gc-v2-fade-up">
+            <h2 className="gc-auth-intro-title">Access and onboarding</h2>
+            <p className="gc-auth-intro-text">
+              Use login for existing operators or create a new tenant account to initialize your
+              business workspace.
+            </p>
+            <ul className="gc-auth-points">
+              <li>Session-based authentication via BFF routes</li>
+              <li>Tenant-aware onboarding with optional slug</li>
+              <li>Email verification flow for account trust</li>
+            </ul>
+            <div className="gc-auth-intro-metrics">
+              <div>
+                <strong>IT/EN</strong>
+                <span>locale-aware onboarding</span>
+              </div>
+              <div>
+                <strong>BFF</strong>
+                <span>session-safe auth flow</span>
+              </div>
+            </div>
+          </aside>
+        ) : null}
 
-        <div className="gc-auth-main">
-          <div className="gc-auth-toolbar">
+        <div className={`gc-auth-main${uiV2Enabled ? " gc-v2-fade-up gc-v2-fade-up-delay-1" : ""}`}>
+          <div className={`gc-auth-toolbar${uiV2Enabled ? " gc-auth-toolbar-v2" : ""}`}>
             <button className="gc-pill-btn" onClick={() => setMode("login")} disabled={mode === "login"}>
               {t("auth.login", { locale: uiLocale })}
             </button>

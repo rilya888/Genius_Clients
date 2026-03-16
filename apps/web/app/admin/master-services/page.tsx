@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
+import { isUiV2Enabled } from "../../../lib/ui-flags";
 
 type Master = { id: string; displayName: string };
 type Service = { id: string; displayName: string };
@@ -14,6 +15,7 @@ type MasterServiceItem = {
 type StatusTone = "neutral" | "error" | "success";
 
 export default function MasterServicesPage() {
+  const uiV2Enabled = isUiV2Enabled();
   const [masters, setMasters] = useState<Master[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [items, setItems] = useState<MasterServiceItem[]>([]);
@@ -139,47 +141,49 @@ export default function MasterServicesPage() {
   }
 
   return (
-    <main className="gc-admin-page">
+    <main className={`gc-admin-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
       <h1 className="gc-admin-title">Master Services</h1>
       <p className="gc-admin-subtitle">Assign services to masters with optional duration overrides.</p>
-      <div className="gc-master-services-create-grid">
-        <div className="gc-field">
-          <span className="gc-field-label">Master</span>
-          <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
-            <option value="">Select master</option>
-            {masters.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.displayName}
-              </option>
-            ))}
-          </select>
+      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
+        <div className="gc-master-services-create-grid">
+          <div className="gc-field">
+            <span className="gc-field-label">Master</span>
+            <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+              <option value="">Select master</option>
+              {masters.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.displayName}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="gc-field">
+            <span className="gc-field-label">Service</span>
+            <select className="gc-select" value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
+              <option value="">Select service</option>
+              {services.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.displayName}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="gc-field">
+            <span className="gc-field-label">Duration override (minutes, optional)</span>
+            <input
+              className="gc-input"
+              placeholder="e.g. 45"
+              value={durationOverride}
+              onChange={(e) => setDurationOverride(e.target.value)}
+            />
+          </div>
+          <button className="gc-action-btn" onClick={() => void createLink()}>
+            Create Link
+          </button>
         </div>
-        <div className="gc-field">
-          <span className="gc-field-label">Service</span>
-          <select className="gc-select" value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
-            <option value="">Select service</option>
-            {services.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.displayName}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="gc-field">
-          <span className="gc-field-label">Duration override (minutes, optional)</span>
-          <input
-            className="gc-input"
-            placeholder="e.g. 45"
-            value={durationOverride}
-            onChange={(e) => setDurationOverride(e.target.value)}
-          />
-        </div>
-        <button className="gc-action-btn" onClick={() => void createLink()}>
-          Create Link
-        </button>
-      </div>
+      </section>
       <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
-      <div className="gc-admin-table-wrap">
+      <div className={`gc-admin-table-wrap${uiV2Enabled ? " gc-admin-table-wrap-v2" : ""}`}>
         <table className="gc-admin-table">
           <thead>
             <tr>

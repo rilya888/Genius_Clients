@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
+import { isUiV2Enabled } from "../../../lib/ui-flags";
 
 type MasterItem = {
   id: string;
@@ -11,6 +12,7 @@ type MasterItem = {
 type StatusTone = "neutral" | "error" | "success";
 
 export default function MastersPage() {
+  const uiV2Enabled = isUiV2Enabled();
   const [items, setItems] = useState<MasterItem[]>([]);
   const [displayName, setDisplayName] = useState("");
   const [editing, setEditing] = useState<Record<string, { displayName: string; isActive: boolean }>>({});
@@ -118,31 +120,33 @@ export default function MastersPage() {
   }
 
   return (
-    <main className="gc-admin-page">
+    <main className={`gc-admin-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
       <h1 className="gc-admin-title">Masters</h1>
       <p className="gc-admin-subtitle">Manage specialists, visibility state, and naming consistency.</p>
       <p className="gc-admin-link-line">
         <a href="/admin/master-translations">Open master translations</a>
       </p>
-      <div className="gc-admin-filters">
-        <div className="gc-field">
-          <span className="gc-field-label">Master display name</span>
-          <input
-            className="gc-input"
-            placeholder="e.g. Maria Rossi"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-          />
+      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
+        <div className={`gc-admin-filters${uiV2Enabled ? " gc-admin-filters-v2" : ""}`}>
+          <div className="gc-field">
+            <span className="gc-field-label">Master display name</span>
+            <input
+              className="gc-input"
+              placeholder="e.g. Maria Rossi"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+            />
+          </div>
+          <button className="gc-action-btn" onClick={() => void createMaster()}>
+            Create
+          </button>
+          <button className="gc-action-btn" onClick={() => void load()}>
+            Refresh
+          </button>
         </div>
-        <button className="gc-action-btn" onClick={() => void createMaster()}>
-          Create
-        </button>
-        <button className="gc-action-btn" onClick={() => void load()}>
-          Refresh
-        </button>
-      </div>
+      </section>
       <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
-      <div className="gc-admin-table-wrap">
+      <div className={`gc-admin-table-wrap${uiV2Enabled ? " gc-admin-table-wrap-v2" : ""}`}>
         <table className="gc-admin-table">
           <thead>
             <tr>

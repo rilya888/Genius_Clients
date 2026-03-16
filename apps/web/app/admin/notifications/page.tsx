@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
+import { isUiV2Enabled } from "../../../lib/ui-flags";
 
 type DeliveryItem = {
   id: string;
@@ -47,6 +48,7 @@ function deliveryTone(status: string): "pending" | "success" | "error" | "info" 
 }
 
 export default function NotificationsPage() {
+  const uiV2Enabled = isUiV2Enabled();
   const [items, setItems] = useState<DeliveryItem[]>([]);
   const [summary, setSummary] = useState<DeliverySummary>({
     queued: 0,
@@ -111,44 +113,48 @@ export default function NotificationsPage() {
   }, []);
 
   return (
-    <main className="gc-admin-page">
+    <main className={`gc-admin-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
       <h1 className="gc-admin-title">Notification Deliveries</h1>
       <p className="gc-admin-subtitle">Monitor delivery queue health, failures, and retry execution.</p>
-      <div className="gc-admin-filters">
-        <button className="gc-action-btn" onClick={() => void load()}>
-          Refresh
-        </button>
-        {role === "owner" ? (
-          <button className="gc-action-btn" onClick={() => void retryFailed()}>
-            Retry failed
+      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
+        <div className={`gc-admin-filters${uiV2Enabled ? " gc-admin-filters-v2" : ""}`}>
+          <button className="gc-action-btn" onClick={() => void load()}>
+            Refresh
           </button>
-        ) : null}
-      </div>
+          {role === "owner" ? (
+            <button className="gc-action-btn" onClick={() => void retryFailed()}>
+              Retry failed
+            </button>
+          ) : null}
+        </div>
+      </section>
       <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
-      <div className="gc-notifications-summary-grid">
-        <div className="gc-card gc-status-card-small">
-          <div className="gc-status-name">Total</div>
-          <div className="gc-status-value">{summary.total}</div>
+      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
+        <div className="gc-notifications-summary-grid">
+          <div className="gc-card gc-status-card-small">
+            <div className="gc-status-name">Total</div>
+            <div className="gc-status-value">{summary.total}</div>
+          </div>
+          <div className="gc-card gc-status-card-small">
+            <div className="gc-status-name">Queued</div>
+            <div className="gc-status-value">{summary.queued}</div>
+          </div>
+          <div className="gc-card gc-status-card-small">
+            <div className="gc-status-name">Sent</div>
+            <div className="gc-status-value">{summary.sent}</div>
+          </div>
+          <div className="gc-card gc-status-card-small">
+            <div className="gc-status-name">Failed</div>
+            <div className="gc-status-value">{summary.failed}</div>
+          </div>
+          <div className="gc-card gc-status-card-small">
+            <div className="gc-status-name">Dead Letter</div>
+            <div className="gc-status-value">{summary.deadLetter}</div>
+          </div>
         </div>
-        <div className="gc-card gc-status-card-small">
-          <div className="gc-status-name">Queued</div>
-          <div className="gc-status-value">{summary.queued}</div>
-        </div>
-        <div className="gc-card gc-status-card-small">
-          <div className="gc-status-name">Sent</div>
-          <div className="gc-status-value">{summary.sent}</div>
-        </div>
-        <div className="gc-card gc-status-card-small">
-          <div className="gc-status-name">Failed</div>
-          <div className="gc-status-value">{summary.failed}</div>
-        </div>
-        <div className="gc-card gc-status-card-small">
-          <div className="gc-status-name">Dead Letter</div>
-          <div className="gc-status-value">{summary.deadLetter}</div>
-        </div>
-      </div>
+      </section>
 
-      <div className="gc-admin-table-wrap">
+      <div className={`gc-admin-table-wrap${uiV2Enabled ? " gc-admin-table-wrap-v2" : ""}`}>
         <table className="gc-admin-table">
           <thead>
             <tr>

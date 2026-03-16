@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
+import { isUiV2Enabled } from "../../../lib/ui-flags";
 
 type Master = { id: string; displayName: string };
 type Item = {
@@ -13,6 +14,7 @@ type Item = {
 type StatusTone = "neutral" | "error" | "success";
 
 export default function MasterTranslationsPage() {
+  const uiV2Enabled = isUiV2Enabled();
   const [masters, setMasters] = useState<Master[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [masterId, setMasterId] = useState("");
@@ -89,49 +91,51 @@ export default function MasterTranslationsPage() {
   const masterNameById = Object.fromEntries(masters.map((item) => [item.id, item.displayName]));
 
   return (
-    <main className="gc-admin-page">
+    <main className={`gc-admin-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
       <h1 className="gc-admin-title">Master Translations</h1>
       <p className="gc-admin-subtitle">Manage localized names and bios for IT/EN master profiles.</p>
-      <div className="gc-translations-create-grid">
-        <div className="gc-field">
-          <span className="gc-field-label">Master</span>
-          <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
-            <option value="">Select master</option>
-            {masters.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.displayName}
-              </option>
-            ))}
-          </select>
+      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
+        <div className="gc-translations-create-grid">
+          <div className="gc-field">
+            <span className="gc-field-label">Master</span>
+            <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+              <option value="">Select master</option>
+              {masters.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.displayName}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="gc-field">
+            <span className="gc-field-label">Locale</span>
+            <select className="gc-select" value={locale} onChange={(e) => setLocale(e.target.value as "it" | "en")}>
+              <option value="it">it</option>
+              <option value="en">en</option>
+            </select>
+          </div>
+          <div className="gc-field">
+            <span className="gc-field-label">Display name</span>
+            <input
+              className="gc-input"
+              placeholder="Localized master name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+            />
+          </div>
+          <div className="gc-field">
+            <span className="gc-field-label">Bio (optional)</span>
+            <input className="gc-input" placeholder="Short bio" value={bio} onChange={(e) => setBio(e.target.value)} />
+          </div>
+          <button className="gc-action-btn" onClick={() => void upsert()}>
+            Save
+          </button>
         </div>
-        <div className="gc-field">
-          <span className="gc-field-label">Locale</span>
-          <select className="gc-select" value={locale} onChange={(e) => setLocale(e.target.value as "it" | "en")}>
-            <option value="it">it</option>
-            <option value="en">en</option>
-          </select>
-        </div>
-        <div className="gc-field">
-          <span className="gc-field-label">Display name</span>
-          <input
-            className="gc-input"
-            placeholder="Localized master name"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-          />
-        </div>
-        <div className="gc-field">
-          <span className="gc-field-label">Bio (optional)</span>
-          <input className="gc-input" placeholder="Short bio" value={bio} onChange={(e) => setBio(e.target.value)} />
-        </div>
-        <button className="gc-action-btn" onClick={() => void upsert()}>
-          Save
-        </button>
-      </div>
+      </section>
 
       <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
 
-      <div className="gc-admin-table-wrap">
+      <div className={`gc-admin-table-wrap${uiV2Enabled ? " gc-admin-table-wrap-v2" : ""}`}>
         <table className="gc-admin-table">
           <thead>
             <tr>

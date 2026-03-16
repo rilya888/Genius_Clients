@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
+import { isUiV2Enabled } from "../../../lib/ui-flags";
 
 type ServiceItem = {
   id: string;
@@ -14,6 +15,7 @@ type ServiceItem = {
 type StatusTone = "neutral" | "error" | "success";
 
 export default function ServicesPage() {
+  const uiV2Enabled = isUiV2Enabled();
   const [items, setItems] = useState<ServiceItem[]>([]);
   const [displayName, setDisplayName] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("60");
@@ -162,55 +164,57 @@ export default function ServicesPage() {
   }
 
   return (
-    <main className="gc-admin-page">
+    <main className={`gc-admin-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
       <h1 className="gc-admin-title">Services</h1>
       <p className="gc-admin-subtitle">Manage service catalog, duration, and commercial ordering.</p>
       <p className="gc-admin-link-line">
         <a href="/admin/service-translations">Open service translations</a>
       </p>
-      <div className="gc-services-create-grid">
-        <div className="gc-field">
-          <span className="gc-field-label">Service display name</span>
-          <input
-            className="gc-input"
-            placeholder="e.g. Haircut"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-          />
+      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
+        <div className={`gc-services-create-grid${uiV2Enabled ? " gc-services-create-grid-v2" : ""}`}>
+          <div className="gc-field">
+            <span className="gc-field-label">Service display name</span>
+            <input
+              className="gc-input"
+              placeholder="e.g. Haircut"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+            />
+          </div>
+          <div className="gc-field">
+            <span className="gc-field-label">Duration (minutes)</span>
+            <input
+              className="gc-input"
+              placeholder="e.g. 60"
+              value={durationMinutes}
+              onChange={(e) => setDurationMinutes(e.target.value)}
+            />
+          </div>
+          <div className="gc-field">
+            <span className="gc-field-label">Price (cents, optional)</span>
+            <input
+              className="gc-input"
+              placeholder="e.g. 2500"
+              value={priceCents}
+              onChange={(e) => setPriceCents(e.target.value)}
+            />
+          </div>
+          <div className="gc-field">
+            <span className="gc-field-label">Sort order</span>
+            <input
+              className="gc-input"
+              placeholder="e.g. 0"
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value)}
+            />
+          </div>
+          <button className="gc-action-btn" onClick={() => void createService()}>
+            Create
+          </button>
         </div>
-        <div className="gc-field">
-          <span className="gc-field-label">Duration (minutes)</span>
-          <input
-            className="gc-input"
-            placeholder="e.g. 60"
-            value={durationMinutes}
-            onChange={(e) => setDurationMinutes(e.target.value)}
-          />
-        </div>
-        <div className="gc-field">
-          <span className="gc-field-label">Price (cents, optional)</span>
-          <input
-            className="gc-input"
-            placeholder="e.g. 2500"
-            value={priceCents}
-            onChange={(e) => setPriceCents(e.target.value)}
-          />
-        </div>
-        <div className="gc-field">
-          <span className="gc-field-label">Sort order</span>
-          <input
-            className="gc-input"
-            placeholder="e.g. 0"
-            value={sortOrder}
-            onChange={(e) => setSortOrder(e.target.value)}
-          />
-        </div>
-        <button className="gc-action-btn" onClick={() => void createService()}>
-          Create
-        </button>
-      </div>
+      </section>
       <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
-      <div className="gc-admin-table-wrap">
+      <div className={`gc-admin-table-wrap${uiV2Enabled ? " gc-admin-table-wrap-v2" : ""}`}>
         <table className="gc-admin-table">
           <thead>
             <tr>

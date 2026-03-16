@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { formatDateTime, t } from "@genius/i18n";
 import { getBrowserLocale, parseLocaleCookie, setUiLocaleCookie } from "../../../lib/ui-locale";
+import { isUiV2Enabled } from "../../../lib/ui-flags";
 
 type MasterItem = { id: string; displayName: string };
 type ServiceItem = { id: string; displayName: string; durationMinutes: number };
@@ -28,6 +29,7 @@ type SlotDiagnostics = {
 type StatusTone = "neutral" | "error" | "success";
 
 export default function PublicBookingPage() {
+  const uiV2Enabled = isUiV2Enabled();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [masters, setMasters] = useState<MasterItem[]>([]);
@@ -253,25 +255,8 @@ export default function PublicBookingPage() {
     return masters.find((item) => item.id === selectedSlot.masterId)?.displayName ?? selectedSlot.masterId;
   }, [masters, selectedSlot]);
 
-  return (
-    <main className="gc-book-page">
-      <h1 className="gc-book-title">{t("public.booking.title", { locale: clientLocale })}</h1>
-      <p className="gc-book-subtitle">
-        Select service, specialist, and preferred slot, then confirm your contact details.
-      </p>
-      <div className="gc-book-layout">
-        <aside className="gc-card gc-book-summary">
-          <h2 className="gc-book-summary-title">Booking progress</h2>
-          <ul className="gc-book-summary-list">
-            <li data-done={serviceId ? "true" : "false"}>Service selected</li>
-            <li data-done={date ? "true" : "false"}>Date selected</li>
-            <li data-done={selectedSlot ? "true" : "false"}>Slot selected</li>
-            <li data-done={clientName.trim() && phoneValid ? "true" : "false"}>Contact details filled</li>
-            <li data-done={clientConsent ? "true" : "false"}>Consent accepted</li>
-          </ul>
-        </aside>
-
-        <div className="gc-card gc-form-card">
+  const bookingForm = (
+    <div className="gc-card gc-form-card gc-book-form-main">
         <div className="gc-book-grid-top">
           <select className="gc-select" value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
             <option value="">{t("public.booking.selectService", { locale: clientLocale })}</option>
@@ -376,8 +361,42 @@ export default function PublicBookingPage() {
             })}
           </p>
         ) : null}
+    </div>
+  );
+
+  return (
+    <main className={`gc-book-page${uiV2Enabled ? " gc-book-page-v2" : ""}`}>
+      <h1 className="gc-book-title">{t("public.booking.title", { locale: clientLocale })}</h1>
+      {uiV2Enabled ? (
+        <p className="gc-book-subtitle gc-v2-fade-up">
+          Select service, specialist, and preferred slot, then confirm your contact details.
+        </p>
+      ) : null}
+      {uiV2Enabled ? (
+        <div className="gc-book-layout">
+          <aside className="gc-book-summary-stack">
+          <div className="gc-card gc-book-summary gc-v2-fade-up">
+            <h2 className="gc-book-summary-title">Booking progress</h2>
+            <ul className="gc-book-summary-list">
+              <li data-done={serviceId ? "true" : "false"}>Service selected</li>
+              <li data-done={date ? "true" : "false"}>Date selected</li>
+              <li data-done={selectedSlot ? "true" : "false"}>Slot selected</li>
+              <li data-done={clientName.trim() && phoneValid ? "true" : "false"}>Contact details filled</li>
+              <li data-done={clientConsent ? "true" : "false"}>Consent accepted</li>
+            </ul>
+          </div>
+          <div className="gc-card gc-book-summary-note gc-v2-fade-up gc-v2-fade-up-delay-1">
+            <h3 className="gc-feature-title">Booking policy</h3>
+            <p className="gc-feature-text">
+              Slots are validated in real time and protected with idempotent booking creation.
+            </p>
+          </div>
+          </aside>
+          <div className="gc-v2-fade-up gc-v2-fade-up-delay-1">{bookingForm}</div>
         </div>
-      </div>
+      ) : (
+        bookingForm
+      )}
     </main>
   );
 }

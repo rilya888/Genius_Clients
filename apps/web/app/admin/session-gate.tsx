@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogoutButton } from "./logout-button";
+import { isUiV2Enabled } from "../../lib/ui-flags";
 
 type SessionInfo = {
   email?: string;
@@ -11,6 +12,7 @@ type SessionInfo = {
 };
 
 export function SessionGate({ children }: { children: ReactNode }) {
+  const uiV2Enabled = isUiV2Enabled();
   const pathname = usePathname();
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<SessionInfo | null>(null);
@@ -73,31 +75,52 @@ export function SessionGate({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div>
-      <div className="gc-admin-shell gc-session-toolbar">
+    <div className={uiV2Enabled ? "gc-admin-v2-root" : ""}>
+      <div className={`gc-admin-shell gc-session-toolbar${uiV2Enabled ? " gc-session-toolbar-v2" : ""}`}>
         <span>
           {session?.email ?? "unknown"} ({session?.role ?? "unknown"})
         </span>
         <LogoutButton />
       </div>
-      <div className="gc-admin-layout">
-        <aside className="gc-admin-sidebar">
-          <ul className="gc-admin-sidebar-list">
-            {navItems.map((item) => {
-              const active =
-                item.href === "/admin" ? pathname === item.href : pathname.startsWith(item.href);
-              return (
-                <li key={item.href}>
-                  <Link className="gc-admin-sidebar-link" href={item.href} data-active={active}>
-                    {item.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </aside>
-        <div className="gc-admin-content">{children}</div>
-      </div>
+      {uiV2Enabled ? (
+        <div className="gc-admin-shell gc-admin-v2-intro gc-v2-fade-up">
+          <div>
+            <strong>Operations Control</strong>
+            <p>Manage bookings, schedules, services, notifications, and tenant settings in one workspace.</p>
+          </div>
+          <div className="gc-admin-v2-intro-badges">
+            <span>Tenant-aware</span>
+            <span>Session-secure</span>
+            <span>Realtime-ready</span>
+          </div>
+        </div>
+      ) : null}
+      {uiV2Enabled ? (
+        <div className="gc-admin-layout gc-admin-layout-v2">
+          <aside className="gc-admin-sidebar gc-admin-sidebar-v2">
+            <ul className="gc-admin-sidebar-list">
+              {navItems.map((item) => {
+                const active =
+                  item.href === "/admin" ? pathname === item.href : pathname.startsWith(item.href);
+                return (
+                  <li key={item.href}>
+                    <Link
+                      className={`gc-admin-sidebar-link${active ? " gc-v2-fade-up" : ""}`}
+                      href={item.href}
+                      data-active={active}
+                    >
+                      {item.label}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </aside>
+          <div className="gc-admin-content gc-admin-content-v2">{children}</div>
+        </div>
+      ) : (
+        <div className="gc-admin-shell">{children}</div>
+      )}
     </div>
   );
 }
