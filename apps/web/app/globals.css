@@ -1712,6 +1712,39 @@ button {
   padding: 24px 0 34px;
 }
 
+.gc-settings-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.gc-settings-block {
+  display: grid;
+  gap: 10px;
+}
+
+.gc-settings-block + .gc-settings-block {
+  padding-top: 4px;
+  border-top: 1px dashed var(--gc-border);
+}
+
+.gc-settings-block-title {
+  margin: 0;
+  font-size: 14px;
+}
+
+.gc-settings-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.gc-settings-three-col {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .gc-warning-text {
   color: var(--gc-warning);
 }
@@ -1833,6 +1866,15 @@ button {
 
   .gc-notifications-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .gc-settings-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gc-settings-two-col,
+  .gc-settings-three-col {
+    grid-template-columns: 1fr;
   }
 
   .gc-admin-quick-grid {

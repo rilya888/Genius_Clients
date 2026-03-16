@@ -91,6 +91,7 @@
 - Мониторинг доставок и retry UX.
 - Статус: **выполняется**.
   - Для translation экранов добавлены locale summary-блоки (it/en) для быстрого операционного контроля.
+  - `Tenant Settings` переразложен на секции (General/Scheduling/Notifications/AI/FAQ IT/EN) с summary-метриками.
 
 ### Срез F: Landing + Pricing + FAQ + Public Booking
 
