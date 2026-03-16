@@ -105,6 +105,13 @@ export default function BookingsPage() {
     return [];
   }
 
+  const summary = {
+    pending: items.filter((item) => item.status === "pending").length,
+    confirmed: items.filter((item) => item.status === "confirmed").length,
+    completed: items.filter((item) => item.status === "completed").length,
+    cancelled: items.filter((item) => item.status === "cancelled").length
+  };
+
   return (
     <main className={`gc-admin-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
       <h1 className="gc-admin-title">Bookings</h1>
@@ -135,6 +142,28 @@ export default function BookingsPage() {
         </div>
       </section>
       <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
+
+      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
+        <h2 className={uiV2Enabled ? "gc-admin-v2-section-title" : "gc-admin-section"}>Status summary</h2>
+        <div className="gc-admin-grid-4">
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">Pending</div>
+            <div className="gc-admin-stat-value">{summary.pending}</div>
+          </div>
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">Confirmed</div>
+            <div className="gc-admin-stat-value">{summary.confirmed}</div>
+          </div>
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">Completed</div>
+            <div className="gc-admin-stat-value">{summary.completed}</div>
+          </div>
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">Cancelled</div>
+            <div className="gc-admin-stat-value">{summary.cancelled}</div>
+          </div>
+        </div>
+      </section>
 
       <div className={`gc-admin-table-wrap${uiV2Enabled ? " gc-admin-table-wrap-v2" : ""}`}>
         <table className="gc-admin-table">
