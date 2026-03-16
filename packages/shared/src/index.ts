@@ -2,6 +2,7 @@ export type EnvironmentName = "development" | "staging" | "production";
 export * from "./slug";
 export * from "./validation";
 export * from "./monitoring";
+export * from "./action-token";
 
 export function getRequiredEnv(name: string): string {
   const value = process.env[name];
