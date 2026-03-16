@@ -2,26 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
-import { isUiV2Enabled } from "../../../lib/ui-flags";
-
-type StatusTone = "neutral" | "error" | "success";
-type TenantFaqContent = {
-  it: {
-    priceInfo: string;
-    addressInfo: string;
-    parkingInfo: string;
-    workingHoursInfo: string;
-  };
-  en: {
-    priceInfo: string;
-    addressInfo: string;
-    parkingInfo: string;
-    workingHoursInfo: string;
-  };
-};
 
 export default function TenantSettingsPage() {
-  const uiV2Enabled = isUiV2Enabled();
   const [role, setRole] = useState<string>("");
   const [defaultLocale, setDefaultLocale] = useState<"it" | "en">("it");
   const [timezone, setTimezone] = useState("Europe/Rome");
@@ -33,22 +15,7 @@ export default function TenantSettingsPage() {
   const [openaiEnabled, setOpenaiEnabled] = useState(true);
   const [openaiModel, setOpenaiModel] = useState("gpt-5-mini");
   const [humanHandoffEnabled, setHumanHandoffEnabled] = useState(true);
-  const [faqContent, setFaqContent] = useState<TenantFaqContent>({
-    it: {
-      priceInfo: "",
-      addressInfo: "",
-      parkingInfo: "",
-      workingHoursInfo: ""
-    },
-    en: {
-      priceInfo: "",
-      addressInfo: "",
-      parkingInfo: "",
-      workingHoursInfo: ""
-    }
-  });
   const [status, setStatus] = useState("");
-  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   useEffect(() => {
     async function load() {
@@ -66,19 +33,16 @@ export default function TenantSettingsPage() {
             openaiEnabled?: boolean;
             openaiModel?: string;
             humanHandoffEnabled?: boolean;
-            faqContent?: Partial<TenantFaqContent>;
           };
           error?: { message?: string };
         }>("/api/admin/tenant-settings")
       ]);
       if (!meResult.response.ok) {
         setStatus(meResult.payload?.error?.message ?? "Failed to load session");
-        setStatusTone("error");
         return;
       }
       if (!settingsResult.response.ok) {
         setStatus(settingsResult.payload?.error?.message ?? "Failed to load settings");
-        setStatusTone("error");
         return;
       }
 
@@ -95,22 +59,6 @@ export default function TenantSettingsPage() {
       setOpenaiEnabled(data?.openaiEnabled ?? true);
       setOpenaiModel(data?.openaiModel ?? "gpt-5-mini");
       setHumanHandoffEnabled(data?.humanHandoffEnabled ?? true);
-      setFaqContent({
-        it: {
-          priceInfo: data?.faqContent?.it?.priceInfo ?? "",
-          addressInfo: data?.faqContent?.it?.addressInfo ?? "",
-          parkingInfo: data?.faqContent?.it?.parkingInfo ?? "",
-          workingHoursInfo: data?.faqContent?.it?.workingHoursInfo ?? ""
-        },
-        en: {
-          priceInfo: data?.faqContent?.en?.priceInfo ?? "",
-          addressInfo: data?.faqContent?.en?.addressInfo ?? "",
-          parkingInfo: data?.faqContent?.en?.parkingInfo ?? "",
-          workingHoursInfo: data?.faqContent?.en?.workingHoursInfo ?? ""
-        }
-      });
-      setStatus("");
-      setStatusTone("neutral");
     }
 
     void load();
@@ -119,7 +67,6 @@ export default function TenantSettingsPage() {
   async function save() {
     if (role !== "owner") {
       setStatus("Only owner can update tenant settings");
-      setStatusTone("error");
       return;
     }
 
@@ -138,262 +85,122 @@ export default function TenantSettingsPage() {
         adminNotificationWhatsappE164: adminNotificationWhatsappE164 || null,
         openaiEnabled,
         openaiModel,
-        humanHandoffEnabled,
-        faqContent
+        humanHandoffEnabled
       })
       }
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to save settings");
-      setStatusTone("error");
       return;
     }
 
     setStatus("Settings saved");
-    setStatusTone("success");
   }
 
-  const faqSummary = {
-    itFilled: Object.values(faqContent.it).filter((value) => value.trim().length > 0).length,
-    enFilled: Object.values(faqContent.en).filter((value) => value.trim().length > 0).length
-  };
-
   return (
-    <main className={`gc-settings-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
+    <main className="gc-settings-page">
       <h1 className="gc-admin-title">Tenant Settings</h1>
-      <p className="gc-admin-subtitle">Configure locale, scheduling constraints, and AI notification behavior.</p>
       {role && role !== "owner" ? (
         <p className="gc-warning-text">Current role: {role}. Settings update requires owner role.</p>
       ) : null}
-      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
-        <div className="gc-settings-summary-grid">
-          <div className="gc-card gc-admin-stat">
-            <div className="gc-admin-stat-label">Default locale</div>
-            <div className="gc-admin-stat-value">{defaultLocale.toUpperCase()}</div>
-          </div>
-          <div className="gc-card gc-admin-stat">
-            <div className="gc-admin-stat-label">FAQ IT fields filled</div>
-            <div className="gc-admin-stat-value">{faqSummary.itFilled}/4</div>
-          </div>
-          <div className="gc-card gc-admin-stat">
-            <div className="gc-admin-stat-label">FAQ EN fields filled</div>
-            <div className="gc-admin-stat-value">{faqSummary.enFilled}/4</div>
-          </div>
-        </div>
-      </section>
+      <div className="gc-card gc-form-card">
+        <label className="gc-form-label">
+          Default Locale
+          <select
+            className="gc-select"
+            value={defaultLocale}
+            onChange={(e) => setDefaultLocale(e.target.value as "it" | "en")}
+          >
+            <option value="it">it</option>
+            <option value="en">en</option>
+          </select>
+        </label>
 
-      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
-        <div className="gc-card gc-form-card">
-          <div className="gc-settings-block">
-            <h3 className="gc-settings-block-title">General</h3>
-            <div className="gc-settings-two-col">
-              <label className="gc-form-label">
-                Default Locale
-                <select
-                  className="gc-select"
-                  value={defaultLocale}
-                  onChange={(e) => setDefaultLocale(e.target.value as "it" | "en")}
-                >
-                  <option value="it">it</option>
-                  <option value="en">en</option>
-                </select>
-              </label>
-              <label className="gc-form-label">
-                Timezone
-                <input className="gc-input" value={timezone} onChange={(e) => setTimezone(e.target.value)} />
-              </label>
-            </div>
-          </div>
+        <label className="gc-form-label">
+          Timezone
+          <input className="gc-input" value={timezone} onChange={(e) => setTimezone(e.target.value)} />
+        </label>
 
-          <div className="gc-settings-block">
-            <h3 className="gc-settings-block-title">Scheduling</h3>
-            <div className="gc-settings-three-col">
-              <label className="gc-form-label">
-                Booking Horizon Days
-                <input
-                  className="gc-input"
-                  value={bookingHorizonDays}
-                  onChange={(e) => setBookingHorizonDays(e.target.value)}
-                />
-              </label>
-              <label className="gc-form-label">
-                Min Advance Minutes
-                <input
-                  className="gc-input"
-                  value={bookingMinAdvanceMinutes}
-                  onChange={(e) => setBookingMinAdvanceMinutes(e.target.value)}
-                />
-              </label>
-              <label className="gc-form-label">
-                Buffer Minutes
-                <input
-                  className="gc-input"
-                  value={bookingBufferMinutes}
-                  onChange={(e) => setBookingBufferMinutes(e.target.value)}
-                />
-              </label>
-            </div>
-          </div>
+        <label className="gc-form-label">
+          Booking Horizon Days
+          <input
+            className="gc-input"
+            value={bookingHorizonDays}
+            onChange={(e) => setBookingHorizonDays(e.target.value)}
+          />
+        </label>
 
-          <div className="gc-settings-block">
-            <h3 className="gc-settings-block-title">Notifications</h3>
-            <div className="gc-settings-two-col">
-              <label className="gc-form-label">
-                Admin Notification Email
-                <input
-                  className="gc-input"
-                  value={adminNotificationEmail}
-                  onChange={(e) => setAdminNotificationEmail(e.target.value)}
-                />
-              </label>
-              <label className="gc-form-label">
-                Admin WhatsApp E.164
-                <input
-                  className="gc-input"
-                  value={adminNotificationWhatsappE164}
-                  onChange={(e) => setAdminNotificationWhatsappE164(e.target.value)}
-                />
-              </label>
-            </div>
-          </div>
+        <label className="gc-form-label">
+          Min Advance Minutes
+          <input
+            className="gc-input"
+            value={bookingMinAdvanceMinutes}
+            onChange={(e) => setBookingMinAdvanceMinutes(e.target.value)}
+          />
+        </label>
 
-          <div className="gc-settings-block">
-            <h3 className="gc-settings-block-title">AI</h3>
-            <div className="gc-settings-three-col">
-              <label className="gc-form-label">
-                OpenAI Enabled
-                <select
-                  className="gc-select"
-                  value={openaiEnabled ? "true" : "false"}
-                  onChange={(e) => setOpenaiEnabled(e.target.value === "true")}
-                >
-                  <option value="true">true</option>
-                  <option value="false">false</option>
-                </select>
-              </label>
-              <label className="gc-form-label">
-                OpenAI Model
-                <input className="gc-input" value={openaiModel} onChange={(e) => setOpenaiModel(e.target.value)} />
-              </label>
-              <label className="gc-form-label">
-                Human Handoff Enabled
-                <select
-                  className="gc-select"
-                  value={humanHandoffEnabled ? "true" : "false"}
-                  onChange={(e) => setHumanHandoffEnabled(e.target.value === "true")}
-                >
-                  <option value="true">true</option>
-                  <option value="false">false</option>
-                </select>
-              </label>
-            </div>
-          </div>
+        <label className="gc-form-label">
+          Buffer Minutes
+          <input
+            className="gc-input"
+            value={bookingBufferMinutes}
+            onChange={(e) => setBookingBufferMinutes(e.target.value)}
+          />
+        </label>
 
-          <div className="gc-settings-block">
-            <h3 className="gc-settings-block-title">FAQ Content (IT)</h3>
-            <div className="gc-settings-two-col">
-              <label className="gc-form-label">
-                Price Info (IT)
-                <textarea
-                  className="gc-textarea"
-                  value={faqContent.it.priceInfo}
-                  onChange={(e) =>
-                    setFaqContent((prev) => ({ ...prev, it: { ...prev.it, priceInfo: e.target.value } }))
-                  }
-                />
-              </label>
-              <label className="gc-form-label">
-                Address Info (IT)
-                <textarea
-                  className="gc-textarea"
-                  value={faqContent.it.addressInfo}
-                  onChange={(e) =>
-                    setFaqContent((prev) => ({ ...prev, it: { ...prev.it, addressInfo: e.target.value } }))
-                  }
-                />
-              </label>
-              <label className="gc-form-label">
-                Parking Info (IT)
-                <textarea
-                  className="gc-textarea"
-                  value={faqContent.it.parkingInfo}
-                  onChange={(e) =>
-                    setFaqContent((prev) => ({ ...prev, it: { ...prev.it, parkingInfo: e.target.value } }))
-                  }
-                />
-              </label>
-              <label className="gc-form-label">
-                Working Hours Info (IT)
-                <textarea
-                  className="gc-textarea"
-                  value={faqContent.it.workingHoursInfo}
-                  onChange={(e) =>
-                    setFaqContent((prev) => ({
-                      ...prev,
-                      it: { ...prev.it, workingHoursInfo: e.target.value }
-                    }))
-                  }
-                />
-              </label>
-            </div>
-          </div>
+        <label className="gc-form-label">
+          Admin Notification Email
+          <input
+            className="gc-input"
+            value={adminNotificationEmail}
+            onChange={(e) => setAdminNotificationEmail(e.target.value)}
+          />
+        </label>
 
-          <div className="gc-settings-block">
-            <h3 className="gc-settings-block-title">FAQ Content (EN)</h3>
-            <div className="gc-settings-two-col">
-              <label className="gc-form-label">
-                Price Info (EN)
-                <textarea
-                  className="gc-textarea"
-                  value={faqContent.en.priceInfo}
-                  onChange={(e) =>
-                    setFaqContent((prev) => ({ ...prev, en: { ...prev.en, priceInfo: e.target.value } }))
-                  }
-                />
-              </label>
-              <label className="gc-form-label">
-                Address Info (EN)
-                <textarea
-                  className="gc-textarea"
-                  value={faqContent.en.addressInfo}
-                  onChange={(e) =>
-                    setFaqContent((prev) => ({ ...prev, en: { ...prev.en, addressInfo: e.target.value } }))
-                  }
-                />
-              </label>
-              <label className="gc-form-label">
-                Parking Info (EN)
-                <textarea
-                  className="gc-textarea"
-                  value={faqContent.en.parkingInfo}
-                  onChange={(e) =>
-                    setFaqContent((prev) => ({ ...prev, en: { ...prev.en, parkingInfo: e.target.value } }))
-                  }
-                />
-              </label>
-              <label className="gc-form-label">
-                Working Hours Info (EN)
-                <textarea
-                  className="gc-textarea"
-                  value={faqContent.en.workingHoursInfo}
-                  onChange={(e) =>
-                    setFaqContent((prev) => ({
-                      ...prev,
-                      en: { ...prev.en, workingHoursInfo: e.target.value }
-                    }))
-                  }
-                />
-              </label>
-            </div>
-          </div>
+        <label className="gc-form-label">
+          Admin WhatsApp E.164
+          <input
+            className="gc-input"
+            value={adminNotificationWhatsappE164}
+            onChange={(e) => setAdminNotificationWhatsappE164(e.target.value)}
+          />
+        </label>
 
-          <button className="gc-action-btn" onClick={save} disabled={role !== "owner"}>
-            Save
-          </button>
-        </div>
-      </section>
+        <label className="gc-form-label">
+          OpenAI Enabled
+          <select
+            className="gc-select"
+            value={openaiEnabled ? "true" : "false"}
+            onChange={(e) => setOpenaiEnabled(e.target.value === "true")}
+          >
+            <option value="true">true</option>
+            <option value="false">false</option>
+          </select>
+        </label>
 
-      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
+        <label className="gc-form-label">
+          OpenAI Model
+          <input className="gc-input" value={openaiModel} onChange={(e) => setOpenaiModel(e.target.value)} />
+        </label>
+
+        <label className="gc-form-label">
+          Human Handoff Enabled
+          <select
+            className="gc-select"
+            value={humanHandoffEnabled ? "true" : "false"}
+            onChange={(e) => setHumanHandoffEnabled(e.target.value === "true")}
+          >
+            <option value="true">true</option>
+            <option value="false">false</option>
+          </select>
+        </label>
+
+        <button className="gc-action-btn" onClick={save} disabled={role !== "owner"}>
+          Save
+        </button>
+      </div>
+
+      <p className="gc-muted-line">{status}</p>
     </main>
   );
 }

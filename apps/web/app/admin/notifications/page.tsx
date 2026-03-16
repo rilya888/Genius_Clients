@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
-import { isUiV2Enabled } from "../../../lib/ui-flags";
 
 type DeliveryItem = {
   id: string;
@@ -29,26 +28,8 @@ type DeliverySummary = {
   deadLetter: number;
   total: number;
 };
-type StatusTone = "neutral" | "error" | "success";
-
-function deliveryTone(status: string): "pending" | "success" | "error" | "info" {
-  if (status === "queued") {
-    return "pending";
-  }
-  if (status === "sent") {
-    return "success";
-  }
-  if (status === "dead_letter") {
-    return "error";
-  }
-  if (status === "failed") {
-    return "error";
-  }
-  return "info";
-}
 
 export default function NotificationsPage() {
-  const uiV2Enabled = isUiV2Enabled();
   const [items, setItems] = useState<DeliveryItem[]>([]);
   const [summary, setSummary] = useState<DeliverySummary>({
     queued: 0,
@@ -57,12 +38,8 @@ export default function NotificationsPage() {
     deadLetter: 0,
     total: 0
   });
-  const [channelFilter, setChannelFilter] = useState("");
-  const [deliveryStatusFilter, setDeliveryStatusFilter] = useState("");
-  const [recipientQuery, setRecipientQuery] = useState("");
   const [role, setRole] = useState<string>("");
   const [status, setStatus] = useState("");
-  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   async function load() {
     const [meResult, listResult, summaryResult] = await Promise.all([
@@ -79,7 +56,6 @@ export default function NotificationsPage() {
     const { response, payload } = listResult;
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to load notification deliveries");
-      setStatusTone("error");
       return;
     }
     setItems(payload?.data?.items ?? []);
@@ -87,7 +63,6 @@ export default function NotificationsPage() {
       setSummary(summaryResult.payload.data);
     }
     setStatus("");
-    setStatusTone("neutral");
   }
 
   async function retryFailed() {
@@ -102,12 +77,10 @@ export default function NotificationsPage() {
 
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Retry failed");
-      setStatusTone("error");
       return;
     }
 
     setStatus(`Queued for retry: ${payload?.data?.queued ?? 0}`);
-    setStatusTone("success");
     await load();
   }
 
@@ -115,97 +88,44 @@ export default function NotificationsPage() {
     void load();
   }, []);
 
-  const filteredItems = useMemo(() => {
-    const query = recipientQuery.trim().toLowerCase();
-    return items.filter((item) => {
-      if (channelFilter && item.channel !== channelFilter) {
-        return false;
-      }
-      if (deliveryStatusFilter && item.status !== deliveryStatusFilter) {
-        return false;
-      }
-      if (query && !item.recipient.toLowerCase().includes(query)) {
-        return false;
-      }
-      return true;
-    });
-  }, [channelFilter, deliveryStatusFilter, items, recipientQuery]);
-
   return (
-    <main className={`gc-admin-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
+    <main className="gc-admin-page">
       <h1 className="gc-admin-title">Notification Deliveries</h1>
-      <p className="gc-admin-subtitle">Monitor delivery queue health, failures, and retry execution.</p>
-      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
-        <div className={`gc-admin-filters${uiV2Enabled ? " gc-admin-filters-v2" : ""}`}>
-          <div className="gc-field">
-            <span className="gc-field-label">Channel</span>
-            <select className="gc-select" value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)}>
-              <option value="">All channels</option>
-              <option value="whatsapp">whatsapp</option>
-              <option value="telegram">telegram</option>
-              <option value="email">email</option>
-            </select>
-          </div>
-          <div className="gc-field">
-            <span className="gc-field-label">Delivery status</span>
-            <select
-              className="gc-select"
-              value={deliveryStatusFilter}
-              onChange={(event) => setDeliveryStatusFilter(event.target.value)}
-            >
-              <option value="">All statuses</option>
-              <option value="queued">queued</option>
-              <option value="sent">sent</option>
-              <option value="failed">failed</option>
-              <option value="dead_letter">dead_letter</option>
-            </select>
-          </div>
-          <div className="gc-field">
-            <span className="gc-field-label">Recipient search</span>
-            <input
-              className="gc-input"
-              value={recipientQuery}
-              onChange={(event) => setRecipientQuery(event.target.value)}
-              placeholder="Search recipient"
-            />
-          </div>
-          <button className="gc-action-btn" onClick={() => void load()}>
-            Refresh
+      <div className="gc-admin-filters">
+        <button className="gc-action-btn" onClick={() => void load()}>
+          Refresh
+        </button>
+        {role === "owner" ? (
+          <button className="gc-action-btn" onClick={() => void retryFailed()}>
+            Retry failed
           </button>
-          {role === "owner" ? (
-            <button className="gc-action-btn" onClick={() => void retryFailed()}>
-              Retry failed
-            </button>
-          ) : null}
+        ) : null}
+      </div>
+      <p className="gc-muted-line">{status}</p>
+      <div className="gc-notifications-summary-grid">
+        <div className="gc-card gc-status-card-small">
+          <div className="gc-status-name">Total</div>
+          <div className="gc-status-value">{summary.total}</div>
         </div>
-      </section>
-      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
-      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
-        <div className="gc-notifications-summary-grid">
-          <div className="gc-card gc-status-card-small">
-            <div className="gc-status-name">Total</div>
-            <div className="gc-status-value">{summary.total}</div>
-          </div>
-          <div className="gc-card gc-status-card-small">
-            <div className="gc-status-name">Queued</div>
-            <div className="gc-status-value">{summary.queued}</div>
-          </div>
-          <div className="gc-card gc-status-card-small">
-            <div className="gc-status-name">Sent</div>
-            <div className="gc-status-value">{summary.sent}</div>
-          </div>
-          <div className="gc-card gc-status-card-small">
-            <div className="gc-status-name">Failed</div>
-            <div className="gc-status-value">{summary.failed}</div>
-          </div>
-          <div className="gc-card gc-status-card-small">
-            <div className="gc-status-name">Dead Letter</div>
-            <div className="gc-status-value">{summary.deadLetter}</div>
-          </div>
+        <div className="gc-card gc-status-card-small">
+          <div className="gc-status-name">Queued</div>
+          <div className="gc-status-value">{summary.queued}</div>
         </div>
-      </section>
+        <div className="gc-card gc-status-card-small">
+          <div className="gc-status-name">Sent</div>
+          <div className="gc-status-value">{summary.sent}</div>
+        </div>
+        <div className="gc-card gc-status-card-small">
+          <div className="gc-status-name">Failed</div>
+          <div className="gc-status-value">{summary.failed}</div>
+        </div>
+        <div className="gc-card gc-status-card-small">
+          <div className="gc-status-name">Dead Letter</div>
+          <div className="gc-status-value">{summary.deadLetter}</div>
+        </div>
+      </div>
 
-      <div className={`gc-admin-table-wrap${uiV2Enabled ? " gc-admin-table-wrap-v2" : ""}`}>
+      <div className="gc-admin-table-wrap">
         <table className="gc-admin-table">
           <thead>
             <tr>
@@ -220,17 +140,13 @@ export default function NotificationsPage() {
             </tr>
           </thead>
           <tbody>
-            {filteredItems.map((item) => (
+            {items.map((item) => (
               <tr key={item.id}>
                 <td>{new Date(item.createdAt).toLocaleString()}</td>
                 <td>{item.notificationType}</td>
                 <td>{item.channel}</td>
                 <td>{item.recipient}</td>
-                <td>
-                  <span className="gc-status-chip" data-tone={deliveryTone(item.status)}>
-                    {item.status}
-                  </span>
-                </td>
+                <td>{item.status}</td>
                 <td>
                   {item.attemptCount}/{item.maxAttempts}
                 </td>
@@ -238,13 +154,6 @@ export default function NotificationsPage() {
                 <td>{item.errorCode ?? item.errorMessage ?? "-"}</td>
               </tr>
             ))}
-            {filteredItems.length === 0 ? (
-              <tr>
-                <td className="gc-empty-cell" colSpan={8}>
-                  No notification deliveries for selected filters.
-                </td>
-              </tr>
-            ) : null}
           </tbody>
         </table>
       </div>

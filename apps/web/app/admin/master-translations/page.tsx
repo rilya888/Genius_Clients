@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
-import { isUiV2Enabled } from "../../../lib/ui-flags";
 
 type Master = { id: string; displayName: string };
 type Item = {
@@ -11,10 +10,8 @@ type Item = {
   displayName: string;
   bio: string | null;
 };
-type StatusTone = "neutral" | "error" | "success";
 
 export default function MasterTranslationsPage() {
-  const uiV2Enabled = isUiV2Enabled();
   const [masters, setMasters] = useState<Master[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [masterId, setMasterId] = useState("");
@@ -22,7 +19,6 @@ export default function MasterTranslationsPage() {
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
   const [status, setStatus] = useState("");
-  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   async function load() {
     const [mastersResult, translationsResult] = await Promise.all([
@@ -31,13 +27,10 @@ export default function MasterTranslationsPage() {
     ]);
     if (!mastersResult.response.ok || !translationsResult.response.ok) {
       setStatus("Failed to load master translations");
-      setStatusTone("error");
       return;
     }
     setMasters(mastersResult.payload?.data?.items ?? []);
     setItems(translationsResult.payload?.data?.items ?? []);
-    setStatus("");
-    setStatusTone("neutral");
   }
 
   useEffect(() => {
@@ -63,11 +56,9 @@ export default function MasterTranslationsPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to upsert translation");
-      setStatusTone("error");
       return;
     }
     setStatus("Translation saved");
-    setStatusTone("success");
     await load();
   }
 
@@ -80,84 +71,57 @@ export default function MasterTranslationsPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to delete translation");
-      setStatusTone("error");
       return;
     }
     setStatus("Translation deleted");
-    setStatusTone("success");
     await load();
   }
 
   const masterNameById = Object.fromEntries(masters.map((item) => [item.id, item.displayName]));
-  const summary = {
-    total: items.length,
-    it: items.filter((item) => item.locale === "it").length,
-    en: items.filter((item) => item.locale === "en").length
-  };
 
   return (
-    <main className={`gc-admin-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
+    <main className="gc-admin-page">
       <h1 className="gc-admin-title">Master Translations</h1>
-      <p className="gc-admin-subtitle">Manage localized names and bios for IT/EN master profiles.</p>
-      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
-        <div className="gc-translations-create-grid">
-          <div className="gc-field">
-            <span className="gc-field-label">Master</span>
-            <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
-              <option value="">Select master</option>
-              {masters.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.displayName}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="gc-field">
-            <span className="gc-field-label">Locale</span>
-            <select className="gc-select" value={locale} onChange={(e) => setLocale(e.target.value as "it" | "en")}>
-              <option value="it">it</option>
-              <option value="en">en</option>
-            </select>
-          </div>
-          <div className="gc-field">
-            <span className="gc-field-label">Display name</span>
-            <input
-              className="gc-input"
-              placeholder="Localized master name"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-            />
-          </div>
-          <div className="gc-field">
-            <span className="gc-field-label">Bio (optional)</span>
-            <input className="gc-input" placeholder="Short bio" value={bio} onChange={(e) => setBio(e.target.value)} />
-          </div>
-          <button className="gc-action-btn" onClick={() => void upsert()}>
-            Save
-          </button>
+      <div className="gc-translations-create-grid">
+        <div className="gc-field">
+          <span className="gc-field-label">Master</span>
+          <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+            <option value="">Select master</option>
+            {masters.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.displayName}
+              </option>
+            ))}
+          </select>
         </div>
-      </section>
-
-      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
-      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
-        <h2 className={uiV2Enabled ? "gc-admin-v2-section-title" : "gc-admin-section"}>Locale summary</h2>
-        <div className="gc-admin-grid-3">
-          <div className="gc-card gc-admin-stat">
-            <div className="gc-admin-stat-label">Total translations</div>
-            <div className="gc-admin-stat-value">{summary.total}</div>
-          </div>
-          <div className="gc-card gc-admin-stat">
-            <div className="gc-admin-stat-label">Italian (it)</div>
-            <div className="gc-admin-stat-value">{summary.it}</div>
-          </div>
-          <div className="gc-card gc-admin-stat">
-            <div className="gc-admin-stat-label">English (en)</div>
-            <div className="gc-admin-stat-value">{summary.en}</div>
-          </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Locale</span>
+          <select className="gc-select" value={locale} onChange={(e) => setLocale(e.target.value as "it" | "en")}>
+            <option value="it">it</option>
+            <option value="en">en</option>
+          </select>
         </div>
-      </section>
+        <div className="gc-field">
+          <span className="gc-field-label">Display name</span>
+          <input
+            className="gc-input"
+            placeholder="Localized master name"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Bio (optional)</span>
+          <input className="gc-input" placeholder="Short bio" value={bio} onChange={(e) => setBio(e.target.value)} />
+        </div>
+        <button className="gc-action-btn" onClick={() => void upsert()}>
+          Save
+        </button>
+      </div>
 
-      <div className={`gc-admin-table-wrap${uiV2Enabled ? " gc-admin-table-wrap-v2" : ""}`}>
+      <p className="gc-muted-line">{status}</p>
+
+      <div className="gc-admin-table-wrap">
         <table className="gc-admin-table">
           <thead>
             <tr>
@@ -182,13 +146,6 @@ export default function MasterTranslationsPage() {
                 </td>
               </tr>
             ))}
-            {items.length === 0 ? (
-              <tr>
-                <td className="gc-empty-cell" colSpan={5}>
-                  No master translations yet.
-                </td>
-              </tr>
-            ) : null}
           </tbody>
         </table>
       </div>

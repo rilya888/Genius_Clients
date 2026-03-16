@@ -2,22 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
-import { isUiV2Enabled } from "../../../lib/ui-flags";
 
 type MasterItem = {
   id: string;
   displayName: string;
   isActive: boolean;
 };
-type StatusTone = "neutral" | "error" | "success";
 
 export default function MastersPage() {
-  const uiV2Enabled = isUiV2Enabled();
   const [items, setItems] = useState<MasterItem[]>([]);
   const [displayName, setDisplayName] = useState("");
   const [editing, setEditing] = useState<Record<string, { displayName: string; isActive: boolean }>>({});
   const [status, setStatus] = useState("");
-  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   async function load() {
     const { response, payload } = await fetchJsonWithSessionRetry<{ data?: { items?: MasterItem[] }; error?: { message?: string } }>(
@@ -25,7 +21,6 @@ export default function MastersPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to load masters");
-      setStatusTone("error");
       return;
     }
 
@@ -36,8 +31,6 @@ export default function MastersPage() {
       nextEditing[item.id] = { displayName: item.displayName, isActive: item.isActive };
     }
     setEditing(nextEditing);
-    setStatus("");
-    setStatusTone("neutral");
   }
 
   useEffect(() => {
@@ -58,12 +51,10 @@ export default function MastersPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to create master");
-      setStatusTone("error");
       return;
     }
     setDisplayName("");
     setStatus("Master created");
-    setStatusTone("success");
     await load();
   }
 
@@ -86,11 +77,9 @@ export default function MastersPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to update master");
-      setStatusTone("error");
       return;
     }
     setStatus("Master updated");
-    setStatusTone("success");
     await load();
   }
 
@@ -101,11 +90,9 @@ export default function MastersPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to deactivate master");
-      setStatusTone("error");
       return;
     }
     setStatus("Master deactivated");
-    setStatusTone("success");
     await load();
   }
 
@@ -119,57 +106,31 @@ export default function MastersPage() {
     });
   }
 
-  const summary = {
-    total: items.length,
-    active: items.filter((item) => item.isActive).length,
-    inactive: items.filter((item) => !item.isActive).length
-  };
-
   return (
-    <main className={`gc-admin-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
+    <main className="gc-admin-page">
       <h1 className="gc-admin-title">Masters</h1>
-      <p className="gc-admin-subtitle">Manage specialists, visibility state, and naming consistency.</p>
-      <p className="gc-admin-link-line">
+      <p>
         <a href="/admin/master-translations">Open master translations</a>
       </p>
-      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
-        <div className={`gc-admin-filters${uiV2Enabled ? " gc-admin-filters-v2" : ""}`}>
-          <div className="gc-field">
-            <span className="gc-field-label">Master display name</span>
-            <input
-              className="gc-input"
-              placeholder="e.g. Maria Rossi"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-            />
-          </div>
-          <button className="gc-action-btn" onClick={() => void createMaster()}>
-            Create
-          </button>
-          <button className="gc-action-btn" onClick={() => void load()}>
-            Refresh
-          </button>
+      <div className="gc-admin-filters">
+        <div className="gc-field">
+          <span className="gc-field-label">Master display name</span>
+          <input
+            className="gc-input"
+            placeholder="e.g. Maria Rossi"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
         </div>
-      </section>
-      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
-      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
-        <h2 className={uiV2Enabled ? "gc-admin-v2-section-title" : "gc-admin-section"}>Team summary</h2>
-        <div className="gc-admin-grid-3">
-          <div className="gc-card gc-admin-stat">
-            <div className="gc-admin-stat-label">Total masters</div>
-            <div className="gc-admin-stat-value">{summary.total}</div>
-          </div>
-          <div className="gc-card gc-admin-stat">
-            <div className="gc-admin-stat-label">Active</div>
-            <div className="gc-admin-stat-value">{summary.active}</div>
-          </div>
-          <div className="gc-card gc-admin-stat">
-            <div className="gc-admin-stat-label">Inactive</div>
-            <div className="gc-admin-stat-value">{summary.inactive}</div>
-          </div>
-        </div>
-      </section>
-      <div className={`gc-admin-table-wrap${uiV2Enabled ? " gc-admin-table-wrap-v2" : ""}`}>
+        <button className="gc-action-btn" onClick={() => void createMaster()}>
+          Create
+        </button>
+        <button className="gc-action-btn" onClick={() => void load()}>
+          Refresh
+        </button>
+      </div>
+      <p className="gc-muted-line">{status}</p>
+      <div className="gc-admin-table-wrap">
         <table className="gc-admin-table">
           <thead>
             <tr>
@@ -212,13 +173,6 @@ export default function MastersPage() {
                 </td>
               </tr>
             ))}
-            {items.length === 0 ? (
-              <tr>
-                <td className="gc-empty-cell" colSpan={3}>
-                  No masters yet. Create your first specialist above.
-                </td>
-              </tr>
-            ) : null}
           </tbody>
         </table>
       </div>

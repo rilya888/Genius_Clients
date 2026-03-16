@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
 import { getTimeOptions } from "../../../lib/schedule-options";
-import { isUiV2Enabled } from "../../../lib/ui-flags";
 
 type Master = { id: string; displayName: string };
 type ExceptionItem = {
@@ -15,10 +14,8 @@ type ExceptionItem = {
   endMinute: number | null;
   note: string | null;
 };
-type StatusTone = "neutral" | "error" | "success";
 
 export default function ExceptionsPage() {
-  const uiV2Enabled = isUiV2Enabled();
   const [masters, setMasters] = useState<Master[]>([]);
   const [items, setItems] = useState<ExceptionItem[]>([]);
   const [editing, setEditing] = useState<
@@ -41,7 +38,6 @@ export default function ExceptionsPage() {
   const [endMinute, setEndMinute] = useState("");
   const [note, setNote] = useState("");
   const [status, setStatus] = useState("");
-  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   async function load() {
     const [mastersResult, exceptionsResult] = await Promise.all([
@@ -50,7 +46,6 @@ export default function ExceptionsPage() {
     ]);
     if (!mastersResult.response.ok || !exceptionsResult.response.ok) {
       setStatus("Failed to load exceptions");
-      setStatusTone("error");
       return;
     }
     const nextItems = exceptionsResult.payload?.data?.items ?? [];
@@ -72,8 +67,6 @@ export default function ExceptionsPage() {
       };
     }
     setEditing(nextEditing);
-    setStatus("");
-    setStatusTone("neutral");
   }
 
   useEffect(() => {
@@ -86,7 +79,6 @@ export default function ExceptionsPage() {
     }
     if (!isClosed && startMinute && endMinute && Number(startMinute) >= Number(endMinute)) {
       setStatus("Start time must be earlier than end time");
-      setStatusTone("error");
       return;
     }
     const { response, payload } = await fetchJsonWithSessionRetry<{ error?: { message?: string } }>(
@@ -106,11 +98,9 @@ export default function ExceptionsPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to create exception");
-      setStatusTone("error");
       return;
     }
     setStatus("Exception created");
-    setStatusTone("success");
     await load();
   }
 
@@ -121,7 +111,6 @@ export default function ExceptionsPage() {
     }
     if (!edit.isClosed && edit.startMinute && edit.endMinute && Number(edit.startMinute) >= Number(edit.endMinute)) {
       setStatus("Start time must be earlier than end time");
-      setStatusTone("error");
       return;
     }
     const { response, payload } = await fetchJsonWithSessionRetry<{ error?: { message?: string } }>(
@@ -141,11 +130,9 @@ export default function ExceptionsPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to update exception");
-      setStatusTone("error");
       return;
     }
     setStatus("Exception updated");
-    setStatusTone("success");
     await load();
   }
 
@@ -156,11 +143,9 @@ export default function ExceptionsPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to delete exception");
-      setStatusTone("error");
       return;
     }
     setStatus("Exception deleted");
-    setStatusTone("success");
     await load();
   }
 
@@ -184,97 +169,70 @@ export default function ExceptionsPage() {
     });
   }
 
-  const summary = {
-    total: items.length,
-    closed: items.filter((item) => item.isClosed).length,
-    partial: items.filter((item) => !item.isClosed).length
-  };
-
   return (
-    <main className={`gc-admin-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
+    <main className="gc-admin-page">
       <h1 className="gc-admin-title">Schedule Exceptions</h1>
-      <p className="gc-admin-subtitle">Set non-standard days, closures, and temporary overrides.</p>
-      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
-        <div className="gc-exceptions-create-grid">
-          <div className="gc-field">
-            <span className="gc-field-label">Master scope</span>
-            <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
-              <option value="">Global (all masters)</option>
-              {masters.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.displayName}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="gc-field">
-            <span className="gc-field-label">Exception date</span>
-            <input className="gc-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          </div>
-          <div className="gc-field">
-            <span className="gc-field-label">Start time (optional)</span>
-            <select
-              className="gc-select"
-              value={startMinute}
-              onChange={(e) => setStartMinute(e.target.value)}
-              disabled={isClosed}
-            >
-              {getTimeOptions(startMinute, true).map((option) => (
-                <option key={option.value || "empty-start"} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="gc-field">
-            <span className="gc-field-label">End time (optional)</span>
-            <select className="gc-select" value={endMinute} onChange={(e) => setEndMinute(e.target.value)} disabled={isClosed}>
-              {getTimeOptions(endMinute, true).map((option) => (
-                <option key={option.value || "empty-end"} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="gc-field">
-            <span className="gc-field-label">Note (optional)</span>
-            <input
-              className="gc-input"
-              placeholder="Reason or note"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
-          </div>
-          <button className="gc-action-btn" onClick={() => void createException()}>
-            Create
-          </button>
+      <div className="gc-exceptions-create-grid">
+        <div className="gc-field">
+          <span className="gc-field-label">Master scope</span>
+          <select className="gc-select" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+            <option value="">Global (all masters)</option>
+            {masters.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.displayName}
+              </option>
+            ))}
+          </select>
         </div>
-        <label className="gc-consent gc-mb-12">
-          <input type="checkbox" checked={isClosed} onChange={(e) => setIsClosed(e.target.checked)} />
-          Closed day
-        </label>
-      </section>
-      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
-
-      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
-        <h2 className={uiV2Enabled ? "gc-admin-v2-section-title" : "gc-admin-section"}>Exception summary</h2>
-        <div className="gc-admin-grid-3">
-          <div className="gc-card gc-admin-stat">
-            <div className="gc-admin-stat-label">Total exceptions</div>
-            <div className="gc-admin-stat-value">{summary.total}</div>
-          </div>
-          <div className="gc-card gc-admin-stat">
-            <div className="gc-admin-stat-label">Closed days</div>
-            <div className="gc-admin-stat-value">{summary.closed}</div>
-          </div>
-          <div className="gc-card gc-admin-stat">
-            <div className="gc-admin-stat-label">Partial windows</div>
-            <div className="gc-admin-stat-value">{summary.partial}</div>
-          </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Exception date</span>
+          <input className="gc-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
-      </section>
+        <div className="gc-field">
+          <span className="gc-field-label">Start time (optional)</span>
+          <select
+            className="gc-select"
+            value={startMinute}
+            onChange={(e) => setStartMinute(e.target.value)}
+            disabled={isClosed}
+          >
+            {getTimeOptions(startMinute, true).map((option) => (
+              <option key={option.value || "empty-start"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">End time (optional)</span>
+          <select className="gc-select" value={endMinute} onChange={(e) => setEndMinute(e.target.value)} disabled={isClosed}>
+            {getTimeOptions(endMinute, true).map((option) => (
+              <option key={option.value || "empty-end"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Note (optional)</span>
+          <input
+            className="gc-input"
+            placeholder="Reason or note"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </div>
+        <button className="gc-action-btn" onClick={() => void createException()}>
+          Create
+        </button>
+      </div>
+      <label className="gc-consent gc-mb-12">
+        <input type="checkbox" checked={isClosed} onChange={(e) => setIsClosed(e.target.checked)} />
+        Closed day
+      </label>
+      <p className="gc-muted-line">{status}</p>
 
-      <div className={`gc-admin-table-wrap${uiV2Enabled ? " gc-admin-table-wrap-v2" : ""}`}>
+      <div className="gc-admin-table-wrap">
         <table className="gc-admin-table">
           <thead>
             <tr>
@@ -369,13 +327,6 @@ export default function ExceptionsPage() {
                 </td>
               </tr>
             ))}
-            {items.length === 0 ? (
-              <tr>
-                <td className="gc-empty-cell" colSpan={7}>
-                  No schedule exceptions defined yet.
-                </td>
-              </tr>
-            ) : null}
           </tbody>
         </table>
       </div>

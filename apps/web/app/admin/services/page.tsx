@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
-import { isUiV2Enabled } from "../../../lib/ui-flags";
 
 type ServiceItem = {
   id: string;
@@ -12,10 +11,8 @@ type ServiceItem = {
   sortOrder: number;
   isActive: boolean;
 };
-type StatusTone = "neutral" | "error" | "success";
 
 export default function ServicesPage() {
-  const uiV2Enabled = isUiV2Enabled();
   const [items, setItems] = useState<ServiceItem[]>([]);
   const [displayName, setDisplayName] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("60");
@@ -34,7 +31,6 @@ export default function ServicesPage() {
     >
   >({});
   const [status, setStatus] = useState("");
-  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   async function load() {
     const { response, payload } = await fetchJsonWithSessionRetry<{
@@ -43,7 +39,6 @@ export default function ServicesPage() {
     }>("/api/admin/services");
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to load services");
-      setStatusTone("error");
       return;
     }
 
@@ -63,8 +58,6 @@ export default function ServicesPage() {
       };
     }
     setEditing(nextEditing);
-    setStatus("");
-    setStatusTone("neutral");
   }
 
   useEffect(() => {
@@ -90,13 +83,11 @@ export default function ServicesPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to create service");
-      setStatusTone("error");
       return;
     }
     setDisplayName("");
     setPriceCents("");
     setStatus("Service created");
-    setStatusTone("success");
     await load();
   }
 
@@ -121,11 +112,9 @@ export default function ServicesPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to update service");
-      setStatusTone("error");
       return;
     }
     setStatus("Service updated");
-    setStatusTone("success");
     await load();
   }
 
@@ -136,11 +125,9 @@ export default function ServicesPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to deactivate service");
-      setStatusTone("error");
       return;
     }
     setStatus("Service deactivated");
-    setStatusTone("success");
     await load();
   }
 
@@ -163,81 +150,55 @@ export default function ServicesPage() {
     });
   }
 
-  const summary = {
-    total: items.length,
-    active: items.filter((item) => item.isActive).length,
-    inactive: items.filter((item) => !item.isActive).length
-  };
-
   return (
-    <main className={`gc-admin-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
+    <main className="gc-admin-page">
       <h1 className="gc-admin-title">Services</h1>
-      <p className="gc-admin-subtitle">Manage service catalog, duration, and commercial ordering.</p>
-      <p className="gc-admin-link-line">
+      <p>
         <a href="/admin/service-translations">Open service translations</a>
       </p>
-      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
-        <div className={`gc-services-create-grid${uiV2Enabled ? " gc-services-create-grid-v2" : ""}`}>
-          <div className="gc-field">
-            <span className="gc-field-label">Service display name</span>
-            <input
-              className="gc-input"
-              placeholder="e.g. Haircut"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-            />
-          </div>
-          <div className="gc-field">
-            <span className="gc-field-label">Duration (minutes)</span>
-            <input
-              className="gc-input"
-              placeholder="e.g. 60"
-              value={durationMinutes}
-              onChange={(e) => setDurationMinutes(e.target.value)}
-            />
-          </div>
-          <div className="gc-field">
-            <span className="gc-field-label">Price (cents, optional)</span>
-            <input
-              className="gc-input"
-              placeholder="e.g. 2500"
-              value={priceCents}
-              onChange={(e) => setPriceCents(e.target.value)}
-            />
-          </div>
-          <div className="gc-field">
-            <span className="gc-field-label">Sort order</span>
-            <input
-              className="gc-input"
-              placeholder="e.g. 0"
-              value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value)}
-            />
-          </div>
-          <button className="gc-action-btn" onClick={() => void createService()}>
-            Create
-          </button>
+      <div className="gc-services-create-grid">
+        <div className="gc-field">
+          <span className="gc-field-label">Service display name</span>
+          <input
+            className="gc-input"
+            placeholder="e.g. Haircut"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
         </div>
-      </section>
-      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
-      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
-        <h2 className={uiV2Enabled ? "gc-admin-v2-section-title" : "gc-admin-section"}>Catalog summary</h2>
-        <div className="gc-admin-grid-3">
-          <div className="gc-card gc-admin-stat">
-            <div className="gc-admin-stat-label">Total services</div>
-            <div className="gc-admin-stat-value">{summary.total}</div>
-          </div>
-          <div className="gc-card gc-admin-stat">
-            <div className="gc-admin-stat-label">Active</div>
-            <div className="gc-admin-stat-value">{summary.active}</div>
-          </div>
-          <div className="gc-card gc-admin-stat">
-            <div className="gc-admin-stat-label">Inactive</div>
-            <div className="gc-admin-stat-value">{summary.inactive}</div>
-          </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Duration (minutes)</span>
+          <input
+            className="gc-input"
+            placeholder="e.g. 60"
+            value={durationMinutes}
+            onChange={(e) => setDurationMinutes(e.target.value)}
+          />
         </div>
-      </section>
-      <div className={`gc-admin-table-wrap${uiV2Enabled ? " gc-admin-table-wrap-v2" : ""}`}>
+        <div className="gc-field">
+          <span className="gc-field-label">Price (cents, optional)</span>
+          <input
+            className="gc-input"
+            placeholder="e.g. 2500"
+            value={priceCents}
+            onChange={(e) => setPriceCents(e.target.value)}
+          />
+        </div>
+        <div className="gc-field">
+          <span className="gc-field-label">Sort order</span>
+          <input
+            className="gc-input"
+            placeholder="e.g. 0"
+            value={sortOrder}
+            onChange={(e) => setSortOrder(e.target.value)}
+          />
+        </div>
+        <button className="gc-action-btn" onClick={() => void createService()}>
+          Create
+        </button>
+      </div>
+      <p className="gc-muted-line">{status}</p>
+      <div className="gc-admin-table-wrap">
         <table className="gc-admin-table">
           <thead>
             <tr>
@@ -304,13 +265,6 @@ export default function ServicesPage() {
                 </td>
               </tr>
             ))}
-            {items.length === 0 ? (
-              <tr>
-                <td className="gc-empty-cell" colSpan={6}>
-                  No services yet. Create your first service above.
-                </td>
-              </tr>
-            ) : null}
           </tbody>
         </table>
       </div>

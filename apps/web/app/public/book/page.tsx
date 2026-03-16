@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { formatDateTime, t } from "@genius/i18n";
 import { getBrowserLocale, parseLocaleCookie, setUiLocaleCookie } from "../../../lib/ui-locale";
-import { isUiV2Enabled } from "../../../lib/ui-flags";
 
 type MasterItem = { id: string; displayName: string };
 type ServiceItem = { id: string; displayName: string; durationMinutes: number };
@@ -26,10 +25,8 @@ type SlotDiagnostics = {
   bookingBufferMinutes: number;
   masters: SlotMasterDiagnostics[];
 };
-type StatusTone = "neutral" | "error" | "success";
 
 export default function PublicBookingPage() {
-  const uiV2Enabled = isUiV2Enabled();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [masters, setMasters] = useState<MasterItem[]>([]);
@@ -45,25 +42,13 @@ export default function PublicBookingPage() {
   const [clientLocale, setClientLocale] = useState<"it" | "en">("it");
   const [clientConsent, setClientConsent] = useState(false);
   const [status, setStatus] = useState("");
-  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
   const [csrfToken, setCsrfToken] = useState("");
   const [slotHint, setSlotHint] = useState("");
-  const [loadingSlots, setLoadingSlots] = useState(false);
-  const [submittingBooking, setSubmittingBooking] = useState(false);
 
   const phoneValid = /^\+[1-9]\d{1,14}$/.test(clientPhoneE164.trim());
   const canBook =
     Boolean(serviceId && selectedSlot && clientName.trim() && phoneValid && clientConsent) &&
     Boolean(csrfToken);
-  const progressSteps = [
-    Boolean(serviceId),
-    Boolean(date),
-    Boolean(selectedSlot),
-    Boolean(clientName.trim() && phoneValid),
-    Boolean(clientConsent)
-  ];
-  const completedSteps = progressSteps.filter(Boolean).length;
-  const progressPercent = Math.round((completedSteps / progressSteps.length) * 100);
 
   useEffect(() => {
     const requestedFromQuery = searchParams.get("locale");
@@ -85,31 +70,23 @@ export default function PublicBookingPage() {
 
   useEffect(() => {
     async function bootstrap() {
-      try {
-        const [mastersRes, servicesRes, csrfRes] = await Promise.all([
-          fetch(`/api/public/masters?locale=${encodeURIComponent(clientLocale)}`),
-          fetch(`/api/public/services?locale=${encodeURIComponent(clientLocale)}`),
-          fetch("/api/csrf")
-        ]);
-        const mastersPayload = await mastersRes.json();
-        const servicesPayload = await servicesRes.json();
-        const csrfPayload = await csrfRes.json();
+      const [mastersRes, servicesRes, csrfRes] = await Promise.all([
+        fetch(`/api/public/masters?locale=${encodeURIComponent(clientLocale)}`),
+        fetch(`/api/public/services?locale=${encodeURIComponent(clientLocale)}`),
+        fetch("/api/csrf")
+      ]);
+      const mastersPayload = await mastersRes.json();
+      const servicesPayload = await servicesRes.json();
+      const csrfPayload = await csrfRes.json();
 
-        if (!mastersRes.ok || !servicesRes.ok) {
-          setStatus(t("public.booking.loadCatalogFailed", { locale: clientLocale }));
-          setStatusTone("error");
-          return;
-        }
-
-        setMasters(mastersPayload?.data?.items ?? []);
-        setServices(servicesPayload?.data?.items ?? []);
-        setCsrfToken(csrfPayload?.data?.csrfToken ?? "");
-        setStatus("");
-        setStatusTone("neutral");
-      } catch {
+      if (!mastersRes.ok || !servicesRes.ok) {
         setStatus(t("public.booking.loadCatalogFailed", { locale: clientLocale }));
-        setStatusTone("error");
+        return;
       }
+
+      setMasters(mastersPayload?.data?.items ?? []);
+      setServices(servicesPayload?.data?.items ?? []);
+      setCsrfToken(csrfPayload?.data?.csrfToken ?? "");
     }
 
     void bootstrap();
@@ -128,31 +105,20 @@ export default function PublicBookingPage() {
       query.set("masterId", masterId);
     }
 
-    setLoadingSlots(true);
-    try {
-      const response = await fetch(`/api/public/slots?${query.toString()}`);
-      const payload = (await response.json()) as {
-        data?: { items?: SlotItem[]; diagnostics?: SlotDiagnostics };
-        error?: { message?: string };
-      };
-      if (!response.ok) {
-        setStatus(payload?.error?.message ?? t("public.booking.loadSlotsFailed", { locale: clientLocale }));
-        setStatusTone("error");
-        return;
-      }
-
-      const nextSlots = payload?.data?.items ?? [];
-      setSlots(nextSlots);
-      setSelectedSlot(null);
-      setSlotHint(buildSlotHint(payload?.data?.diagnostics, masterId));
-      setStatus("");
-      setStatusTone("neutral");
-    } catch {
-      setStatus(t("public.booking.loadSlotsFailed", { locale: clientLocale }));
-      setStatusTone("error");
-    } finally {
-      setLoadingSlots(false);
+    const response = await fetch(`/api/public/slots?${query.toString()}`);
+    const payload = (await response.json()) as {
+      data?: { items?: SlotItem[]; diagnostics?: SlotDiagnostics };
+      error?: { message?: string };
+    };
+    if (!response.ok) {
+      setStatus(payload?.error?.message ?? t("public.booking.loadSlotsFailed", { locale: clientLocale }));
+      return;
     }
+
+    setSlots(payload?.data?.items ?? []);
+    setSelectedSlot(null);
+    setStatus("");
+    setSlotHint(buildSlotHint(payload?.data?.diagnostics, masterId));
   }
 
   function minuteToTime(value: number): string {
@@ -205,56 +171,46 @@ export default function PublicBookingPage() {
       return;
     }
 
-    setSubmittingBooking(true);
-    try {
-      const idempotencyKey = crypto.randomUUID();
-      const response = await fetch("/api/public/bookings", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": idempotencyKey,
-          "x-csrf-token": csrfToken
-        },
-        body: JSON.stringify({
-          serviceId,
-          masterId: selectedSlot.masterId,
-          source: "web",
-          clientName: clientName.trim(),
-          clientPhoneE164: clientPhoneE164.trim(),
-          clientEmail: clientEmail || undefined,
-          clientLocale,
-          clientConsent,
-          startAt: selectedSlot.startAt,
-          endAt: selectedSlot.endAt
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        setStatus(payload?.error?.message ?? t("public.booking.createFailed", { locale: clientLocale }));
-        setStatusTone("error");
-        return;
-      }
-
-      setStatus(
-        t("public.booking.created", {
-          locale: clientLocale,
-          params: { bookingId: payload?.data?.bookingId ?? "ok" }
-        })
-      );
-      setStatusTone("success");
-
-      const params = new URLSearchParams();
-      params.set("locale", clientLocale);
-      if (payload?.data?.bookingId) {
-        params.set("bookingId", String(payload.data.bookingId));
-      }
-      router.push(`/public/booking-success?${params.toString()}`);
-    } catch {
-      setStatus(t("public.booking.createFailed", { locale: clientLocale }));
-      setStatusTone("error");
-    } finally {
-      setSubmittingBooking(false);
+    const idempotencyKey = crypto.randomUUID();
+    const response = await fetch("/api/public/bookings", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": idempotencyKey,
+        "x-csrf-token": csrfToken
+      },
+      body: JSON.stringify({
+        serviceId,
+        masterId: selectedSlot.masterId,
+        source: "web",
+        clientName: clientName.trim(),
+        clientPhoneE164: clientPhoneE164.trim(),
+        clientEmail: clientEmail || undefined,
+        clientLocale,
+        clientConsent,
+        startAt: selectedSlot.startAt,
+        endAt: selectedSlot.endAt
+      })
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      setStatus(payload?.error?.message ?? t("public.booking.createFailed", { locale: clientLocale }));
+      return;
     }
+
+    setStatus(
+      t("public.booking.created", {
+        locale: clientLocale,
+        params: { bookingId: payload?.data?.bookingId ?? "ok" }
+      })
+    );
+
+    const params = new URLSearchParams();
+    params.set("locale", clientLocale);
+    if (payload?.data?.bookingId) {
+      params.set("bookingId", String(payload.data.bookingId));
+    }
+    router.push(`/public/booking-success?${params.toString()}`);
   }
 
   const selectedMasterName = useMemo(() => {
@@ -263,15 +219,11 @@ export default function PublicBookingPage() {
     }
     return masters.find((item) => item.id === selectedSlot.masterId)?.displayName ?? selectedSlot.masterId;
   }, [masters, selectedSlot]);
-  const selectedServiceName = useMemo(() => {
-    if (!serviceId) {
-      return "Not selected";
-    }
-    return services.find((item) => item.id === serviceId)?.displayName ?? serviceId;
-  }, [serviceId, services]);
 
-  const bookingForm = (
-    <div className="gc-card gc-form-card gc-book-form-main">
+  return (
+    <main className="gc-book-page">
+      <h1 className="gc-book-title">{t("public.booking.title", { locale: clientLocale })}</h1>
+      <div className="gc-card gc-form-card">
         <div className="gc-book-grid-top">
           <select className="gc-select" value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
             <option value="">{t("public.booking.selectService", { locale: clientLocale })}</option>
@@ -290,8 +242,8 @@ export default function PublicBookingPage() {
             ))}
           </select>
           <input className="gc-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          <button className="gc-action-btn" onClick={() => void loadSlots()} disabled={loadingSlots}>
-            {loadingSlots ? "Loading..." : t("public.booking.findSlots", { locale: clientLocale })}
+          <button className="gc-action-btn" onClick={() => void loadSlots()}>
+            {t("public.booking.findSlots", { locale: clientLocale })}
           </button>
         </div>
 
@@ -309,9 +261,6 @@ export default function PublicBookingPage() {
               {slot.displayTime}
             </button>
           ))}
-          {!loadingSlots && slots.length === 0 ? (
-            <p className="gc-slot-empty">No available slots for the selected criteria yet.</p>
-          ) : null}
         </div>
         {slotHint ? <p className="gc-muted-line">{slotHint}</p> : null}
 
@@ -343,12 +292,8 @@ export default function PublicBookingPage() {
             <option value="it">it</option>
             <option value="en">en</option>
           </select>
-          <button
-            className="gc-action-btn"
-            disabled={!canBook || submittingBooking}
-            onClick={() => void createBooking()}
-          >
-            {submittingBooking ? "Submitting..." : t("public.booking.bookAction", { locale: clientLocale })}
+          <button className="gc-action-btn" disabled={!canBook} onClick={() => void createBooking()}>
+            {t("public.booking.bookAction", { locale: clientLocale })}
           </button>
         </div>
 
@@ -364,7 +309,7 @@ export default function PublicBookingPage() {
           <p className="gc-error-text">{t("public.booking.phoneInvalid", { locale: clientLocale })}</p>
         ) : null}
 
-        <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
+        <p className="gc-muted-line">{status}</p>
         {selectedSlot ? (
           <p className="gc-selected-line">
             {t("public.booking.selected", {
@@ -376,68 +321,7 @@ export default function PublicBookingPage() {
             })}
           </p>
         ) : null}
-    </div>
-  );
-
-  return (
-    <main className={`gc-book-page${uiV2Enabled ? " gc-book-page-v2" : ""}`}>
-      <h1 className="gc-book-title">{t("public.booking.title", { locale: clientLocale })}</h1>
-      {uiV2Enabled ? (
-        <p className="gc-book-subtitle gc-v2-fade-up">
-          Select service, specialist, and preferred slot, then confirm your contact details.
-        </p>
-      ) : null}
-      {uiV2Enabled ? (
-        <div className="gc-book-layout">
-          <aside className="gc-book-summary-stack">
-          <div className="gc-card gc-book-summary gc-v2-fade-up">
-            <h2 className="gc-book-summary-title">Booking progress</h2>
-            <div className="gc-book-progress-row">
-              <span>{completedSteps}/{progressSteps.length} completed</span>
-              <strong>{progressPercent}%</strong>
-            </div>
-            <div className="gc-book-progress-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent}>
-              <span style={{ width: `${progressPercent}%` }} />
-            </div>
-            <ul className="gc-book-summary-list">
-              <li data-done={serviceId ? "true" : "false"}>Service selected</li>
-              <li data-done={date ? "true" : "false"}>Date selected</li>
-              <li data-done={selectedSlot ? "true" : "false"}>Slot selected</li>
-              <li data-done={clientName.trim() && phoneValid ? "true" : "false"}>Contact details filled</li>
-              <li data-done={clientConsent ? "true" : "false"}>Consent accepted</li>
-            </ul>
-            <div className="gc-book-summary-facts">
-              <div>
-                <span>Service</span>
-                <strong>{selectedServiceName}</strong>
-              </div>
-              <div>
-                <span>Specialist</span>
-                <strong>{selectedSlot ? selectedMasterName : "Not selected"}</strong>
-              </div>
-              <div>
-                <span>Slot</span>
-                <strong>{selectedSlot ? selectedSlot.displayTime : "Not selected"}</strong>
-              </div>
-            </div>
-          </div>
-          <div className="gc-card gc-book-summary-note gc-v2-fade-up gc-v2-fade-up-delay-1">
-            <h3 className="gc-feature-title">Booking policy</h3>
-            <p className="gc-feature-text">
-              Slots are validated in real time and protected with idempotent booking creation.
-            </p>
-            <ul className="gc-book-policy-list">
-              <li>Live slot validation with schedule constraints</li>
-              <li>Secure booking submit with CSRF + idempotency key</li>
-              <li>Locale-aware confirmation response</li>
-            </ul>
-          </div>
-          </aside>
-          <div className="gc-v2-fade-up gc-v2-fade-up-delay-1">{bookingForm}</div>
-        </div>
-      ) : (
-        bookingForm
-      )}
+      </div>
     </main>
   );
 }
