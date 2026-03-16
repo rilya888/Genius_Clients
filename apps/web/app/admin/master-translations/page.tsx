@@ -10,6 +10,7 @@ type Item = {
   displayName: string;
   bio: string | null;
 };
+type StatusTone = "neutral" | "error" | "success";
 
 export default function MasterTranslationsPage() {
   const [masters, setMasters] = useState<Master[]>([]);
@@ -19,6 +20,7 @@ export default function MasterTranslationsPage() {
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
   const [status, setStatus] = useState("");
+  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   async function load() {
     const [mastersResult, translationsResult] = await Promise.all([
@@ -27,10 +29,13 @@ export default function MasterTranslationsPage() {
     ]);
     if (!mastersResult.response.ok || !translationsResult.response.ok) {
       setStatus("Failed to load master translations");
+      setStatusTone("error");
       return;
     }
     setMasters(mastersResult.payload?.data?.items ?? []);
     setItems(translationsResult.payload?.data?.items ?? []);
+    setStatus("");
+    setStatusTone("neutral");
   }
 
   useEffect(() => {
@@ -56,9 +61,11 @@ export default function MasterTranslationsPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to upsert translation");
+      setStatusTone("error");
       return;
     }
     setStatus("Translation saved");
+    setStatusTone("success");
     await load();
   }
 
@@ -71,9 +78,11 @@ export default function MasterTranslationsPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to delete translation");
+      setStatusTone("error");
       return;
     }
     setStatus("Translation deleted");
+    setStatusTone("success");
     await load();
   }
 
@@ -82,6 +91,7 @@ export default function MasterTranslationsPage() {
   return (
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Master Translations</h1>
+      <p className="gc-admin-subtitle">Manage localized names and bios for IT/EN master profiles.</p>
       <div className="gc-translations-create-grid">
         <div className="gc-field">
           <span className="gc-field-label">Master</span>
@@ -119,7 +129,7 @@ export default function MasterTranslationsPage() {
         </button>
       </div>
 
-      <p className="gc-muted-line">{status}</p>
+      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
 
       <div className="gc-admin-table-wrap">
         <table className="gc-admin-table">
@@ -146,6 +156,13 @@ export default function MasterTranslationsPage() {
                 </td>
               </tr>
             ))}
+            {items.length === 0 ? (
+              <tr>
+                <td className="gc-empty-cell" colSpan={5}>
+                  No master translations yet.
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>

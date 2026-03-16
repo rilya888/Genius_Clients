@@ -11,6 +11,7 @@ type ServiceItem = {
   sortOrder: number;
   isActive: boolean;
 };
+type StatusTone = "neutral" | "error" | "success";
 
 export default function ServicesPage() {
   const [items, setItems] = useState<ServiceItem[]>([]);
@@ -31,6 +32,7 @@ export default function ServicesPage() {
     >
   >({});
   const [status, setStatus] = useState("");
+  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   async function load() {
     const { response, payload } = await fetchJsonWithSessionRetry<{
@@ -39,6 +41,7 @@ export default function ServicesPage() {
     }>("/api/admin/services");
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to load services");
+      setStatusTone("error");
       return;
     }
 
@@ -58,6 +61,8 @@ export default function ServicesPage() {
       };
     }
     setEditing(nextEditing);
+    setStatus("");
+    setStatusTone("neutral");
   }
 
   useEffect(() => {
@@ -83,11 +88,13 @@ export default function ServicesPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to create service");
+      setStatusTone("error");
       return;
     }
     setDisplayName("");
     setPriceCents("");
     setStatus("Service created");
+    setStatusTone("success");
     await load();
   }
 
@@ -112,9 +119,11 @@ export default function ServicesPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to update service");
+      setStatusTone("error");
       return;
     }
     setStatus("Service updated");
+    setStatusTone("success");
     await load();
   }
 
@@ -125,9 +134,11 @@ export default function ServicesPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to deactivate service");
+      setStatusTone("error");
       return;
     }
     setStatus("Service deactivated");
+    setStatusTone("success");
     await load();
   }
 
@@ -153,7 +164,8 @@ export default function ServicesPage() {
   return (
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Services</h1>
-      <p>
+      <p className="gc-admin-subtitle">Manage service catalog, duration, and commercial ordering.</p>
+      <p className="gc-admin-link-line">
         <a href="/admin/service-translations">Open service translations</a>
       </p>
       <div className="gc-services-create-grid">
@@ -197,7 +209,7 @@ export default function ServicesPage() {
           Create
         </button>
       </div>
-      <p className="gc-muted-line">{status}</p>
+      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
       <div className="gc-admin-table-wrap">
         <table className="gc-admin-table">
           <thead>
@@ -265,6 +277,13 @@ export default function ServicesPage() {
                 </td>
               </tr>
             ))}
+            {items.length === 0 ? (
+              <tr>
+                <td className="gc-empty-cell" colSpan={6}>
+                  No services yet. Create your first service above.
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>

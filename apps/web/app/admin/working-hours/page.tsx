@@ -13,6 +13,7 @@ type WorkingHourItem = {
   endMinute: number;
   isActive: boolean;
 };
+type StatusTone = "neutral" | "error" | "success";
 
 export default function WorkingHoursPage() {
   const [masters, setMasters] = useState<Master[]>([]);
@@ -25,6 +26,7 @@ export default function WorkingHoursPage() {
   const [startMinute, setStartMinute] = useState("540");
   const [endMinute, setEndMinute] = useState("1020");
   const [status, setStatus] = useState("");
+  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   async function load() {
     const [mastersResult, hoursResult] = await Promise.all([
@@ -33,6 +35,7 @@ export default function WorkingHoursPage() {
     ]);
     if (!mastersResult.response.ok || !hoursResult.response.ok) {
       setStatus("Failed to load working hours");
+      setStatusTone("error");
       return;
     }
 
@@ -53,6 +56,8 @@ export default function WorkingHoursPage() {
       };
     }
     setEditing(nextEditing);
+    setStatus("");
+    setStatusTone("neutral");
   }
 
   useEffect(() => {
@@ -62,6 +67,7 @@ export default function WorkingHoursPage() {
   async function createWorkingHours() {
     if (Number(startMinute) >= Number(endMinute)) {
       setStatus("Start time must be earlier than end time");
+      setStatusTone("error");
       return;
     }
     const { response, payload } = await fetchJsonWithSessionRetry<{ error?: { message?: string } }>(
@@ -79,9 +85,11 @@ export default function WorkingHoursPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to create working hours");
+      setStatusTone("error");
       return;
     }
     setStatus("Working hours created");
+    setStatusTone("success");
     await load();
   }
 
@@ -92,6 +100,7 @@ export default function WorkingHoursPage() {
     }
     if (Number(edit.startMinute) >= Number(edit.endMinute)) {
       setStatus("Start time must be earlier than end time");
+      setStatusTone("error");
       return;
     }
     const { response, payload } = await fetchJsonWithSessionRetry<{ error?: { message?: string } }>(
@@ -110,9 +119,11 @@ export default function WorkingHoursPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to update working hours");
+      setStatusTone("error");
       return;
     }
     setStatus("Working hours updated");
+    setStatusTone("success");
     await load();
   }
 
@@ -123,9 +134,11 @@ export default function WorkingHoursPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to delete working hours");
+      setStatusTone("error");
       return;
     }
     setStatus("Working hours deleted");
+    setStatusTone("success");
     await load();
   }
 
@@ -145,6 +158,7 @@ export default function WorkingHoursPage() {
   return (
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Working Hours</h1>
+      <p className="gc-admin-subtitle">Define recurring availability by master and weekday.</p>
       <div className="gc-working-hours-create-grid">
         <div className="gc-field">
           <span className="gc-field-label">Master scope</span>
@@ -192,7 +206,7 @@ export default function WorkingHoursPage() {
         </button>
       </div>
 
-      <p className="gc-muted-line">{status}</p>
+      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
 
       <div className="gc-admin-table-wrap">
         <table className="gc-admin-table">
@@ -284,6 +298,13 @@ export default function WorkingHoursPage() {
                 </td>
               </tr>
             ))}
+            {items.length === 0 ? (
+              <tr>
+                <td className="gc-empty-cell" colSpan={6}>
+                  No working hours defined yet.
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>

@@ -28,6 +28,23 @@ type DeliverySummary = {
   deadLetter: number;
   total: number;
 };
+type StatusTone = "neutral" | "error" | "success";
+
+function deliveryTone(status: string): "pending" | "success" | "error" | "info" {
+  if (status === "queued") {
+    return "pending";
+  }
+  if (status === "sent") {
+    return "success";
+  }
+  if (status === "dead_letter") {
+    return "error";
+  }
+  if (status === "failed") {
+    return "error";
+  }
+  return "info";
+}
 
 export default function NotificationsPage() {
   const [items, setItems] = useState<DeliveryItem[]>([]);
@@ -40,6 +57,7 @@ export default function NotificationsPage() {
   });
   const [role, setRole] = useState<string>("");
   const [status, setStatus] = useState("");
+  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   async function load() {
     const [meResult, listResult, summaryResult] = await Promise.all([
@@ -56,6 +74,7 @@ export default function NotificationsPage() {
     const { response, payload } = listResult;
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to load notification deliveries");
+      setStatusTone("error");
       return;
     }
     setItems(payload?.data?.items ?? []);
@@ -63,6 +82,7 @@ export default function NotificationsPage() {
       setSummary(summaryResult.payload.data);
     }
     setStatus("");
+    setStatusTone("neutral");
   }
 
   async function retryFailed() {
@@ -77,10 +97,12 @@ export default function NotificationsPage() {
 
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Retry failed");
+      setStatusTone("error");
       return;
     }
 
     setStatus(`Queued for retry: ${payload?.data?.queued ?? 0}`);
+    setStatusTone("success");
     await load();
   }
 
@@ -91,6 +113,7 @@ export default function NotificationsPage() {
   return (
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Notification Deliveries</h1>
+      <p className="gc-admin-subtitle">Monitor delivery queue health, failures, and retry execution.</p>
       <div className="gc-admin-filters">
         <button className="gc-action-btn" onClick={() => void load()}>
           Refresh
@@ -101,7 +124,7 @@ export default function NotificationsPage() {
           </button>
         ) : null}
       </div>
-      <p className="gc-muted-line">{status}</p>
+      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
       <div className="gc-notifications-summary-grid">
         <div className="gc-card gc-status-card-small">
           <div className="gc-status-name">Total</div>
@@ -146,7 +169,11 @@ export default function NotificationsPage() {
                 <td>{item.notificationType}</td>
                 <td>{item.channel}</td>
                 <td>{item.recipient}</td>
-                <td>{item.status}</td>
+                <td>
+                  <span className="gc-status-chip" data-tone={deliveryTone(item.status)}>
+                    {item.status}
+                  </span>
+                </td>
                 <td>
                   {item.attemptCount}/{item.maxAttempts}
                 </td>
@@ -154,6 +181,13 @@ export default function NotificationsPage() {
                 <td>{item.errorCode ?? item.errorMessage ?? "-"}</td>
               </tr>
             ))}
+            {items.length === 0 ? (
+              <tr>
+                <td className="gc-empty-cell" colSpan={8}>
+                  No notification deliveries yet.
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>

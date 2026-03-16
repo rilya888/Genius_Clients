@@ -11,6 +11,7 @@ type SessionInfo = {
   email: string;
   role: string;
 };
+type StatusTone = "neutral" | "error" | "success";
 
 export default function AuthPage() {
   const searchParams = useSearchParams();
@@ -23,6 +24,7 @@ export default function AuthPage() {
   const [verificationEmail, setVerificationEmail] = useState("");
   const [verificationToken, setVerificationToken] = useState("");
   const [status, setStatus] = useState<string>("");
+  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
 
@@ -88,8 +90,23 @@ export default function AuthPage() {
     return true;
   }, [businessName, email, mode, password]);
 
+  function setNeutralStatus(message: string) {
+    setStatus(message);
+    setStatusTone("neutral");
+  }
+
+  function setErrorStatus(message: string) {
+    setStatus(message);
+    setStatusTone("error");
+  }
+
+  function setSuccessStatus(message: string) {
+    setStatus(message);
+    setStatusTone("success");
+  }
+
   async function submit() {
-    setStatus(t("auth.submitting", { locale: uiLocale }));
+    setNeutralStatus(t("auth.submitting", { locale: uiLocale }));
     const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
     const body =
       mode === "login"
@@ -106,12 +123,12 @@ export default function AuthPage() {
       });
       payload = await response.json().catch(() => null);
     } catch {
-      setStatus(t("common.errors.generic", { locale: uiLocale }));
+      setErrorStatus(t("common.errors.generic", { locale: uiLocale }));
       return;
     }
 
     if (!response.ok) {
-      setStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
+      setErrorStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
       return;
     }
 
@@ -119,18 +136,18 @@ export default function AuthPage() {
     const mePayload = await meResponse.json();
     if (meResponse.ok) {
       setSession(mePayload.data as SessionInfo);
-      setStatus(t("auth.authenticated", { locale: uiLocale }));
+      setSuccessStatus(t("auth.authenticated", { locale: uiLocale }));
       window.location.href = "/admin";
       return;
     }
 
-    setStatus(t("auth.profileLoadFailed", { locale: uiLocale }));
+    setErrorStatus(t("auth.profileLoadFailed", { locale: uiLocale }));
   }
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     setSession(null);
-    setStatus(t("auth.loggedOut", { locale: uiLocale }));
+    setSuccessStatus(t("auth.loggedOut", { locale: uiLocale }));
   }
 
   async function requestEmailVerification() {
@@ -141,12 +158,12 @@ export default function AuthPage() {
     });
     const payload = await response.json();
     if (!response.ok) {
-      setStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
+      setErrorStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
       return;
     }
 
     const preview = payload?.data?.verificationTokenPreview;
-    setStatus(
+    setSuccessStatus(
       preview
         ? `${t("auth.verificationRequested", { locale: uiLocale })}: ${String(preview)}`
         : t("auth.verificationRequested", { locale: uiLocale })
@@ -165,11 +182,11 @@ export default function AuthPage() {
     });
     const payload = await response.json();
     if (!response.ok) {
-      setStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
+      setErrorStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
       return;
     }
 
-    setStatus(t("auth.emailVerified", { locale: uiLocale }));
+    setSuccessStatus(t("auth.emailVerified", { locale: uiLocale }));
   }
 
   if (checkingSession) {
@@ -185,97 +202,118 @@ export default function AuthPage() {
   return (
     <main className="gc-auth-page">
       <h1 className="gc-auth-title">{t("auth.title", { locale: uiLocale })}</h1>
-      <div className="gc-auth-toolbar">
-        <button className="gc-pill-btn" onClick={() => setMode("login")} disabled={mode === "login"}>
-          {t("auth.login", { locale: uiLocale })}
-        </button>
-        <button
-          className="gc-pill-btn"
-          onClick={() => setMode("register")}
-          disabled={mode === "register"}
-        >
-          {t("auth.register", { locale: uiLocale })}
-        </button>
-        <button className="gc-pill-btn" onClick={logout}>
-          {t("auth.logout", { locale: uiLocale })}
-        </button>
-      </div>
+      <p className="gc-auth-subtitle">
+        Secure authentication gateway for tenant onboarding and operator access.
+      </p>
 
-      <div className="gc-card gc-form-card">
-        <label className="gc-form-label">
-          {t("auth.email", { locale: uiLocale })}
-          <input
-            className="gc-form-input"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </label>
-        <label className="gc-form-label">
-          {t("auth.password", { locale: uiLocale })}
-          <input
-            className="gc-form-input"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </label>
+      <section className="gc-auth-layout">
+        <aside className="gc-card gc-auth-intro-card">
+          <h2 className="gc-auth-intro-title">Access and onboarding</h2>
+          <p className="gc-auth-intro-text">
+            Use login for existing operators or create a new tenant account to initialize your
+            business workspace.
+          </p>
+          <ul className="gc-auth-points">
+            <li>Session-based authentication via BFF routes</li>
+            <li>Tenant-aware onboarding with optional slug</li>
+            <li>Email verification flow for account trust</li>
+          </ul>
+        </aside>
 
-        {mode === "register" ? (
-          <>
+        <div className="gc-auth-main">
+          <div className="gc-auth-toolbar">
+            <button className="gc-pill-btn" onClick={() => setMode("login")} disabled={mode === "login"}>
+              {t("auth.login", { locale: uiLocale })}
+            </button>
+            <button
+              className="gc-pill-btn"
+              onClick={() => setMode("register")}
+              disabled={mode === "register"}
+            >
+              {t("auth.register", { locale: uiLocale })}
+            </button>
+            <button className="gc-pill-btn" onClick={logout}>
+              {t("auth.logout", { locale: uiLocale })}
+            </button>
+          </div>
+
+          <div className="gc-card gc-form-card">
             <label className="gc-form-label">
-              {t("auth.businessName", { locale: uiLocale })}
+              {t("auth.email", { locale: uiLocale })}
               <input
                 className="gc-form-input"
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
               />
             </label>
             <label className="gc-form-label">
-              {t("auth.slugOptional", { locale: uiLocale })}
-              <input className="gc-form-input" value={slug} onChange={(e) => setSlug(e.target.value)} />
+              {t("auth.password", { locale: uiLocale })}
+              <input
+                className="gc-form-input"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
             </label>
-          </>
-        ) : null}
 
-        <button className="gc-primary-btn" disabled={!canSubmit} onClick={submit}>
-          {mode === "login"
-            ? t("auth.login", { locale: uiLocale })
-            : t("auth.register", { locale: uiLocale })}
-        </button>
-      </div>
+            {mode === "register" ? (
+              <>
+                <label className="gc-form-label">
+                  {t("auth.businessName", { locale: uiLocale })}
+                  <input
+                    className="gc-form-input"
+                    value={businessName}
+                    onChange={(e) => setBusinessName(e.target.value)}
+                  />
+                </label>
+                <label className="gc-form-label">
+                  {t("auth.slugOptional", { locale: uiLocale })}
+                  <input className="gc-form-input" value={slug} onChange={(e) => setSlug(e.target.value)} />
+                </label>
+              </>
+            ) : null}
 
-      <div className="gc-card gc-form-card gc-mt-12">
-        <label className="gc-form-label">
-          {t("auth.email", { locale: uiLocale })}
-          <input
-            className="gc-form-input"
-            value={verificationEmail}
-            onChange={(e) => setVerificationEmail(e.target.value)}
-          />
-        </label>
-        <button className="gc-primary-btn" onClick={requestEmailVerification}>
-          {t("auth.requestVerification", { locale: uiLocale })}
-        </button>
+            <button className="gc-primary-btn" disabled={!canSubmit} onClick={submit}>
+              {mode === "login"
+                ? t("auth.login", { locale: uiLocale })
+                : t("auth.register", { locale: uiLocale })}
+            </button>
+          </div>
 
-        <label className="gc-form-label">
-          {t("auth.verificationToken", { locale: uiLocale })}
-          <input
-            className="gc-form-input"
-            value={verificationToken}
-            onChange={(e) => setVerificationToken(e.target.value)}
-          />
-        </label>
-        <button className="gc-primary-btn" onClick={verifyEmail}>
-          {t("auth.verifyEmail", { locale: uiLocale })}
-        </button>
-      </div>
+          <div className="gc-card gc-form-card gc-mt-12">
+            <label className="gc-form-label">
+              {t("auth.email", { locale: uiLocale })}
+              <input
+                className="gc-form-input"
+                value={verificationEmail}
+                onChange={(e) => setVerificationEmail(e.target.value)}
+              />
+            </label>
+            <button className="gc-primary-btn" onClick={requestEmailVerification}>
+              {t("auth.requestVerification", { locale: uiLocale })}
+            </button>
 
-      <p className="gc-status-text">{status}</p>
-      {session ? (
-        <pre className="gc-debug-box">
-          {JSON.stringify(session, null, 2)}
-        </pre>
-      ) : null}
+            <label className="gc-form-label">
+              {t("auth.verificationToken", { locale: uiLocale })}
+              <input
+                className="gc-form-input"
+                value={verificationToken}
+                onChange={(e) => setVerificationToken(e.target.value)}
+              />
+            </label>
+            <button className="gc-primary-btn" onClick={verifyEmail}>
+              {t("auth.verifyEmail", { locale: uiLocale })}
+            </button>
+          </div>
+
+          <p className={`gc-status-text gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
+          {session ? (
+            <pre className="gc-debug-box">
+              {JSON.stringify(session, null, 2)}
+            </pre>
+          ) : null}
+        </div>
+      </section>
     </main>
   );
 }

@@ -14,6 +14,7 @@ type IntegrationsStatus = {
   telegram: boolean;
   email: boolean;
 };
+type StatusTone = "neutral" | "error";
 
 export default function AdminPage() {
   const [mastersCount, setMastersCount] = useState(0);
@@ -21,6 +22,7 @@ export default function AdminPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [integrations, setIntegrations] = useState<IntegrationsStatus | null>(null);
   const [status, setStatus] = useState("");
+  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   useEffect(() => {
     async function load() {
@@ -33,6 +35,7 @@ export default function AdminPage() {
 
       if (!mastersResult.response.ok || !servicesResult.response.ok || !bookingsResult.response.ok) {
         setStatus("Failed to load dashboard data");
+        setStatusTone("error");
         return;
       }
 
@@ -42,6 +45,8 @@ export default function AdminPage() {
       if (integrationsResult.response.ok && integrationsResult.payload?.data) {
         setIntegrations(integrationsResult.payload.data);
       }
+      setStatus("");
+      setStatusTone("neutral");
     }
 
     void load();
@@ -59,9 +64,9 @@ export default function AdminPage() {
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Admin Dashboard</h1>
       <p className="gc-admin-subtitle">
-        Quick links and live counters from `/api/v1/admin/*`.
+        Operational snapshot and links for day-to-day tenant management.
       </p>
-      <p className="gc-muted-line">{status}</p>
+      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
 
       <div className="gc-admin-grid-3">
         <div className="gc-card gc-admin-stat">
@@ -147,7 +152,11 @@ export default function AdminPage() {
         ).map(([name, enabled]) => (
           <div key={name} className="gc-card gc-status-card-small">
             <div className="gc-status-name">{name}</div>
-            <div className="gc-status-value">{enabled ? "configured" : "missing"}</div>
+            <div className="gc-status-value">
+              <span className="gc-status-chip" data-tone={enabled ? "success" : "error"}>
+                {enabled ? "configured" : "missing"}
+              </span>
+            </div>
           </div>
         ))}
       </div>

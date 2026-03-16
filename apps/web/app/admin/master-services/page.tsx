@@ -11,6 +11,7 @@ type MasterServiceItem = {
   serviceId: string;
   durationMinutesOverride: number | null;
 };
+type StatusTone = "neutral" | "error" | "success";
 
 export default function MasterServicesPage() {
   const [masters, setMasters] = useState<Master[]>([]);
@@ -23,6 +24,7 @@ export default function MasterServicesPage() {
   const [serviceId, setServiceId] = useState("");
   const [durationOverride, setDurationOverride] = useState("");
   const [status, setStatus] = useState("");
+  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   async function load() {
     const [mastersResult, servicesResult, linksResult] = await Promise.all([
@@ -32,6 +34,7 @@ export default function MasterServicesPage() {
     ]);
     if (!mastersResult.response.ok || !servicesResult.response.ok || !linksResult.response.ok) {
       setStatus("Failed to load master-services data");
+      setStatusTone("error");
       return;
     }
 
@@ -49,6 +52,8 @@ export default function MasterServicesPage() {
       };
     }
     setEditing(nextEditing);
+    setStatus("");
+    setStatusTone("neutral");
   }
 
   useEffect(() => {
@@ -73,9 +78,11 @@ export default function MasterServicesPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to create link");
+      setStatusTone("error");
       return;
     }
     setStatus("Link created");
+    setStatusTone("success");
     await load();
   }
 
@@ -98,9 +105,11 @@ export default function MasterServicesPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to update link");
+      setStatusTone("error");
       return;
     }
     setStatus("Link updated");
+    setStatusTone("success");
     await load();
   }
 
@@ -111,9 +120,11 @@ export default function MasterServicesPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to delete link");
+      setStatusTone("error");
       return;
     }
     setStatus("Link deleted");
+    setStatusTone("success");
     await load();
   }
 
@@ -130,6 +141,7 @@ export default function MasterServicesPage() {
   return (
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Master Services</h1>
+      <p className="gc-admin-subtitle">Assign services to masters with optional duration overrides.</p>
       <div className="gc-master-services-create-grid">
         <div className="gc-field">
           <span className="gc-field-label">Master</span>
@@ -166,7 +178,7 @@ export default function MasterServicesPage() {
           Create Link
         </button>
       </div>
-      <p className="gc-muted-line">{status}</p>
+      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
       <div className="gc-admin-table-wrap">
         <table className="gc-admin-table">
           <thead>
@@ -225,6 +237,13 @@ export default function MasterServicesPage() {
                 </td>
               </tr>
             ))}
+            {items.length === 0 ? (
+              <tr>
+                <td className="gc-empty-cell" colSpan={4}>
+                  No master-service links yet.
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>

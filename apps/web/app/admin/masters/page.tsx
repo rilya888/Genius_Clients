@@ -8,12 +8,14 @@ type MasterItem = {
   displayName: string;
   isActive: boolean;
 };
+type StatusTone = "neutral" | "error" | "success";
 
 export default function MastersPage() {
   const [items, setItems] = useState<MasterItem[]>([]);
   const [displayName, setDisplayName] = useState("");
   const [editing, setEditing] = useState<Record<string, { displayName: string; isActive: boolean }>>({});
   const [status, setStatus] = useState("");
+  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   async function load() {
     const { response, payload } = await fetchJsonWithSessionRetry<{ data?: { items?: MasterItem[] }; error?: { message?: string } }>(
@@ -21,6 +23,7 @@ export default function MastersPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to load masters");
+      setStatusTone("error");
       return;
     }
 
@@ -31,6 +34,8 @@ export default function MastersPage() {
       nextEditing[item.id] = { displayName: item.displayName, isActive: item.isActive };
     }
     setEditing(nextEditing);
+    setStatus("");
+    setStatusTone("neutral");
   }
 
   useEffect(() => {
@@ -51,10 +56,12 @@ export default function MastersPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to create master");
+      setStatusTone("error");
       return;
     }
     setDisplayName("");
     setStatus("Master created");
+    setStatusTone("success");
     await load();
   }
 
@@ -77,9 +84,11 @@ export default function MastersPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to update master");
+      setStatusTone("error");
       return;
     }
     setStatus("Master updated");
+    setStatusTone("success");
     await load();
   }
 
@@ -90,9 +99,11 @@ export default function MastersPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to deactivate master");
+      setStatusTone("error");
       return;
     }
     setStatus("Master deactivated");
+    setStatusTone("success");
     await load();
   }
 
@@ -109,7 +120,8 @@ export default function MastersPage() {
   return (
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Masters</h1>
-      <p>
+      <p className="gc-admin-subtitle">Manage specialists, visibility state, and naming consistency.</p>
+      <p className="gc-admin-link-line">
         <a href="/admin/master-translations">Open master translations</a>
       </p>
       <div className="gc-admin-filters">
@@ -129,7 +141,7 @@ export default function MastersPage() {
           Refresh
         </button>
       </div>
-      <p className="gc-muted-line">{status}</p>
+      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
       <div className="gc-admin-table-wrap">
         <table className="gc-admin-table">
           <thead>
@@ -173,6 +185,13 @@ export default function MastersPage() {
                 </td>
               </tr>
             ))}
+            {items.length === 0 ? (
+              <tr>
+                <td className="gc-empty-cell" colSpan={3}>
+                  No masters yet. Create your first specialist above.
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>

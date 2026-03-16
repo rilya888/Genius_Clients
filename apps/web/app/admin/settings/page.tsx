@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
 
+type StatusTone = "neutral" | "error" | "success";
+
 export default function TenantSettingsPage() {
   const [role, setRole] = useState<string>("");
   const [defaultLocale, setDefaultLocale] = useState<"it" | "en">("it");
@@ -16,6 +18,7 @@ export default function TenantSettingsPage() {
   const [openaiModel, setOpenaiModel] = useState("gpt-5-mini");
   const [humanHandoffEnabled, setHumanHandoffEnabled] = useState(true);
   const [status, setStatus] = useState("");
+  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   useEffect(() => {
     async function load() {
@@ -39,10 +42,12 @@ export default function TenantSettingsPage() {
       ]);
       if (!meResult.response.ok) {
         setStatus(meResult.payload?.error?.message ?? "Failed to load session");
+        setStatusTone("error");
         return;
       }
       if (!settingsResult.response.ok) {
         setStatus(settingsResult.payload?.error?.message ?? "Failed to load settings");
+        setStatusTone("error");
         return;
       }
 
@@ -59,6 +64,8 @@ export default function TenantSettingsPage() {
       setOpenaiEnabled(data?.openaiEnabled ?? true);
       setOpenaiModel(data?.openaiModel ?? "gpt-5-mini");
       setHumanHandoffEnabled(data?.humanHandoffEnabled ?? true);
+      setStatus("");
+      setStatusTone("neutral");
     }
 
     void load();
@@ -67,6 +74,7 @@ export default function TenantSettingsPage() {
   async function save() {
     if (role !== "owner") {
       setStatus("Only owner can update tenant settings");
+      setStatusTone("error");
       return;
     }
 
@@ -91,15 +99,18 @@ export default function TenantSettingsPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to save settings");
+      setStatusTone("error");
       return;
     }
 
     setStatus("Settings saved");
+    setStatusTone("success");
   }
 
   return (
     <main className="gc-settings-page">
       <h1 className="gc-admin-title">Tenant Settings</h1>
+      <p className="gc-admin-subtitle">Configure locale, scheduling constraints, and AI notification behavior.</p>
       {role && role !== "owner" ? (
         <p className="gc-warning-text">Current role: {role}. Settings update requires owner role.</p>
       ) : null}
@@ -200,7 +211,7 @@ export default function TenantSettingsPage() {
         </button>
       </div>
 
-      <p className="gc-muted-line">{status}</p>
+      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
     </main>
   );
 }

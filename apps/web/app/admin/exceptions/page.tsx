@@ -14,6 +14,7 @@ type ExceptionItem = {
   endMinute: number | null;
   note: string | null;
 };
+type StatusTone = "neutral" | "error" | "success";
 
 export default function ExceptionsPage() {
   const [masters, setMasters] = useState<Master[]>([]);
@@ -38,6 +39,7 @@ export default function ExceptionsPage() {
   const [endMinute, setEndMinute] = useState("");
   const [note, setNote] = useState("");
   const [status, setStatus] = useState("");
+  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   async function load() {
     const [mastersResult, exceptionsResult] = await Promise.all([
@@ -46,6 +48,7 @@ export default function ExceptionsPage() {
     ]);
     if (!mastersResult.response.ok || !exceptionsResult.response.ok) {
       setStatus("Failed to load exceptions");
+      setStatusTone("error");
       return;
     }
     const nextItems = exceptionsResult.payload?.data?.items ?? [];
@@ -67,6 +70,8 @@ export default function ExceptionsPage() {
       };
     }
     setEditing(nextEditing);
+    setStatus("");
+    setStatusTone("neutral");
   }
 
   useEffect(() => {
@@ -79,6 +84,7 @@ export default function ExceptionsPage() {
     }
     if (!isClosed && startMinute && endMinute && Number(startMinute) >= Number(endMinute)) {
       setStatus("Start time must be earlier than end time");
+      setStatusTone("error");
       return;
     }
     const { response, payload } = await fetchJsonWithSessionRetry<{ error?: { message?: string } }>(
@@ -98,9 +104,11 @@ export default function ExceptionsPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to create exception");
+      setStatusTone("error");
       return;
     }
     setStatus("Exception created");
+    setStatusTone("success");
     await load();
   }
 
@@ -111,6 +119,7 @@ export default function ExceptionsPage() {
     }
     if (!edit.isClosed && edit.startMinute && edit.endMinute && Number(edit.startMinute) >= Number(edit.endMinute)) {
       setStatus("Start time must be earlier than end time");
+      setStatusTone("error");
       return;
     }
     const { response, payload } = await fetchJsonWithSessionRetry<{ error?: { message?: string } }>(
@@ -130,9 +139,11 @@ export default function ExceptionsPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to update exception");
+      setStatusTone("error");
       return;
     }
     setStatus("Exception updated");
+    setStatusTone("success");
     await load();
   }
 
@@ -143,9 +154,11 @@ export default function ExceptionsPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to delete exception");
+      setStatusTone("error");
       return;
     }
     setStatus("Exception deleted");
+    setStatusTone("success");
     await load();
   }
 
@@ -172,6 +185,7 @@ export default function ExceptionsPage() {
   return (
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Schedule Exceptions</h1>
+      <p className="gc-admin-subtitle">Set non-standard days, closures, and temporary overrides.</p>
       <div className="gc-exceptions-create-grid">
         <div className="gc-field">
           <span className="gc-field-label">Master scope</span>
@@ -230,7 +244,7 @@ export default function ExceptionsPage() {
         <input type="checkbox" checked={isClosed} onChange={(e) => setIsClosed(e.target.checked)} />
         Closed day
       </label>
-      <p className="gc-muted-line">{status}</p>
+      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
 
       <div className="gc-admin-table-wrap">
         <table className="gc-admin-table">
@@ -327,6 +341,13 @@ export default function ExceptionsPage() {
                 </td>
               </tr>
             ))}
+            {items.length === 0 ? (
+              <tr>
+                <td className="gc-empty-cell" colSpan={7}>
+                  No schedule exceptions defined yet.
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>

@@ -13,6 +13,20 @@ type BookingItem = {
   endAt: string;
   status: BookingStatus;
 };
+type StatusTone = "neutral" | "error" | "success";
+
+function bookingStatusTone(status: BookingStatus): "pending" | "success" | "error" | "info" {
+  if (status === "confirmed") {
+    return "success";
+  }
+  if (status === "completed") {
+    return "info";
+  }
+  if (status === "cancelled") {
+    return "error";
+  }
+  return "pending";
+}
 
 export default function BookingsPage() {
   const [items, setItems] = useState<BookingItem[]>([]);
@@ -20,6 +34,7 @@ export default function BookingsPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [status, setStatus] = useState("");
+  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   async function load() {
     const queryParams = new URLSearchParams();
@@ -39,9 +54,12 @@ export default function BookingsPage() {
     }>(`/api/admin/bookings${qs ? `?${qs}` : ""}`);
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to load bookings");
+      setStatusTone("error");
       return;
     }
     setItems(payload?.data?.items ?? []);
+    setStatus("");
+    setStatusTone("neutral");
   }
 
   useEffect(() => {
@@ -67,9 +85,11 @@ export default function BookingsPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to update booking");
+      setStatusTone("error");
       return;
     }
     setStatus("Booking updated");
+    setStatusTone("success");
     await load();
   }
 
@@ -86,6 +106,7 @@ export default function BookingsPage() {
   return (
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Bookings</h1>
+      <p className="gc-admin-subtitle">Track and manage client appointments with status transitions.</p>
       <div className="gc-admin-filters">
         <div className="gc-field">
           <span className="gc-field-label">Status filter</span>
@@ -109,7 +130,7 @@ export default function BookingsPage() {
           Refresh
         </button>
       </div>
-      <p className="gc-muted-line">{status}</p>
+      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
 
       <div className="gc-admin-table-wrap">
         <table className="gc-admin-table">
@@ -128,7 +149,11 @@ export default function BookingsPage() {
                 <td>{item.clientName}</td>
                 <td>{item.clientPhoneE164}</td>
                 <td>{new Date(item.startAt).toLocaleString()}</td>
-                <td>{item.status}</td>
+                <td>
+                  <span className="gc-status-chip" data-tone={bookingStatusTone(item.status)}>
+                    {item.status}
+                  </span>
+                </td>
                 <td>
                   <div className="gc-inline-actions">
                     {nextActions(item).map((nextStatus) => (
@@ -144,6 +169,13 @@ export default function BookingsPage() {
                 </td>
               </tr>
             ))}
+            {items.length === 0 ? (
+              <tr>
+                <td className="gc-empty-cell" colSpan={5}>
+                  No bookings found for the selected filters.
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>

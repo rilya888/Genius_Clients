@@ -10,6 +10,7 @@ type Item = {
   displayName: string;
   description: string | null;
 };
+type StatusTone = "neutral" | "error" | "success";
 
 export default function ServiceTranslationsPage() {
   const [services, setServices] = useState<Service[]>([]);
@@ -19,6 +20,7 @@ export default function ServiceTranslationsPage() {
   const [displayName, setDisplayName] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState("");
+  const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
 
   async function load() {
     const [servicesResult, translationsResult] = await Promise.all([
@@ -27,10 +29,13 @@ export default function ServiceTranslationsPage() {
     ]);
     if (!servicesResult.response.ok || !translationsResult.response.ok) {
       setStatus("Failed to load service translations");
+      setStatusTone("error");
       return;
     }
     setServices(servicesResult.payload?.data?.items ?? []);
     setItems(translationsResult.payload?.data?.items ?? []);
+    setStatus("");
+    setStatusTone("neutral");
   }
 
   useEffect(() => {
@@ -56,9 +61,11 @@ export default function ServiceTranslationsPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to upsert translation");
+      setStatusTone("error");
       return;
     }
     setStatus("Translation saved");
+    setStatusTone("success");
     await load();
   }
 
@@ -71,9 +78,11 @@ export default function ServiceTranslationsPage() {
     );
     if (!response.ok) {
       setStatus(payload?.error?.message ?? "Failed to delete translation");
+      setStatusTone("error");
       return;
     }
     setStatus("Translation deleted");
+    setStatusTone("success");
     await load();
   }
 
@@ -82,6 +91,7 @@ export default function ServiceTranslationsPage() {
   return (
     <main className="gc-admin-page">
       <h1 className="gc-admin-title">Service Translations</h1>
+      <p className="gc-admin-subtitle">Manage localized names and descriptions for IT/EN services.</p>
       <div className="gc-translations-create-grid">
         <div className="gc-field">
           <span className="gc-field-label">Service</span>
@@ -124,7 +134,7 @@ export default function ServiceTranslationsPage() {
         </button>
       </div>
 
-      <p className="gc-muted-line">{status}</p>
+      <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
 
       <div className="gc-admin-table-wrap">
         <table className="gc-admin-table">
@@ -151,6 +161,13 @@ export default function ServiceTranslationsPage() {
                 </td>
               </tr>
             ))}
+            {items.length === 0 ? (
+              <tr>
+                <td className="gc-empty-cell" colSpan={5}>
+                  No service translations yet.
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>
