@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
 import { isUiV2Enabled } from "../../../lib/ui-flags";
 
@@ -57,6 +57,9 @@ export default function NotificationsPage() {
     deadLetter: 0,
     total: 0
   });
+  const [channelFilter, setChannelFilter] = useState("");
+  const [deliveryStatusFilter, setDeliveryStatusFilter] = useState("");
+  const [recipientQuery, setRecipientQuery] = useState("");
   const [role, setRole] = useState<string>("");
   const [status, setStatus] = useState("");
   const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
@@ -112,12 +115,60 @@ export default function NotificationsPage() {
     void load();
   }, []);
 
+  const filteredItems = useMemo(() => {
+    const query = recipientQuery.trim().toLowerCase();
+    return items.filter((item) => {
+      if (channelFilter && item.channel !== channelFilter) {
+        return false;
+      }
+      if (deliveryStatusFilter && item.status !== deliveryStatusFilter) {
+        return false;
+      }
+      if (query && !item.recipient.toLowerCase().includes(query)) {
+        return false;
+      }
+      return true;
+    });
+  }, [channelFilter, deliveryStatusFilter, items, recipientQuery]);
+
   return (
     <main className={`gc-admin-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
       <h1 className="gc-admin-title">Notification Deliveries</h1>
       <p className="gc-admin-subtitle">Monitor delivery queue health, failures, and retry execution.</p>
       <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
         <div className={`gc-admin-filters${uiV2Enabled ? " gc-admin-filters-v2" : ""}`}>
+          <div className="gc-field">
+            <span className="gc-field-label">Channel</span>
+            <select className="gc-select" value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)}>
+              <option value="">All channels</option>
+              <option value="whatsapp">whatsapp</option>
+              <option value="telegram">telegram</option>
+              <option value="email">email</option>
+            </select>
+          </div>
+          <div className="gc-field">
+            <span className="gc-field-label">Delivery status</span>
+            <select
+              className="gc-select"
+              value={deliveryStatusFilter}
+              onChange={(event) => setDeliveryStatusFilter(event.target.value)}
+            >
+              <option value="">All statuses</option>
+              <option value="queued">queued</option>
+              <option value="sent">sent</option>
+              <option value="failed">failed</option>
+              <option value="dead_letter">dead_letter</option>
+            </select>
+          </div>
+          <div className="gc-field">
+            <span className="gc-field-label">Recipient search</span>
+            <input
+              className="gc-input"
+              value={recipientQuery}
+              onChange={(event) => setRecipientQuery(event.target.value)}
+              placeholder="Search recipient"
+            />
+          </div>
           <button className="gc-action-btn" onClick={() => void load()}>
             Refresh
           </button>
@@ -169,7 +220,7 @@ export default function NotificationsPage() {
             </tr>
           </thead>
           <tbody>
-            {items.map((item) => (
+            {filteredItems.map((item) => (
               <tr key={item.id}>
                 <td>{new Date(item.createdAt).toLocaleString()}</td>
                 <td>{item.notificationType}</td>
@@ -187,10 +238,10 @@ export default function NotificationsPage() {
                 <td>{item.errorCode ?? item.errorMessage ?? "-"}</td>
               </tr>
             ))}
-            {items.length === 0 ? (
+            {filteredItems.length === 0 ? (
               <tr>
                 <td className="gc-empty-cell" colSpan={8}>
-                  No notification deliveries yet.
+                  No notification deliveries for selected filters.
                 </td>
               </tr>
             ) : null}

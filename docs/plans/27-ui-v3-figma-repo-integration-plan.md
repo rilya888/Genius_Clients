@@ -92,6 +92,7 @@
 - Статус: **выполняется**.
   - Для translation экранов добавлены locale summary-блоки (it/en) для быстрого операционного контроля.
   - `Tenant Settings` переразложен на секции (General/Scheduling/Notifications/AI/FAQ IT/EN) с summary-метриками.
+  - `Notifications` расширен filter/search панелью (channel/status/recipient) без изменения backend-контрактов.
 
 ### Срез F: Landing + Pricing + FAQ + Public Booking
 
