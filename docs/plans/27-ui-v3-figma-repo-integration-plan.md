@@ -56,7 +56,7 @@
 - Login / Register / Forgot / Reset / Verify.
 - Удаление моков, подключение реальных auth endpoint-ов.
 - Проверка redirect/session behavior.
-- Статус: **выполняется**.
+- Статус: **реализовано (рабочий контур)**.
   - В `apps/web/app/auth/page.tsx` реализованы все 5 режимов с реальными API маршрутами.
   - Добавлен unified submit flow + request verification action.
   - Сохранены locale/session проверки и role-safe redirect behavior.
@@ -67,7 +67,7 @@
 - Перенос shell/layout (sidebar/topbar/mobile).
 - Подключение `/api/auth/me` + role guard.
 - Реальные KPI и operational summary.
-- Статус: **выполняется**.
+- Статус: **реализовано (рабочий контур)**.
   - `session-gate` усилен (brand/user head, mobile jump navigation, v3-compatible presentation).
   - Dashboard дополнен quick actions, focus KPI и recent bookings (реальные данные).
   - Следующий шаг: выровнять remaining admin pages по тем же visual-pattern blocks.
@@ -76,7 +76,7 @@
 
 - Таблицы, фильтры, CRUD, статусные чипы.
 - Унификация ошибок/тостов.
-- Статус: **выполняется**.
+- Статус: **реализовано (рабочий контур)**.
   - Добавлены summary-блоки operational KPI для `bookings`, `services`, `masters`, `working-hours`, `exceptions`, `master-services`.
   - Сохранены текущие CRUD-контракты и маршрутная структура.
 
@@ -84,12 +84,14 @@
 
 - Working hours, exceptions, master-services.
 - Валидация интервалов и корректная работа с time-related полями.
+- Статус: **реализовано (рабочий контур)**.
+  - Schedule страницы выровнены по v3-паттерну (form/status/summary/table).
 
 ### Срез E: Settings + Notifications + Translations
 
 - Сложные формы и ограничения ролей.
 - Мониторинг доставок и retry UX.
-- Статус: **выполняется**.
+- Статус: **реализовано (рабочий контур)**.
   - Для translation экранов добавлены locale summary-блоки (it/en) для быстрого операционного контроля.
   - `Tenant Settings` переразложен на секции (General/Scheduling/Notifications/AI/FAQ IT/EN) с summary-метриками.
   - `Notifications` расширен filter/search панелью (channel/status/recipient) без изменения backend-контрактов.
@@ -98,6 +100,17 @@
 
 - Максимальный визуальный паритет лендинга по композиции.
 - CTA и flow только через рабочие route/API.
+- Статус: **реализовано (рабочий контур)**.
+  - Лендинг уже работает в расширенной v2/v3 композиции.
+  - Public booking усилен progress/facts/policy sidebar при сохранении текущих API-контрактов.
+
+## Текущий общий статус этапа
+
+- Реализация основного объема завершена.
+- Web-only деплой идет инкрементально через `deploy/web`.
+- Остаток перед формальным закрытием этапа:
+  1. ручной visual sign-off по чек-листу desktop/tablet/mobile;
+  2. фиксация согласованных `deviation` пунктов (если найдутся).
 
 ## Data Adapter слой
 
