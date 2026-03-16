@@ -13,7 +13,7 @@ type CandidateItem = {
   displayName: string;
 };
 
-export type ResetDetectedIntent = ConversationIntent | "human_handoff" | "unknown";
+export type ResetDetectedIntent = ConversationIntent | "booking_list" | "human_handoff" | "unknown";
 
 export type ConversationResetDecision =
   | "continue_current_flow"
@@ -161,7 +161,7 @@ export async function applyConversationResetPolicy(
     });
   }
 
-  if (detectedIntent !== "unknown" && session.intent && isIntentConflict(session.intent, detectedIntent)) {
+  if (detectedIntent !== "unknown" && isIntentConflict(session, detectedIntent)) {
     return {
       session: resetSessionForNewConversation({
         locale: input.locale,
@@ -183,14 +183,44 @@ export async function applyConversationResetPolicy(
   }
 
   if (detectedIntent !== "unknown" && isStandaloneIntentMessage(normalizedText)) {
+    if (!session.intent) {
+      return {
+        session: touchSession(session, nowIso, input.locale),
+        decision: "continue_current_flow",
+        detectedIntent,
+        idleMinutes,
+        shouldResetSession: false,
+        shouldRerouteCurrentMessage: true,
+        shouldFallbackToMenuImmediately: false,
+        currentStepContinuationMatched: false,
+        continuationClassifier: "none",
+        matchedCandidateCount: 0,
+        matchedCandidateType: null
+      };
+    }
+    if (!isIntentConflict(session, detectedIntent)) {
+      return {
+        session: touchSession(session, nowIso, input.locale),
+        decision: "continue_current_flow",
+        detectedIntent,
+        idleMinutes,
+        shouldResetSession: false,
+        shouldRerouteCurrentMessage: true,
+        shouldFallbackToMenuImmediately: false,
+        currentStepContinuationMatched: false,
+        continuationClassifier: "none",
+        matchedCandidateCount: 0,
+        matchedCandidateType: null
+      };
+    }
     return {
       session: resetSessionForNewConversation({
         locale: input.locale,
         nowIso,
-        reason: session.intent ? "intent_conflict" : "non_continuation_message"
+        reason: "intent_conflict"
       }),
       decision: "hard_reset_to_new_intent",
-      reason: session.intent ? "intent_conflict" : "non_continuation_message",
+      reason: "intent_conflict",
       detectedIntent,
       idleMinutes,
       shouldResetSession: true,
@@ -209,12 +239,19 @@ export async function applyConversationResetPolicy(
   }
 
   if (normalizedText && session.state === "choose_intent" && !session.intent) {
-    return buildContinueResult(session, nowIso, input.locale, detectedIntent, idleMinutes, {
-      matched: false,
-      classifier: "none",
-      count: 0,
-      type: null
-    });
+    return {
+      session: touchSession(session, nowIso, input.locale),
+      decision: "continue_current_flow",
+      detectedIntent,
+      idleMinutes,
+      shouldResetSession: false,
+      shouldRerouteCurrentMessage: true,
+      shouldFallbackToMenuImmediately: false,
+      currentStepContinuationMatched: false,
+      continuationClassifier: "none",
+      matchedCandidateCount: 0,
+      matchedCandidateType: null
+    };
   }
 
   if (normalizedText) {
@@ -249,6 +286,14 @@ export async function applyConversationResetPolicy(
 export function detectIntentForReset(text: string): ResetDetectedIntent {
   if (!text) {
     return "unknown";
+  }
+
+  if (
+    /\b(my bookings|my booking|my appointments|my appointment|show my bookings|show my appointments|what bookings do i have|what appointments do i have|do i have bookings|do i have appointments|le mie prenotazioni|mie prenotazioni|quali prenotazioni ho|quali appuntamenti ho|le mie visite|i miei appuntamenti|mostra le mie prenotazioni|mostra i miei appuntamenti|мои записи|какие у меня записи|мои брони)\b/.test(
+      text
+    )
+  ) {
+    return "booking_list";
   }
 
   if (
@@ -431,13 +476,40 @@ function getIdleMinutes(lastUserMessageAt: string | undefined, now: Date) {
   return Math.floor((now.getTime() - last.getTime()) / 60000);
 }
 
-function isIntentConflict(currentIntent: ConversationIntent, detectedIntent: ResetDetectedIntent) {
-  return (
-    (detectedIntent === "new_booking" ||
-      detectedIntent === "cancel_booking" ||
-      detectedIntent === "reschedule_booking") &&
-    currentIntent !== detectedIntent
-  );
+function isIntentConflict(
+  session: Pick<WhatsAppConversationSession, "intent" | "state">,
+  detectedIntent: ResetDetectedIntent
+) {
+  const currentIntent = session.intent;
+  const activeBookingState =
+    session.state === "choose_service" ||
+    session.state === "choose_master" ||
+    session.state === "choose_date" ||
+    session.state === "choose_slot" ||
+    session.state === "confirm";
+
+  if (detectedIntent === "cancel_booking" || detectedIntent === "reschedule_booking") {
+    if (!currentIntent) {
+      return activeBookingState;
+    }
+    return currentIntent !== detectedIntent;
+  }
+
+  if (detectedIntent === "booking_list") {
+    if (currentIntent === "new_booking" || currentIntent === "cancel_booking" || currentIntent === "reschedule_booking") {
+      return true;
+    }
+    return activeBookingState;
+  }
+
+  if (detectedIntent === "new_booking") {
+    if (!currentIntent) {
+      return false;
+    }
+    return currentIntent !== "new_booking";
+  }
+
+  return false;
 }
 
 function isStandaloneIntentMessage(text: string) {

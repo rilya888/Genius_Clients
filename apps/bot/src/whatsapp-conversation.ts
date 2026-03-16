@@ -82,6 +82,7 @@ export type WhatsAppConversationSession = {
   lastUserMessageAt?: string;
   aiFailureCount?: number;
   unknownTurnCount?: number;
+  aiCallsInSession?: number;
   lastResolvedIntent?: ParsedConversationIntent;
   conversationTraceId?: string;
   lastResetAt?: string;
@@ -102,6 +103,9 @@ type Choice = {
   description?: string;
 };
 
+type FlowCtaAction = "flow_confirm_booking" | "flow_confirm_cancel";
+type BookingSelectionUiMode = "none" | "buttons" | "list";
+
 export type WhatsAppConversationDeps = {
   dedupInboundMessage: (messageId: string) => Promise<boolean>;
   loadSession: (phone: string) => Promise<WhatsAppConversationSession | null>;
@@ -110,6 +114,12 @@ export type WhatsAppConversationDeps = {
   sendText: (to: string, text: string) => Promise<void>;
   sendList: (to: string, bodyText: string, buttonText: string, choices: Choice[]) => Promise<void>;
   sendButtons: (to: string, bodyText: string, choices: Choice[]) => Promise<void>;
+  createFlowCtaAction?: (input: {
+    action: FlowCtaAction;
+    bookingId: string;
+    phone: string;
+    ttlMinutes?: number;
+  }) => string | undefined;
   fetchServices: (locale: SupportedLocale) => Promise<ServiceItem[]>;
   fetchMasters: (locale: SupportedLocale, serviceId?: string) => Promise<MasterItem[]>;
   fetchSlots: (input: {
@@ -145,6 +155,7 @@ export type WhatsAppConversationDeps = {
 const FLOW_VERSION = 1;
 const RESTART_FLOW_TOKEN = "flow:restart";
 const BACK_FLOW_TOKEN = "flow:back";
+const BOOKING_SELECTION_BUTTONS_MAX_ITEMS = 2;
 
 function truncateForChoice(input: string, maxLength: number): string {
   if (input.length <= maxLength) {
@@ -326,13 +337,23 @@ async function promptBookingSelectionForAction(input: {
   deps: WhatsAppConversationDeps;
 }) {
   const timezone = await input.deps.getTenantTimezone();
-  const items = await input.deps.listBookingsByPhone({ phone: input.from, limit: 10 });
+  const items = (await input.deps.listBookingsByPhone({ phone: input.from, limit: 10 }))
+    .filter((item) => item.status === "pending" || item.status === "confirmed")
+    .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime());
+  const uiMode = pickBookingSelectionUiMode(items.length);
+  console.info("[bot] booking selection ui", {
+    action: input.action,
+    bookingsCount: items.length,
+    uiMode,
+    locale: input.locale
+  });
+
   if (items.length === 0) {
     await input.deps.sendText(
       input.from,
       input.locale === "it"
         ? "Non ci sono prenotazioni attive da gestire."
-        : "There are no active bookings to manage."
+      : "There are no active bookings to manage."
     );
     return false;
   }
@@ -346,7 +367,20 @@ async function promptBookingSelectionForAction(input: {
         ? "Sposta prenotazione"
         : "Reschedule booking";
 
-  const { choices, safePage, totalPages } = buildPaginatedList({
+  if (uiMode === "buttons") {
+    const choices: Choice[] = items.slice(0, BOOKING_SELECTION_BUTTONS_MAX_ITEMS).map((item) => ({
+      id: `booking:${item.id}`,
+      title: truncateForChoice(formatDateTimeLabel(item.startAt, input.locale, timezone), 24)
+    }));
+    choices.push({
+      id: BACK_FLOW_TOKEN,
+      title: input.locale === "it" ? "Indietro" : "Back"
+    });
+    await input.deps.sendButtons(input.from, labelPrefix, choices.slice(0, 3));
+    return true;
+  }
+
+  const { choices } = buildPaginatedList({
     items,
     page: input.page,
     mapChoice: (item) => ({
@@ -356,13 +390,18 @@ async function promptBookingSelectionForAction(input: {
     navPrefix: "bookingpage",
     locale: input.locale
   });
-  await input.deps.sendList(
-    input.from,
-    labelPrefix,
-    input.locale === "it" ? "Prenotazioni" : "Bookings",
-    appendFlowRows({ choices, locale: input.locale })
-  );
+  await input.deps.sendList(input.from, labelPrefix, input.locale === "it" ? "Prenotazioni" : "Bookings", appendFlowRows({ choices, locale: input.locale }));
   return true;
+}
+
+function pickBookingSelectionUiMode(count: number): BookingSelectionUiMode {
+  if (count <= 0) {
+    return "none";
+  }
+  if (count <= BOOKING_SELECTION_BUTTONS_MAX_ITEMS) {
+    return "buttons";
+  }
+  return "list";
 }
 
 async function promptService(
@@ -546,26 +585,113 @@ async function promptConfirm(
       ? `Confermi prenotazione?\nServizio: ${session.serviceName ?? "-"}\nMaster: ${session.masterName ?? "-"}\nData: ${session.date ?? "-"}\nOrario: ${session.slotDisplayTime ?? "-"}`
       : `Confirm booking?\nService: ${session.serviceName ?? "-"}\nMaster: ${session.masterName ?? "-"}\nDate: ${session.date ?? "-"}\nTime: ${session.slotDisplayTime ?? "-"}`;
 
-  await deps.sendList(input.from, summary, session.locale === "it" ? "Conferma" : "Confirm", [
-    {
-      id: "confirm:yes",
-      title: session.locale === "it" ? "Conferma" : "Confirm"
-    },
-    {
-      id: "confirm:change",
-      title: session.locale === "it" ? "Cambia data" : "Change date"
-    },
-    {
-      id: "confirm:cancel",
-      title: session.locale === "it" ? "Annulla" : "Cancel"
-    }
-  ,
-    {
-      id: BACK_FLOW_TOKEN,
-      title: session.locale === "it" ? "Indietro" : "Back"
-    },
-    buildRestartChoice(session.locale)
-  ].slice(0, 10));
+  const confirmCta = deps.createFlowCtaAction?.({
+    action: "flow_confirm_booking",
+    bookingId: session.bookingIdToReschedule ?? "draft",
+    phone: input.from,
+    ttlMinutes: 20
+  });
+  if (confirmCta) {
+    await deps.sendButtons(input.from, summary, [
+      {
+        id: `cta:${confirmCta}`,
+        title: session.locale === "it" ? "Conferma" : "Confirm"
+      },
+      {
+        id: "confirm:change",
+        title: session.locale === "it" ? "Cambia data" : "Change date"
+      },
+      {
+        id: "confirm:cancel",
+        title: session.locale === "it" ? "Annulla" : "Cancel"
+      }
+    ]);
+    return;
+  }
+
+  await deps.sendList(
+    input.from,
+    summary,
+    session.locale === "it" ? "Conferma" : "Confirm",
+    [
+      {
+        id: "confirm:yes",
+        title: session.locale === "it" ? "Conferma" : "Confirm"
+      },
+      {
+        id: "confirm:change",
+        title: session.locale === "it" ? "Cambia data" : "Change date"
+      },
+      {
+        id: "confirm:cancel",
+        title: session.locale === "it" ? "Annulla" : "Cancel"
+      },
+      {
+        id: BACK_FLOW_TOKEN,
+        title: session.locale === "it" ? "Indietro" : "Back"
+      },
+      buildRestartChoice(session.locale)
+    ].slice(0, 10)
+  );
+}
+
+async function promptCancelConfirm(
+  input: ConversationInput,
+  session: WhatsAppConversationSession,
+  deps: WhatsAppConversationDeps
+) {
+  const when = session.slotDisplayTime ?? session.date ?? "-";
+  const summary =
+    session.locale === "it"
+      ? `Stai per annullare la prenotazione:\nQuando: ${when}\nSei sicuro?`
+      : `You are about to cancel the booking:\nWhen: ${when}\nAre you sure?`;
+
+  const confirmCancelCta = session.bookingIdInContext
+    ? deps.createFlowCtaAction?.({
+        action: "flow_confirm_cancel",
+        bookingId: session.bookingIdInContext,
+        phone: input.from,
+        ttlMinutes: 20
+      })
+    : undefined;
+  if (confirmCancelCta) {
+    await deps.sendButtons(input.from, summary, [
+      {
+        id: `cta:${confirmCancelCta}`,
+        title: session.locale === "it" ? "Conferma annullo" : "Confirm cancel"
+      },
+      {
+        id: "confirm:cancel",
+        title: session.locale === "it" ? "Non annullare" : "Keep booking"
+      },
+      {
+        id: BACK_FLOW_TOKEN,
+        title: session.locale === "it" ? "Indietro" : "Back"
+      }
+    ]);
+    return;
+  }
+
+  await deps.sendList(
+    input.from,
+    summary,
+    session.locale === "it" ? "Conferma" : "Confirm",
+    [
+      {
+        id: "confirm:yes",
+        title: session.locale === "it" ? "Conferma annullo" : "Confirm cancel"
+      },
+      {
+        id: "confirm:cancel",
+        title: session.locale === "it" ? "Non annullare" : "Keep booking"
+      },
+      {
+        id: BACK_FLOW_TOKEN,
+        title: session.locale === "it" ? "Indietro" : "Back"
+      },
+      buildRestartChoice(session.locale)
+    ].slice(0, 10)
+  );
 }
 
 async function runCreateOrReschedule(
@@ -611,6 +737,43 @@ async function runCreateOrReschedule(
       session.locale === "it"
         ? "Richiesta prenotazione ricevuta. Attendi conferma dall'amministratore."
         : "Booking request received. Please wait for admin confirmation."
+    );
+  }
+
+  await deps.clearSession(input.from);
+}
+
+async function runCancelWithConfirm(
+  input: ConversationInput,
+  session: WhatsAppConversationSession,
+  deps: WhatsAppConversationDeps
+) {
+  if (!session.bookingIdInContext) {
+    await deps.sendText(
+      input.from,
+      session.locale === "it" ? "Sessione non valida, riprova." : "Invalid session, please try again."
+    );
+    await deps.clearSession(input.from);
+    return;
+  }
+
+  try {
+    await deps.cancelBooking({
+      bookingId: session.bookingIdInContext,
+      phone: input.from
+    });
+    await deps.sendText(
+      input.from,
+      session.locale === "it"
+        ? "Prenotazione annullata."
+        : "Booking cancelled."
+    );
+  } catch {
+    await deps.sendText(
+      input.from,
+      session.locale === "it"
+        ? "Non riesco ad annullare la prenotazione. Verifica e riprova."
+        : "Unable to cancel booking. Please verify details and try again."
     );
   }
 
@@ -669,6 +832,19 @@ export async function processWhatsAppConversation(
         await promptDate(input, session, deps);
         return { handled: true };
       case "confirm":
+        if (session.intent === "cancel_booking") {
+          session.state = "cancel_wait_booking_id";
+          session.bookingPage = 0;
+          await deps.saveSession(input.from, session);
+          await promptBookingSelectionForAction({
+            from: input.from,
+            locale: session.locale,
+            page: session.bookingPage,
+            action: "cancel",
+            deps
+          });
+          return { handled: true };
+        }
         session.state = "choose_slot";
         session.slotPage = 0;
         await deps.saveSession(input.from, session);
@@ -786,7 +962,28 @@ export async function processWhatsAppConversation(
         });
         return { handled: true };
       }
-      session.bookingIdToReschedule = bookingToken.trim();
+      const bookingId = bookingToken.trim();
+      const activeBookings = await deps.listBookingsByPhone({ phone: input.from, limit: 50 });
+      const exists = activeBookings.some(
+        (item) => item.id === bookingId && (item.status === "pending" || item.status === "confirmed")
+      );
+      if (!exists) {
+        await deps.sendText(
+          input.from,
+          session.locale === "it"
+            ? "Questa prenotazione non e piu disponibile. Scegli di nuovo."
+            : "This booking is no longer available. Please choose again."
+        );
+        await promptBookingSelectionForAction({
+          from: input.from,
+          locale: session.locale,
+          page: session.bookingPage ?? 0,
+          action: "reschedule",
+          deps
+        });
+        return { handled: true };
+      }
+      session.bookingIdToReschedule = bookingId;
       session.state = "choose_service";
       session.servicePage = 0;
       await deps.saveSession(input.from, session);
@@ -830,26 +1027,40 @@ export async function processWhatsAppConversation(
         });
         return { handled: true };
       }
-      try {
-        await deps.cancelBooking({
-          bookingId: bookingToken.trim(),
-          phone: input.from
+      const bookingId = bookingToken.trim();
+      const activeBookings = await deps.listBookingsByPhone({ phone: input.from, limit: 50 });
+      const matchedBooking = activeBookings.find(
+        (item) => item.id === bookingId && (item.status === "pending" || item.status === "confirmed")
+      );
+      if (!matchedBooking) {
+        await deps.sendText(
+          input.from,
+          session.locale === "it"
+            ? "Questa prenotazione non e piu disponibile. Scegli di nuovo."
+            : "This booking is no longer available. Please choose again."
+        );
+        await promptBookingSelectionForAction({
+          from: input.from,
+          locale: session.locale,
+          page: session.bookingPage ?? 0,
+          action: "cancel",
+          deps
         });
-        await deps.sendText(
-          input.from,
-          session.locale === "it"
-            ? "Prenotazione annullata."
-            : "Booking cancelled."
-        );
-      } catch {
-        await deps.sendText(
-          input.from,
-          session.locale === "it"
-            ? "Non riesco ad annullare la prenotazione. Verifica codice e telefono."
-            : "Unable to cancel booking. Please verify booking code and phone."
-        );
+        return { handled: true };
       }
-      await deps.clearSession(input.from);
+      session.bookingIdInContext = bookingId;
+      session.intent = "cancel_booking";
+      session.state = "confirm";
+      try {
+        if (matchedBooking.startAt) {
+          const timezone = await deps.getTenantTimezone();
+          session.slotDisplayTime = formatDateTimeLabel(matchedBooking.startAt, session.locale, timezone);
+        }
+      } catch {
+        // Ignore enrichment errors, confirmation can still proceed with limited context.
+      }
+      await deps.saveSession(input.from, session);
+      await promptCancelConfirm(input, session, deps);
       return { handled: true };
     }
 
@@ -984,10 +1195,27 @@ export async function processWhatsAppConversation(
 
     case "confirm": {
       if (token === "confirm:yes") {
+        if (session.intent === "cancel_booking") {
+          await runCancelWithConfirm(input, session, deps);
+          return { handled: true };
+        }
         await runCreateOrReschedule(input, session, deps);
         return { handled: true };
       }
       if (token === "confirm:change") {
+        if (session.intent === "cancel_booking") {
+          session.state = "cancel_wait_booking_id";
+          session.bookingPage = 0;
+          await deps.saveSession(input.from, session);
+          await promptBookingSelectionForAction({
+            from: input.from,
+            locale: session.locale,
+            page: session.bookingPage,
+            action: "cancel",
+            deps
+          });
+          return { handled: true };
+        }
         session.state = "choose_date";
         session.datePage = 0;
         await deps.saveSession(input.from, session);
