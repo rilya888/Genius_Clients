@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SupportedLocale } from "@genius/i18n";
 import {
   createInitialSession,
+  type ConversationHandoffReason,
   type ConversationIntent,
   type ParsedConversationIntent,
   type WhatsAppConversationSession
@@ -36,6 +37,7 @@ type BookingItem = {
   id: string;
   startAt: string;
   status: string;
+  clientName?: string;
 };
 
 type Choice = {
@@ -53,6 +55,20 @@ type TenantBotConfig = {
   promptVariant?: string | null;
   humanHandoffEnabled: boolean;
   adminNotificationWhatsappE164?: string | null;
+  faqContent?: {
+    it?: {
+      priceInfo?: string;
+      addressInfo?: string;
+      parkingInfo?: string;
+      workingHoursInfo?: string;
+    };
+    en?: {
+      priceInfo?: string;
+      addressInfo?: string;
+      parkingInfo?: string;
+      workingHoursInfo?: string;
+    };
+  };
 };
 
 type ParsedIntent =
@@ -60,6 +76,10 @@ type ParsedIntent =
   | "booking_list"
   | "catalog"
   | "check_availability"
+  | "price_info"
+  | "address_info"
+  | "parking_info"
+  | "working_hours_info"
   | "human_handoff"
   | "unknown";
 
@@ -125,7 +145,13 @@ type ToolArtifact =
       prompt: string;
       items: Choice[];
     }
-  | { kind: "handoff"; prompt: string; summary: string; notified: boolean }
+  | {
+      kind: "handoff";
+      prompt: string;
+      summary: string;
+      notified: boolean;
+      reason: ConversationHandoffReason;
+    }
   | { kind: "none" };
 
 export type AiOrchestratorDeps = {
@@ -173,6 +199,14 @@ export type AiOrchestratorDeps = {
 const BOOKING_SELECTION_BUTTONS_MAX_ITEMS = 2;
 const POLICY_VERSION = "2026-03-14.a";
 const FAST_PATH_VERSION = "2026-03-14.a";
+const AI_MAX_USER_TEXT_CHARS = Math.max(
+  120,
+  Number.parseInt(process.env.BOT_AI_MAX_INPUT_CHARS ?? "640", 10) || 640
+);
+const AI_PARSER_TIMEOUT_MS = Math.min(
+  20000,
+  Math.max(2500, Number.parseInt(process.env.BOT_AI_PARSER_TIMEOUT_MS ?? "8500", 10) || 8500)
+);
 
 const RESTART_FLOW_TOKEN = "flow:restart";
 const BACK_FLOW_TOKEN = "flow:back";
@@ -203,9 +237,13 @@ export async function processAiWhatsAppMessage(
   },
   deps: AiOrchestratorDeps
 ): Promise<{ handled: boolean }> {
-  if (!input.text.trim() || !input.openAiApiKey || !input.globalEnabled) {
+  const normalizedInboundText = normalizeInboundUserText(input.text);
+  if (!normalizedInboundText || !input.openAiApiKey || !input.globalEnabled) {
     return { handled: false };
   }
+  const userText = normalizedInboundText.slice(0, AI_MAX_USER_TEXT_CHARS);
+  const inputTruncated = userText.length < normalizedInboundText.length;
+  const complaintSignal = hasComplaintSignal(normalizeSearch(userText));
 
   const tenantConfig = await deps.getTenantConfig();
   if (!tenantConfig.openaiEnabled) {
@@ -214,7 +252,7 @@ export async function processAiWhatsAppMessage(
 
   const existingSession = await deps.loadSession(input.from);
   const localeResolution = resolveConversationLocale({
-    text: input.text,
+    text: userText,
     rawInboundLocale: input.locale,
     sessionLocale: existingSession?.locale,
     tenantDefaultLocale: tenantConfig.defaultLocale
@@ -222,10 +260,14 @@ export async function processAiWhatsAppMessage(
   const detectedLocale = localeResolution.resolvedLocale;
   const traceId = randomUUID();
   const session = existingSession ?? createInitialSession(detectedLocale);
+  const nowIso = new Date().toISOString();
   session.locale = detectedLocale;
-  session.lastUserMessageAt = new Date().toISOString();
+  session.lastUserMessageAt = nowIso;
   session.currentMode = session.currentMode === "human_handoff" ? "human_handoff" : "ai_assisted";
   session.conversationTraceId = traceId;
+  if (complaintSignal && !session.complaintDetectedAt) {
+    session.complaintDetectedAt = nowIso;
+  }
 
   if (session.handoffStatus === "active" || session.currentMode === "human_handoff") {
     await deps.saveSession(input.from, session);
@@ -243,6 +285,8 @@ export async function processAiWhatsAppMessage(
     from: maskPhone(input.from),
     locale: detectedLocale,
     localeReason: localeResolution.localeReason,
+    inputLength: userText.length,
+    inputTruncated,
     state: session.state,
     intent: session.intent ?? "unknown",
     promptVersion: resolvePromptVersion(tenantConfig.promptVariant),
@@ -250,20 +294,48 @@ export async function processAiWhatsAppMessage(
     fastPathVersion: FAST_PATH_VERSION
   });
 
-  const client = new OpenAIResponsesClient(input.openAiApiKey);
+  const client = new OpenAIResponsesClient(input.openAiApiKey, AI_PARSER_TIMEOUT_MS);
 
   try {
-    const fastPath = detectFastPathIntent(input.text, detectedLocale);
+    const fastPath = detectFastPathIntent(userText, detectedLocale);
     const aiStartedAt = Date.now();
     let parsed: AiParseResult;
+    let usedFastPath = false;
+    let usedAiParser = false;
+    let usedTransportFallback = false;
+    let usedCatalogAssistedFastPath = false;
     if (fastPath) {
       parsed = fastPath;
+      usedFastPath = true;
+      if (
+        (parsed.intent === "new_booking" || parsed.intent === "check_availability") &&
+        (!parsed.serviceQuery || !parsed.masterQuery)
+      ) {
+        const catalogHints = await getCatalogHints({
+          tenantKey: input.tenantQuotaKey,
+          locale: detectedLocale,
+          deps
+        });
+        const catalogAssisted = detectCatalogAssistedFastPath(userText, detectedLocale, catalogHints);
+        if (catalogAssisted) {
+          parsed = mergeLocalFastPaths(parsed, catalogAssisted) ?? parsed;
+          usedCatalogAssistedFastPath = true;
+        }
+      }
     } else {
       const catalogHints = await getCatalogHints({
         tenantKey: input.tenantQuotaKey,
         locale: detectedLocale,
         deps
       });
+      const transportFallback = detectTransportFallbackIntent(userText, detectedLocale);
+      const catalogAssisted = detectCatalogAssistedFastPath(userText, detectedLocale, catalogHints);
+      const localFastPath = mergeLocalFastPaths(transportFallback, catalogAssisted);
+      if (localFastPath) {
+        parsed = localFastPath;
+        usedTransportFallback = Boolean(transportFallback);
+        usedCatalogAssistedFastPath = Boolean(catalogAssisted);
+      } else {
       const sessionCallCount = session.aiCallsInSession ?? 0;
       if (sessionCallCount >= input.aiMaxCallsPerSession) {
         console.warn("[bot][ai] session cap reached", {
@@ -282,9 +354,10 @@ export async function processAiWhatsAppMessage(
             aiMaxCallsPerSession: input.aiMaxCallsPerSession
           }
         });
-        const capFallback = detectTransportFallbackIntent(input.text, detectedLocale);
+        const capFallback = detectTransportFallbackIntent(userText, detectedLocale);
         if (capFallback) {
           parsed = capFallback;
+          usedTransportFallback = true;
         } else {
           await deps.saveSession(input.from, session);
           await deps.sendText(
@@ -322,9 +395,10 @@ export async function processAiWhatsAppMessage(
                 aiMaxCallsPerDay: input.aiMaxCallsPerDay
               }
             });
-            const capFallback = detectTransportFallbackIntent(input.text, detectedLocale);
+            const capFallback = detectTransportFallbackIntent(userText, detectedLocale);
             if (capFallback) {
               parsed = capFallback;
+              usedTransportFallback = true;
             } else {
               await deps.saveSession(input.from, session);
               await deps.sendText(
@@ -343,11 +417,12 @@ export async function processAiWhatsAppMessage(
               tenantConfig,
               session,
               catalogHints,
-              userText: input.text,
+              userText,
               promptVersion: resolvePromptVersion(tenantConfig.promptVariant),
               traceId
             });
             session.aiCallsInSession = sessionCallCount + 1;
+            usedAiParser = true;
           }
         } else {
           parsed = await parseUserMessage({
@@ -357,15 +432,17 @@ export async function processAiWhatsAppMessage(
             tenantConfig,
             session,
             catalogHints,
-            userText: input.text,
+            userText,
             promptVersion: resolvePromptVersion(tenantConfig.promptVariant),
             traceId
           });
           session.aiCallsInSession = sessionCallCount + 1;
+          usedAiParser = true;
         }
       }
+      }
     }
-    const normalizedParsed = normalizeParsedIntentWithHeuristics(parsed, input.text, detectedLocale);
+    const normalizedParsed = normalizeParsedIntentWithHeuristics(parsed, userText, detectedLocale);
     if (
       !fastPath &&
       normalizedParsed.schemaVersion &&
@@ -389,10 +466,12 @@ export async function processAiWhatsAppMessage(
 
     console.info("[bot][ai] parsed", {
       traceId,
-      usedFastPath: Boolean(fastPath),
-      usedAiParser: !fastPath,
-      intentSource: fastPath ? "fast" : "ai",
-      aiParserLatencyMs: fastPath ? 0 : Date.now() - aiStartedAt,
+      usedFastPath,
+      usedAiParser,
+      usedTransportFallback,
+      usedCatalogAssistedFastPath,
+      intentSource: usedAiParser ? "ai" : "fast",
+      aiParserLatencyMs: usedAiParser ? Date.now() - aiStartedAt : 0,
       intent: normalizedParsed.intent,
       confidence: normalizedParsed.confidence,
       hasServiceQuery: Boolean(normalizedParsed.serviceQuery),
@@ -412,7 +491,7 @@ export async function processAiWhatsAppMessage(
         tenantConfig,
         session,
         parsed: normalizedParsed,
-        rawText: input.text,
+        rawText: userText,
         phone: input.from,
         traceId,
         unknownTurnHandoffThreshold: input.unknownTurnHandoffThreshold
@@ -467,7 +546,7 @@ export async function processAiWhatsAppMessage(
     });
 
     if (errorClass === "openai_transport_error" && isOpenAiQuotaError(error)) {
-      const fallbackParsed = detectTransportFallbackIntent(input.text, detectedLocale);
+      const fallbackParsed = detectTransportFallbackIntent(userText, detectedLocale);
       if (fallbackParsed) {
         try {
           const fallbackResult = await resolveAiPlan(
@@ -476,7 +555,7 @@ export async function processAiWhatsAppMessage(
               tenantConfig,
               session,
               parsed: fallbackParsed,
-              rawText: input.text,
+              rawText: userText,
               phone: input.from,
               traceId,
               unknownTurnHandoffThreshold: input.unknownTurnHandoffThreshold
@@ -536,7 +615,7 @@ export async function processAiWhatsAppMessage(
     if (tenantConfig.humanHandoffEnabled && (session.aiFailureCount ?? 0) >= input.aiFailureHandoffThreshold) {
       const notified = await deps.notifyAdminHandoff({
         phone: input.from,
-        summary: input.text.slice(0, 240),
+        summary: sanitizeHandoffSummary(userText),
         locale: detectedLocale
       });
       await deps.emitOpsAlert?.({
@@ -552,6 +631,8 @@ export async function processAiWhatsAppMessage(
       });
       session.currentMode = "human_handoff";
       session.handoffStatus = notified ? "active" : "pending";
+      session.handoffReason = "ai_failure";
+      session.handoffAt = new Date().toISOString();
       await deps.saveSession(input.from, session);
       logSessionHealth(traceId, session);
       await deps.sendText(
@@ -631,8 +712,12 @@ async function resolveAiPlan(
 
   switch (input.parsed.intent) {
     case "human_handoff": {
-      const summary =
-        input.parsed.handoffSummary?.trim() || input.parsed.replyText?.trim() || input.parsed.serviceQuery?.trim() || "Human assistance requested.";
+      const summary = sanitizeHandoffSummary(
+        input.parsed.handoffSummary?.trim() ||
+          input.parsed.replyText?.trim() ||
+          input.parsed.serviceQuery?.trim() ||
+          "Human assistance requested."
+      );
       const notified = await deps.notifyAdminHandoff({
         phone: input.phone,
         summary,
@@ -646,7 +731,8 @@ async function resolveAiPlan(
               ? "La richiesta e stata inoltrata all'amministratore."
               : "The request has been forwarded to the administrator.",
           summary,
-          notified
+          notified,
+          reason: hasComplaintSignal(normalizeSearch(input.rawText)) ? "complaint" : "user_request"
         }
       };
     }
@@ -726,13 +812,50 @@ async function resolveAiPlan(
       return resolveBookingLikeIntent(input, deps);
     }
 
+    case "price_info":
+    case "address_info":
+    case "parking_info":
+    case "working_hours_info": {
+      const faqText = resolveFaqAnswer(input.tenantConfig, input.locale, input.parsed.intent);
+      if (faqText) {
+        return {
+          artifact: { kind: "none" },
+          outputText: faqText
+        };
+      }
+      return {
+        artifact: {
+          kind: "quick_actions",
+          prompt:
+            input.locale === "it"
+              ? "Ti aiuto subito. Cosa vuoi fare adesso?"
+              : "I can help right away. What would you like to do now?",
+          items: buildIntentQuickActions(input.locale)
+        }
+      };
+    }
+
     case "unknown": {
+      if (isLikelyNoiseInput(input.rawText)) {
+        return {
+          artifact: {
+            kind: "quick_actions",
+            prompt:
+              input.locale === "it"
+                ? "Messaggio non chiaro. Scegli un'azione."
+                : "Message not clear. Please choose an action.",
+            items: buildIntentQuickActions(input.locale)
+          }
+        };
+      }
       const nextUnknownTurnCount = (input.session.unknownTurnCount ?? 0) + 1;
       if (
         nextUnknownTurnCount >= input.unknownTurnHandoffThreshold &&
         input.tenantConfig.humanHandoffEnabled
       ) {
-        const summary = input.parsed.replyText?.trim() || "Repeated unclear WhatsApp request.";
+        const summary = sanitizeHandoffSummary(
+          input.parsed.replyText?.trim() || "Repeated unclear WhatsApp request."
+        );
         const notified = await deps.notifyAdminHandoff({
           phone: input.phone,
           summary,
@@ -757,7 +880,8 @@ async function resolveAiPlan(
                 ? "La richiesta non e chiara. La inoltro all'amministratore."
                 : "The request is unclear. I am forwarding it to the administrator.",
             summary,
-            notified
+            notified,
+            reason: "unknown_threshold"
           }
         };
       }
@@ -817,11 +941,38 @@ async function resolveBookingLikeIntent(
 ): Promise<{ artifact: ToolArtifact; outputText?: string }> {
   input.session.intent = input.parsed.intent === "new_booking" || input.parsed.intent === "check_availability" ? "new_booking" : "new_booking";
 
-  const services = await deps.fetchServices(input.locale);
+  let services = await deps.fetchServices(input.locale);
+  if (
+    !input.parsed.serviceQuery &&
+    input.parsed.masterQuery &&
+    input.parsed.masterQuery.trim().length >= 2
+  ) {
+    const narrowedServices = await filterServicesByMasterQuery({
+      services,
+      masterQuery: input.parsed.masterQuery,
+      locale: input.locale,
+      deps
+    });
+    if (narrowedServices.length > 0) {
+      services = narrowedServices;
+    }
+    input.session.collectedEntities = {
+      ...input.session.collectedEntities,
+      masterNameCandidate: input.parsed.masterQuery
+    };
+  }
   const inferredServiceQuery = inferEntityFromCatalog(input.rawText, services, (item) => item.displayName);
   const effectiveServiceQuery = input.parsed.serviceQuery ?? inferredServiceQuery;
+  const effectiveDateText = input.parsed.dateText ?? extractFastDateText(normalizeSearch(input.rawText));
+  const effectiveTimeText = input.parsed.timeText ?? extractFastTimeText(normalizeSearch(input.rawText));
   const serviceResolution = resolveNamedChoice(services, effectiveServiceQuery, (item) => item.displayName);
   if (!effectiveServiceQuery) {
+    input.session.collectedEntities = {
+      ...input.session.collectedEntities,
+      masterNameCandidate: input.parsed.masterQuery ?? input.session.collectedEntities?.masterNameCandidate,
+      dateCandidate: effectiveDateText ?? input.session.collectedEntities?.dateCandidate,
+      timeCandidate: effectiveTimeText ?? input.session.collectedEntities?.timeCandidate
+    };
     logBookingFunnelStep(input.traceId, {
       step: "service_missing",
       locale: input.locale,
@@ -830,7 +981,14 @@ async function resolveBookingLikeIntent(
     return {
       artifact: {
         kind: "service_list",
-        prompt: input.locale === "it" ? "Seleziona il servizio." : "Select a service.",
+        prompt:
+          input.parsed.masterQuery && input.parsed.masterQuery.trim()
+            ? input.locale === "it"
+              ? `Perfetto, per ${input.parsed.masterQuery.trim()} seleziona prima il servizio.`
+              : `Perfect, for ${input.parsed.masterQuery.trim()} please select the service first.`
+            : input.locale === "it"
+              ? "Seleziona il servizio."
+              : "Select a service.",
         items: services.slice(0, 8),
         intent: "new_booking"
       }
@@ -860,7 +1018,9 @@ async function resolveBookingLikeIntent(
   input.session.serviceName = service.displayName;
   input.session.collectedEntities = {
     ...input.session.collectedEntities,
-    serviceNameCandidate: effectiveServiceQuery
+    serviceNameCandidate: effectiveServiceQuery,
+    dateCandidate: effectiveDateText ?? input.session.collectedEntities?.dateCandidate,
+    timeCandidate: effectiveTimeText ?? input.session.collectedEntities?.timeCandidate
   };
 
   const masters = await deps.fetchMasters(input.locale, service.id);
@@ -917,7 +1077,6 @@ async function resolveBookingLikeIntent(
     };
   }
 
-  const effectiveDateText = input.parsed.dateText ?? extractFastDateText(normalizeSearch(input.rawText));
   const dateIso = normalizeDateCandidate(effectiveDateText, input.locale, input.tenantConfig.timezone);
   if (!dateIso) {
     logBookingFunnelStep(input.traceId, {
@@ -996,7 +1155,6 @@ async function resolveBookingLikeIntent(
     };
   }
 
-  const effectiveTimeText = input.parsed.timeText ?? extractFastTimeText(normalizeSearch(input.rawText));
   const slotResolution = resolveSlotChoice(slots, effectiveTimeText);
   if (!effectiveTimeText || slotResolution.matches.length !== 1) {
     logBookingFunnelStep(input.traceId, {
@@ -1228,6 +1386,7 @@ async function renderArtifact(
       input.session.intent = input.session.intent ?? "new_booking";
       if (!input.session.clientName) {
         input.session.state = "collect_client_name";
+        input.session.clientNameInvalidAttempts = 0;
         await deps.saveSession(input.from, input.session);
         await deps.sendText(
           input.from,
@@ -1274,6 +1433,11 @@ async function renderArtifact(
     case "handoff": {
       input.session.currentMode = "human_handoff";
       input.session.handoffStatus = input.artifact.notified ? "active" : "pending";
+      input.session.handoffReason = input.artifact.reason;
+      input.session.handoffAt = new Date().toISOString();
+      if (input.artifact.reason === "complaint" && !input.session.complaintDetectedAt) {
+        input.session.complaintDetectedAt = input.session.handoffAt;
+      }
       input.session.lastAiSummary = input.artifact.summary;
       await deps.saveSession(input.from, input.session);
       await deps.sendText(input.from, input.artifact.prompt);
@@ -1535,13 +1699,47 @@ function normalizeAiParseResult(payload: Record<string, unknown>, locale: Suppor
 }
 
 function isParsedIntent(value: string): value is ParsedIntent {
-  return ["new_booking", "cancel_booking", "reschedule_booking", "booking_list", "catalog", "check_availability", "human_handoff", "unknown"].includes(value);
+  return [
+    "new_booking",
+    "cancel_booking",
+    "reschedule_booking",
+    "booking_list",
+    "catalog",
+    "check_availability",
+    "price_info",
+    "address_info",
+    "parking_info",
+    "working_hours_info",
+    "human_handoff",
+    "unknown"
+  ].includes(value);
 }
 
 function detectFastPathIntent(text: string, locale: SupportedLocale): AiParseResult | null {
+  if (isLikelyNoiseInput(text)) {
+    return {
+      intent: "unknown",
+      confidence: "high",
+      replyText:
+        locale === "it"
+          ? "Messaggio non chiaro. Scegli un'azione."
+          : "Message not clear. Please choose an action."
+    };
+  }
   const normalized = normalizeSearch(text);
   if (!normalized) {
     return null;
+  }
+  if (hasComplaintSignal(normalized)) {
+    return {
+      intent: "human_handoff",
+      confidence: "high",
+      replyText:
+        locale === "it"
+          ? "Mi dispiace per il problema. Ti metto subito in contatto con l'amministratore."
+          : "I am sorry about the issue. I will connect you with the administrator right away.",
+      handoffSummary: text.trim().slice(0, 240)
+    };
   }
   const extractedDate = extractFastDateText(normalized);
   const extractedTime = extractFastTimeText(normalized);
@@ -1587,6 +1785,38 @@ function detectFastPathIntent(text: string, locale: SupportedLocale): AiParseRes
         locale === "it"
           ? "Ecco le tue prenotazioni attive."
           : "Here are your active bookings."
+    };
+  }
+
+  if (/\b(price|prices|cost|how much|quanto costa|prezzo|prezzi|tariffa)\b/.test(normalized)) {
+    return {
+      intent: "price_info",
+      confidence: "high",
+      replyText: locale === "it" ? "Ti invio le informazioni sui prezzi." : "I will share pricing details."
+    };
+  }
+
+  if (/\b(address|where are you|location|indirizzo|dove siete|dove siete ubicati)\b/.test(normalized)) {
+    return {
+      intent: "address_info",
+      confidence: "high",
+      replyText: locale === "it" ? "Ti invio l'indirizzo." : "I will share the address."
+    };
+  }
+
+  if (/\b(parking|park|parcheggio|posto auto)\b/.test(normalized)) {
+    return {
+      intent: "parking_info",
+      confidence: "high",
+      replyText: locale === "it" ? "Ti invio le informazioni sul parcheggio." : "I will share parking information."
+    };
+  }
+
+  if (/\b(hours|opening hours|working hours|orari|orario|quando siete aperti)\b/.test(normalized)) {
+    return {
+      intent: "working_hours_info",
+      confidence: "high",
+      replyText: locale === "it" ? "Ti invio gli orari." : "I will share working hours."
     };
   }
 
@@ -1660,6 +1890,22 @@ function detectFastPathIntent(text: string, locale: SupportedLocale): AiParseRes
 
 function normalizeParsedIntentWithHeuristics(parsed: AiParseResult, text: string, locale: SupportedLocale): AiParseResult {
   const normalized = normalizeSearch(text);
+  const hasPriceInfo = /\b(price|prices|cost|how much|quanto costa|prezzo|prezzi|tariffa)\b/.test(normalized);
+  const hasAddressInfo = /\b(address|where are you|location|indirizzo|dove siete|dove siete ubicati)\b/.test(normalized);
+  const hasParkingInfo = /\b(parking|park|parcheggio|posto auto)\b/.test(normalized);
+  const hasHoursInfo = /\b(hours|opening hours|working hours|orari|orario|quando siete aperti)\b/.test(normalized);
+  if (hasComplaintSignal(normalized)) {
+    return {
+      ...parsed,
+      intent: "human_handoff",
+      confidence: "high",
+      replyText:
+        locale === "it"
+          ? "Mi dispiace per il problema. Ti metto subito in contatto con l'amministratore."
+          : "I am sorry about the issue. I will connect you with the administrator right away.",
+      handoffSummary: text.trim().slice(0, 240)
+    };
+  }
   const hasCancel = /\b(cancel|cancel booking|cancel appointment|annulla|annullare|disdici|elimina prenotazione)\b/.test(normalized);
   const hasReschedule =
     /\b(reschedule|move booking|move appointment|change booking|change appointment|sposta|spostare|riprogramma|cambia prenotazione)\b/.test(
@@ -1669,6 +1915,19 @@ function normalizeParsedIntentWithHeuristics(parsed: AiParseResult, text: string
   const extractedDate = parsed.dateText ?? extractFastDateText(normalized);
   const extractedTime = parsed.timeText ?? extractFastTimeText(normalized);
   const bookingSignal = hasBookingSignal(normalized);
+
+  if (hasPriceInfo) {
+    return { ...parsed, intent: "price_info", confidence: "high" };
+  }
+  if (hasAddressInfo) {
+    return { ...parsed, intent: "address_info", confidence: "high" };
+  }
+  if (hasParkingInfo) {
+    return { ...parsed, intent: "parking_info", confidence: "high" };
+  }
+  if (hasHoursInfo) {
+    return { ...parsed, intent: "working_hours_info", confidence: "high" };
+  }
 
   if (hasCancel) {
     return {
@@ -1760,6 +2019,27 @@ function buildSessionSummary(session: WhatsAppConversationSession, parsed: AiPar
     `date=${session.date ?? parsed.dateText ?? "none"}`,
     `time=${session.slotDisplayTime ?? parsed.timeText ?? "none"}`
   ].join("; ").slice(0, 280);
+}
+
+function resolveFaqAnswer(
+  tenantConfig: TenantBotConfig,
+  locale: SupportedLocale,
+  intent: Extract<ParsedIntent, "price_info" | "address_info" | "parking_info" | "working_hours_info">
+) {
+  const current = locale === "it" ? tenantConfig.faqContent?.it : tenantConfig.faqContent?.en;
+  const fallback = locale === "it" ? tenantConfig.faqContent?.en : tenantConfig.faqContent?.it;
+  switch (intent) {
+    case "price_info":
+      return current?.priceInfo?.trim() || fallback?.priceInfo?.trim() || "";
+    case "address_info":
+      return current?.addressInfo?.trim() || fallback?.addressInfo?.trim() || "";
+    case "parking_info":
+      return current?.parkingInfo?.trim() || fallback?.parkingInfo?.trim() || "";
+    case "working_hours_info":
+      return current?.workingHoursInfo?.trim() || fallback?.workingHoursInfo?.trim() || "";
+    default:
+      return "";
+  }
 }
 
 function normalizeSearch(value: string) {
@@ -1862,6 +2142,12 @@ function hasBookingSignal(normalizedText: string) {
   );
 }
 
+function hasComplaintSignal(normalizedText: string) {
+  return /\b(complaint|angry|upset|bad service|terrible|ridiculous|frustrat|not happy|disappointed|reclamo|arrabbiat|insoddisfatt|servizio pessimo|pessimo|scandaloso|vergogna)\b/.test(
+    normalizedText
+  );
+}
+
 function hasBookingListSignal(normalizedText: string) {
   return /\b(my bookings|my booking|my appointments|my appointment|show my bookings|show my appointments|what bookings do i have|what appointments do i have|do i have bookings|do i have appointments|le mie prenotazioni|mie prenotazioni|quali prenotazioni ho|quali appuntamenti ho|le mie visite|i miei appuntamenti|mostra le mie prenotazioni|mostra i miei appuntamenti|мои записи|какие у меня записи|мои брони)\b/.test(
     normalizedText
@@ -1930,6 +2216,92 @@ export function detectTransportFallbackIntent(text: string, locale: SupportedLoc
   return null;
 }
 
+function mergeLocalFastPaths(
+  transportFallback: AiParseResult | null,
+  catalogAssisted: AiParseResult | null
+): AiParseResult | null {
+  if (!transportFallback && !catalogAssisted) {
+    return null;
+  }
+  if (!transportFallback) {
+    return catalogAssisted;
+  }
+  if (!catalogAssisted) {
+    return transportFallback;
+  }
+
+  if (
+    (transportFallback.intent === "new_booking" || transportFallback.intent === "check_availability") &&
+    (catalogAssisted.serviceQuery || catalogAssisted.masterQuery)
+  ) {
+    return {
+      ...transportFallback,
+      ...catalogAssisted,
+      intent: "new_booking",
+      confidence: "high"
+    };
+  }
+  return transportFallback;
+}
+
+function detectCatalogAssistedFastPath(
+  text: string,
+  locale: SupportedLocale,
+  catalogHints: { services: string[]; masters: string[] }
+): AiParseResult | null {
+  const normalized = normalizeSearch(text);
+  if (!normalized) {
+    return null;
+  }
+
+  const serviceMatch = findCatalogHintMatch(normalized, catalogHints.services);
+  const masterMatch = findCatalogHintMatch(normalized, catalogHints.masters);
+  if (!serviceMatch && !masterMatch) {
+    return null;
+  }
+
+  const extractedDate = extractFastDateText(normalized);
+  const extractedTime = extractFastTimeText(normalized);
+  return {
+    intent: "new_booking",
+    confidence: serviceMatch ? "high" : "medium",
+    serviceQuery: serviceMatch ?? undefined,
+    masterQuery: masterMatch ?? undefined,
+    dateText: extractedDate,
+    timeText: extractedTime,
+    replyText: locale === "it" ? "Perfetto, continuo con la prenotazione." : "Perfect, I will continue with booking."
+  };
+}
+
+function findCatalogHintMatch(normalizedText: string, hints: string[]): string | null {
+  let bestHint: string | null = null;
+  let bestScore = 0;
+  for (const hint of hints) {
+    const normalizedHint = normalizeSearch(hint);
+    if (!normalizedHint) {
+      continue;
+    }
+    if (normalizedText.includes(normalizedHint)) {
+      return hint;
+    }
+    const tokens = normalizedHint.split(" ").filter((token) => token.length >= 4);
+    if (tokens.length === 0) {
+      continue;
+    }
+    let matched = 0;
+    for (const token of tokens) {
+      if (normalizedText.includes(token)) {
+        matched += 1;
+      }
+    }
+    if (matched > 0 && matched > bestScore) {
+      bestScore = matched;
+      bestHint = hint;
+    }
+  }
+  return bestHint;
+}
+
 function extractFastDateText(value: string) {
   const match = value.match(
     /\b(today|tomorrow|oggi|domani|monday|tuesday|wednesday|thursday|friday|saturday|sunday|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)\b/
@@ -1940,6 +2312,55 @@ function extractFastDateText(value: string) {
 function extractFastTimeText(value: string) {
   const match = value.match(/\b(\d{1,2}(?::\d{2})?\s?(?:am|pm)?)\b/);
   return match?.[1];
+}
+
+async function filterServicesByMasterQuery(input: {
+  services: ServiceItem[];
+  masterQuery: string;
+  locale: SupportedLocale;
+  deps: Pick<AiOrchestratorDeps, "fetchMasters">;
+}) {
+  const normalizedQuery = normalizeSearch(input.masterQuery);
+  if (!normalizedQuery) {
+    return input.services;
+  }
+
+  const matched: ServiceItem[] = [];
+  for (const service of input.services) {
+    try {
+      const masters = await input.deps.fetchMasters(input.locale, service.id);
+      const hasMatch = masters.some((master) =>
+        normalizeSearch(master.displayName).includes(normalizedQuery)
+      );
+      if (hasMatch) {
+        matched.push(service);
+      }
+    } catch {
+      // Ignore single service lookup failures and continue with best-effort narrowing.
+    }
+  }
+  return matched;
+}
+
+function isLikelyNoiseInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return true;
+  }
+  if (/^[!?.,:\-_/\\|~`'"*+=(){}\[\]<>#%^&$@]+$/.test(trimmed)) {
+    return true;
+  }
+  const normalized = normalizeSearch(trimmed);
+  if (!normalized) {
+    return true;
+  }
+  if (normalized.length <= 2) {
+    return true;
+  }
+  if (/^([a-zа-яё])\1{3,}$/i.test(normalized)) {
+    return true;
+  }
+  return false;
 }
 
 function inferEntityFromCatalog<T>(
@@ -2004,6 +2425,19 @@ function sanitizeUserText(value: string) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 280);
+}
+
+function sanitizeHandoffSummary(value: string) {
+  return value
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
+    .replace(/\+?\d[\d\s().-]{6,}\d/g, "[phone]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
+function normalizeInboundUserText(value: string) {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function asOptionalString(value: unknown) {

@@ -20,6 +20,7 @@ type BookingItem = {
   id: string;
   startAt: string;
   status: string;
+  clientName?: string;
 };
 
 export type ConversationState =
@@ -42,6 +43,11 @@ export type ParsedConversationIntent =
   | "unknown";
 export type ConversationMode = "deterministic" | "ai_assisted" | "human_handoff";
 export type ConversationHandoffStatus = "inactive" | "pending" | "active";
+export type ConversationHandoffReason =
+  | "complaint"
+  | "user_request"
+  | "unknown_threshold"
+  | "ai_failure";
 export type ConversationResetReason =
   | "explicit_reset_command"
   | "intent_conflict"
@@ -50,6 +56,7 @@ export type ConversationResetReason =
   | "handoff_restart";
 
 export type WhatsAppConversationSession = {
+  sessionSchemaVersion: number;
   flowVersion: number;
   locale: SupportedLocale;
   state: ConversationState;
@@ -68,6 +75,8 @@ export type WhatsAppConversationSession = {
   slotStartAt?: string;
   slotDisplayTime?: string;
   clientName?: string;
+  clientNameInvalidAttempts?: number;
+  lastCheckpoint?: ConversationCheckpoint;
   bookingIdToReschedule?: string;
   bookingIdInContext?: string;
   collectedEntities?: {
@@ -81,6 +90,10 @@ export type WhatsAppConversationSession = {
   lastAiSummary?: string;
   lastOpenaiResponseId?: string;
   handoffStatus?: ConversationHandoffStatus;
+  handoffReason?: ConversationHandoffReason;
+  handoffAt?: string;
+  complaintDetectedAt?: string;
+  complaintLatencyRecordedAt?: string;
   lastUserMessageAt?: string;
   aiFailureCount?: number;
   unknownTurnCount?: number;
@@ -89,6 +102,21 @@ export type WhatsAppConversationSession = {
   conversationTraceId?: string;
   lastResetAt?: string;
   lastResetReason?: ConversationResetReason;
+};
+
+export type ConversationCheckpoint = {
+  intent: ConversationIntent;
+  state: ConversationState;
+  serviceId?: string;
+  serviceName?: string;
+  masterId?: string;
+  masterName?: string;
+  date?: string;
+  slotStartAt?: string;
+  slotDisplayTime?: string;
+  clientName?: string;
+  createdAt: string;
+  reason: ConversationResetReason;
 };
 
 type ConversationInput = {
@@ -155,9 +183,13 @@ export type WhatsAppConversationDeps = {
 };
 
 const FLOW_VERSION = 1;
+const SESSION_SCHEMA_VERSION = 2;
 const RESTART_FLOW_TOKEN = "flow:restart";
 const BACK_FLOW_TOKEN = "flow:back";
+const RESUME_FLOW_TOKEN = "flow:resume";
+const KEEP_NAME_TOKEN = "name:keep";
 const BOOKING_SELECTION_BUTTONS_MAX_ITEMS = 2;
+const MAX_CLIENT_NAME_ATTEMPTS = 3;
 
 function truncateForChoice(input: string, maxLength: number): string {
   if (input.length <= maxLength) {
@@ -168,6 +200,7 @@ function truncateForChoice(input: string, maxLength: number): string {
 
 export function createInitialSession(locale: SupportedLocale): WhatsAppConversationSession {
   return {
+    sessionSchemaVersion: SESSION_SCHEMA_VERSION,
     flowVersion: FLOW_VERSION,
     locale,
     state: "choose_intent",
@@ -177,9 +210,47 @@ export function createInitialSession(locale: SupportedLocale): WhatsAppConversat
     datePage: 0,
     bookingPage: 0,
     slotPage: 0,
+    clientNameInvalidAttempts: 0,
     handoffStatus: "inactive",
     aiFailureCount: 0
   };
+}
+
+export function migrateWhatsAppSession(
+  session: WhatsAppConversationSession | null,
+  locale: SupportedLocale
+): WhatsAppConversationSession {
+  if (!session) {
+    return createInitialSession(locale);
+  }
+
+  const current = session as Partial<WhatsAppConversationSession>;
+  const migrated: WhatsAppConversationSession = {
+    ...createInitialSession(locale),
+    ...current,
+    locale: current.locale ?? locale,
+    sessionSchemaVersion: SESSION_SCHEMA_VERSION
+  };
+
+  if (!isConversationState(migrated.state)) {
+    migrated.state = "choose_intent";
+  }
+
+  return migrated;
+}
+
+function isConversationState(value: unknown): value is ConversationState {
+  return (
+    value === "choose_intent" ||
+    value === "choose_service" ||
+    value === "choose_master" ||
+    value === "choose_date" ||
+    value === "choose_slot" ||
+    value === "collect_client_name" ||
+    value === "confirm" ||
+    value === "cancel_wait_booking_id" ||
+    value === "reschedule_wait_booking_id"
+  );
 }
 
 export function resetSessionForNewConversation(input: {
@@ -264,6 +335,13 @@ function buildRestartChoice(locale: SupportedLocale): Choice {
   };
 }
 
+function buildResumeChoice(locale: SupportedLocale): Choice {
+  return {
+    id: RESUME_FLOW_TOKEN,
+    title: locale === "it" ? "Riprendi" : "Resume"
+  };
+}
+
 function buildPaginatedList<T>(input: {
   items: T[];
   page: number;
@@ -307,13 +385,16 @@ function appendFlowRows(input: { choices: Choice[]; locale: SupportedLocale }): 
   ].slice(0, 10);
 }
 
-async function promptIntent(input: ConversationInput, deps: WhatsAppConversationDeps) {
+async function promptIntent(
+  input: ConversationInput,
+  deps: WhatsAppConversationDeps,
+  session?: WhatsAppConversationSession
+) {
   const bodyText =
     input.locale === "it"
       ? "Cosa vuoi fare?"
       : "What would you like to do?";
-  await deps.sendList(input.from, bodyText, input.locale === "it" ? "Scegli" : "Choose", appendFlowRows({
-    choices: [
+  const choices: Choice[] = [
     {
       id: "intent:new",
       title: input.locale === "it" ? "Nuova prenotazione" : "New booking"
@@ -326,9 +407,72 @@ async function promptIntent(input: ConversationInput, deps: WhatsAppConversation
       id: "intent:cancel",
       title: input.locale === "it" ? "Annulla prenotazione" : "Cancel booking"
     }
-    ],
+  ];
+  if (hasResumableCheckpoint(session)) {
+    choices.unshift(buildResumeChoice(input.locale));
+  }
+  await deps.sendList(input.from, bodyText, input.locale === "it" ? "Scegli" : "Choose", appendFlowRows({
+    choices,
     locale: input.locale
   }));
+}
+
+function hasResumableCheckpoint(session?: WhatsAppConversationSession): boolean {
+  if (!session?.lastCheckpoint) {
+    return false;
+  }
+  const checkpoint = session.lastCheckpoint;
+  return checkpoint.intent === "new_booking" && Boolean(checkpoint.serviceId || checkpoint.date || checkpoint.slotStartAt);
+}
+
+function applyCheckpointToSession(session: WhatsAppConversationSession): WhatsAppConversationSession {
+  const checkpoint = session.lastCheckpoint;
+  if (!checkpoint) {
+    return session;
+  }
+  const nextState: ConversationState =
+    checkpoint.state === "confirm" && checkpoint.slotStartAt ? "collect_client_name" : checkpoint.state;
+  return {
+    ...session,
+    intent: checkpoint.intent,
+    state: nextState,
+    serviceId: checkpoint.serviceId,
+    serviceName: checkpoint.serviceName,
+    masterId: checkpoint.masterId,
+    masterName: checkpoint.masterName,
+    date: checkpoint.date,
+    slotStartAt: checkpoint.slotStartAt,
+    slotDisplayTime: checkpoint.slotDisplayTime,
+    clientName: checkpoint.clientName,
+    clientNameInvalidAttempts: 0
+  };
+}
+
+export function createCheckpointFromSession(
+  session: WhatsAppConversationSession,
+  reason: ConversationResetReason,
+  nowIso: string
+): ConversationCheckpoint | undefined {
+  if (session.intent !== "new_booking") {
+    return undefined;
+  }
+  if (!session.serviceId && !session.date && !session.slotStartAt) {
+    return undefined;
+  }
+  return {
+    intent: session.intent,
+    state: session.state,
+    serviceId: session.serviceId,
+    serviceName: session.serviceName,
+    masterId: session.masterId,
+    masterName: session.masterName,
+    date: session.date,
+    slotStartAt: session.slotStartAt,
+    slotDisplayTime: session.slotDisplayTime,
+    clientName: session.clientName,
+    createdAt: nowIso,
+    reason
+  };
 }
 
 async function promptBookingSelectionForAction(input: {
@@ -656,11 +800,47 @@ async function promptClientName(
   session: WhatsAppConversationSession,
   deps: WhatsAppConversationDeps
 ) {
+  if (session.clientName) {
+    await deps.sendButtons(
+      input.from,
+      session.locale === "it"
+        ? `Uso questo nome?\n${session.clientName}`
+        : `Use this name?\n${session.clientName}`,
+      [
+        {
+          id: KEEP_NAME_TOKEN,
+          title: session.locale === "it" ? "Mantieni" : "Keep"
+        },
+        {
+          id: BACK_FLOW_TOKEN,
+          title: session.locale === "it" ? "Cambia orario" : "Change time"
+        },
+        {
+          id: RESTART_FLOW_TOKEN,
+          title: session.locale === "it" ? "Inizio" : "Start over"
+        }
+      ]
+    );
+    await deps.sendText(
+      input.from,
+      session.locale === "it"
+        ? "Se vuoi modificarlo, scrivi il nuovo nome."
+        : "If you want to change it, type the new name."
+    );
+    return;
+  }
   await deps.sendText(
     input.from,
     session.locale === "it"
       ? "Perfetto. Ora scrivi il tuo nome e cognome."
       : "Great. Now please type your full name."
+  );
+}
+
+function isChangeTimeRequest(value: string) {
+  const text = value.trim().toLowerCase();
+  return /\b(change time|another time|different time|change slot|cambia orario|altro orario|cambiare orario|другое время|сменить время)\b/.test(
+    text
   );
 }
 
@@ -676,6 +856,232 @@ function parseClientName(value: string | undefined) {
     return undefined;
   }
   return compact;
+}
+
+function normalizeSearchValue(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9а-яё\s]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findMastersByCandidate(
+  masters: Array<{ id: string; displayName: string }>,
+  candidate: string | undefined
+) {
+  if (!candidate?.trim()) {
+    return [];
+  }
+  const normalizedCandidate = normalizeSearchValue(candidate);
+  if (!normalizedCandidate) {
+    return [];
+  }
+  const exact = masters.filter(
+    (item) => normalizeSearchValue(item.displayName) === normalizedCandidate
+  );
+  if (exact.length > 0) {
+    return exact;
+  }
+  return masters.filter((item) =>
+    normalizeSearchValue(item.displayName).includes(normalizedCandidate)
+  );
+}
+
+function buildNextDays(timezone: string, days: number): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < days; i += 1) {
+    const date = new Date(Date.now() + i * 24 * 60 * 60 * 1000);
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    })
+      .formatToParts(date)
+      .reduce(
+        (acc, part) => {
+          if (part.type === "year" || part.type === "month" || part.type === "day") {
+            acc[part.type] = part.value;
+          }
+          return acc;
+        },
+        {} as Record<string, string>
+      );
+    if (parts.year && parts.month && parts.day) {
+      out.push(`${parts.year}-${parts.month}-${parts.day}`);
+    }
+  }
+  return Array.from(new Set(out));
+}
+
+function mapWeekdayToken(value: string, locale: SupportedLocale): number | undefined {
+  const enMap: Record<string, number> = {
+    monday: 1,
+    mon: 1,
+    tuesday: 2,
+    tue: 2,
+    wednesday: 3,
+    wed: 3,
+    thursday: 4,
+    thu: 4,
+    friday: 5,
+    fri: 5,
+    saturday: 6,
+    sat: 6,
+    sunday: 0,
+    sun: 0
+  };
+  const itMap: Record<string, number> = {
+    lunedi: 1,
+    lun: 1,
+    martedi: 2,
+    mar: 2,
+    mercoledi: 3,
+    mer: 3,
+    giovedi: 4,
+    gio: 4,
+    venerdi: 5,
+    ven: 5,
+    sabato: 6,
+    sab: 6,
+    domenica: 0,
+    dom: 0
+  };
+  return locale === "it" ? itMap[value] : enMap[value];
+}
+
+function getWeekdayIndex(dateIso: string, timezone: string): number | undefined {
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    timeZone: timezone
+  }).format(new Date(`${dateIso}T00:00:00.000Z`));
+  return mapWeekdayToken(weekday.toLowerCase(), "en");
+}
+
+function resolveDateCandidateToIso(
+  candidate: string | undefined,
+  locale: SupportedLocale,
+  timezone: string
+): string | undefined {
+  if (!candidate?.trim()) {
+    return undefined;
+  }
+  const normalized = normalizeSearchValue(candidate);
+  const nextDays = buildNextDays(timezone, 14);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return normalized;
+  }
+  if (normalized === "today" || normalized === "oggi") {
+    return nextDays[0];
+  }
+  if (normalized === "tomorrow" || normalized === "domani") {
+    return nextDays[1];
+  }
+  const weekday = mapWeekdayToken(normalized, locale);
+  if (weekday === undefined) {
+    return undefined;
+  }
+  return nextDays.find((item) => getWeekdayIndex(item, timezone) === weekday);
+}
+
+function normalizeTimeCandidate(value: string | undefined): string | undefined {
+  if (!value?.trim()) {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = normalized.match(/(\d{1,2})(?::?(\d{2}))?\s*(am|pm)?/);
+  if (!match) {
+    return undefined;
+  }
+  let hours = Number(match[1]);
+  const minutes = Number(match[2] ?? "00");
+  const suffix = match[3];
+  if (Number.isNaN(hours) || Number.isNaN(minutes) || minutes > 59) {
+    return undefined;
+  }
+  if (suffix === "pm" && hours < 12) {
+    hours += 12;
+  }
+  if (suffix === "am" && hours === 12) {
+    hours = 0;
+  }
+  if (hours > 23) {
+    return undefined;
+  }
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function resolveSlotByTimeCandidate(slots: SlotItem[], timeCandidate: string | undefined): SlotItem | undefined {
+  const normalizedCandidate = normalizeTimeCandidate(timeCandidate);
+  if (!normalizedCandidate) {
+    return undefined;
+  }
+  const exact = slots.find((item) => normalizeTimeCandidate(item.displayTime) === normalizedCandidate);
+  if (exact) {
+    return exact;
+  }
+  const partial = slots.find((item) => normalizeSearchValue(item.displayTime).includes(normalizedCandidate));
+  return partial;
+}
+
+async function advanceWithDateAndTimeCandidates(
+  input: ConversationInput,
+  session: WhatsAppConversationSession,
+  deps: WhatsAppConversationDeps,
+  sourceStep: "choose_service" | "choose_master"
+): Promise<boolean> {
+  if (!session.serviceId || !session.masterId) {
+    return false;
+  }
+  const dateCandidate = session.collectedEntities?.dateCandidate;
+  const timeCandidate = session.collectedEntities?.timeCandidate;
+  if (!dateCandidate?.trim()) {
+    return false;
+  }
+
+  const timezone = await deps.getTenantTimezone();
+  const dateIso = resolveDateCandidateToIso(dateCandidate, session.locale, timezone);
+  if (!dateIso) {
+    return false;
+  }
+
+  session.date = dateIso;
+  session.datePage = 0;
+  session.slotPage = 0;
+
+  const slots = await deps.fetchSlots({
+    serviceId: session.serviceId,
+    masterId: session.masterId,
+    date: dateIso,
+    locale: session.locale
+  });
+  const matchedSlot = resolveSlotByTimeCandidate(slots, timeCandidate);
+  console.info("[bot] candidate auto-apply", {
+    sourceStep,
+    locale: session.locale,
+    hasDateCandidate: Boolean(dateCandidate),
+    dateCandidateApplied: Boolean(dateIso),
+    hasTimeCandidate: Boolean(timeCandidate),
+    timeCandidateApplied: Boolean(matchedSlot)
+  });
+
+  if (matchedSlot) {
+    session.slotStartAt = matchedSlot.startAt;
+    session.slotDisplayTime = matchedSlot.displayTime;
+    session.state = "collect_client_name";
+    session.clientNameInvalidAttempts = 0;
+    await deps.saveSession(input.from, session);
+    await promptClientName(input, session, deps);
+    return true;
+  }
+
+  session.state = "choose_slot";
+  await deps.saveSession(input.from, session);
+  await promptSlot(input, session, deps);
+  return true;
 }
 
 async function promptCancelConfirm(
@@ -751,39 +1157,102 @@ async function runCreateOrReschedule(
     return;
   }
 
+  const selectedDate = session.date ?? session.slotStartAt.slice(0, 10);
+  const latestSlots = await deps.fetchSlots({
+    serviceId: session.serviceId,
+    masterId: session.masterId,
+    date: selectedDate,
+    locale: session.locale
+  });
+  const selectedSlot = latestSlots.find((item) => item.startAt === session.slotStartAt);
+  if (!selectedSlot) {
+    await recoverFromSlotConflict(input, session, deps);
+    return;
+  }
+  session.date = selectedDate;
+  session.slotDisplayTime = selectedSlot.displayTime;
+
   if (session.intent === "reschedule_booking" && session.bookingIdToReschedule) {
-    await deps.rescheduleBooking({
-      bookingId: session.bookingIdToReschedule,
-      phone: input.from,
-      serviceId: session.serviceId,
-      masterId: session.masterId,
-      startAtIso: session.slotStartAt,
-      locale: session.locale
-    });
-    await deps.sendText(
-      input.from,
-      session.locale === "it"
-        ? "Prenotazione spostata con successo."
-        : "Booking rescheduled successfully."
-    );
+    try {
+      await deps.rescheduleBooking({
+        bookingId: session.bookingIdToReschedule,
+        phone: input.from,
+        serviceId: session.serviceId,
+        masterId: session.masterId,
+        startAtIso: session.slotStartAt,
+        locale: session.locale
+      });
+      await deps.sendText(
+        input.from,
+        session.locale === "it"
+          ? "Prenotazione spostata con successo."
+          : "Booking rescheduled successfully."
+      );
+    } catch (error) {
+      if (isSlotConflictError(error)) {
+        await recoverFromSlotConflict(input, session, deps);
+        return;
+      }
+      throw error;
+    }
   } else {
-    await deps.createBooking({
-      serviceId: session.serviceId,
-      masterId: session.masterId,
-      startAtIso: session.slotStartAt,
-      phone: input.from,
-      locale: session.locale,
-      clientName: session.clientName ?? "WhatsApp Client"
-    });
-    await deps.sendText(
-      input.from,
-      session.locale === "it"
-        ? "Richiesta prenotazione ricevuta. Attendi conferma dall'amministratore."
-        : "Booking request received. Please wait for admin confirmation."
-    );
+    try {
+      await deps.createBooking({
+        serviceId: session.serviceId,
+        masterId: session.masterId,
+        startAtIso: session.slotStartAt,
+        phone: input.from,
+        locale: session.locale,
+        clientName: session.clientName ?? "WhatsApp Client"
+      });
+      await deps.sendText(
+        input.from,
+        session.locale === "it"
+          ? "Richiesta prenotazione ricevuta. Attendi conferma dall'amministratore."
+          : "Booking request received. Please wait for admin confirmation."
+      );
+    } catch (error) {
+      if (isSlotConflictError(error)) {
+        await recoverFromSlotConflict(input, session, deps);
+        return;
+      }
+      throw error;
+    }
   }
 
   await deps.clearSession(input.from);
+}
+
+async function recoverFromSlotConflict(
+  input: ConversationInput,
+  session: WhatsAppConversationSession,
+  deps: WhatsAppConversationDeps
+) {
+  await deps.sendText(
+    input.from,
+    session.locale === "it"
+      ? "Questo orario non e piu disponibile. Ti mostro gli orari aggiornati."
+      : "This time slot is no longer available. I will show the updated slots."
+  );
+  session.state = "choose_slot";
+  session.slotPage = 0;
+  session.slotStartAt = undefined;
+  session.slotDisplayTime = undefined;
+  session.clientNameInvalidAttempts = 0;
+  await deps.saveSession(input.from, session);
+  await promptSlot(input, session, deps);
+}
+
+function isSlotConflictError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const text = error.message.toLowerCase();
+  return (
+    text.includes("booking_create_failed:conflict") ||
+    text.includes("booking_reschedule_failed:conflict") ||
+    text.includes("booking_status_changed_concurrently")
+  );
 }
 
 async function runCancelWithConfirm(
@@ -842,7 +1311,7 @@ export async function processWhatsAppConversation(
   if (normalizedToken === "/start" || normalizedToken === "start" || normalizedToken === "menu") {
     session = createInitialSession(input.locale);
     await deps.saveSession(input.from, session);
-    await promptIntent(input, deps);
+    await promptIntent(input, deps, session);
     return { handled: true };
   }
   if (
@@ -851,7 +1320,40 @@ export async function processWhatsAppConversation(
   ) {
     session = createInitialSession(input.locale);
     await deps.saveSession(input.from, session);
-    await promptIntent(input, deps);
+    await promptIntent(input, deps, session);
+    return { handled: true };
+  }
+  if (normalizedToken === RESUME_FLOW_TOKEN || normalizedToken === "resume") {
+    if (!hasResumableCheckpoint(session)) {
+      await promptIntent(input, deps, session);
+      return { handled: true };
+    }
+    session = applyCheckpointToSession(session);
+    session.lastCheckpoint = undefined;
+    await deps.saveSession(input.from, session);
+    switch (session.state) {
+      case "choose_service":
+        await promptService(input, session, deps);
+        break;
+      case "choose_master":
+        await promptMaster(input, session, deps);
+        break;
+      case "choose_date":
+        await promptDate(input, session, deps);
+        break;
+      case "choose_slot":
+        await promptSlot(input, session, deps);
+        break;
+      case "collect_client_name":
+        await promptClientName(input, session, deps);
+        break;
+      case "confirm":
+        await promptConfirm(input, session, deps);
+        break;
+      default:
+        await promptIntent(input, deps, session);
+        break;
+    }
     return { handled: true };
   }
   if (normalizedToken === BACK_FLOW_TOKEN || normalizedToken === "back") {
@@ -877,6 +1379,7 @@ export async function processWhatsAppConversation(
       case "collect_client_name":
         session.state = "choose_slot";
         session.slotPage = 0;
+        session.clientNameInvalidAttempts = 0;
         await deps.saveSession(input.from, session);
         await promptSlot(input, session, deps);
         return { handled: true };
@@ -902,7 +1405,7 @@ export async function processWhatsAppConversation(
       default:
         session = createInitialSession(input.locale);
         await deps.saveSession(input.from, session);
-        await promptIntent(input, deps);
+        await promptIntent(input, deps, session);
         return { handled: true };
       }
   }
@@ -932,6 +1435,7 @@ export async function processWhatsAppConversation(
   switch (session.state) {
     case "choose_intent": {
       if (token === "intent:new") {
+        session.lastCheckpoint = undefined;
         session.intent = "new_booking";
         session.state = "choose_service";
         session.servicePage = 0;
@@ -940,6 +1444,7 @@ export async function processWhatsAppConversation(
         return { handled: true };
       }
       if (token === "intent:cancel") {
+        session.lastCheckpoint = undefined;
         session.intent = "cancel_booking";
         session.state = "cancel_wait_booking_id";
         await deps.saveSession(input.from, session);
@@ -956,6 +1461,7 @@ export async function processWhatsAppConversation(
         return { handled: true };
       }
       if (token === "intent:reschedule") {
+        session.lastCheckpoint = undefined;
         session.intent = "reschedule_booking";
         session.state = "reschedule_wait_booking_id";
         await deps.saveSession(input.from, session);
@@ -971,7 +1477,7 @@ export async function processWhatsAppConversation(
         }
         return { handled: true };
       }
-      await promptIntent(input, deps);
+      await promptIntent(input, deps, session);
       return { handled: true };
     }
 
@@ -1013,10 +1519,10 @@ export async function processWhatsAppConversation(
       }
       const bookingId = bookingToken.trim();
       const activeBookings = await deps.listBookingsByPhone({ phone: input.from, limit: 50 });
-      const exists = activeBookings.some(
+      const matchedBooking = activeBookings.find(
         (item) => item.id === bookingId && (item.status === "pending" || item.status === "confirmed")
       );
-      if (!exists) {
+      if (!matchedBooking) {
         await deps.sendText(
           input.from,
           session.locale === "it"
@@ -1033,6 +1539,7 @@ export async function processWhatsAppConversation(
         return { handled: true };
       }
       session.bookingIdToReschedule = bookingId;
+      session.clientName = matchedBooking?.clientName ?? session.clientName;
       session.state = "choose_service";
       session.servicePage = 0;
       await deps.saveSession(input.from, session);
@@ -1139,6 +1646,53 @@ export async function processWhatsAppConversation(
       }
       session.serviceId = picked.id;
       session.serviceName = picked.displayName;
+      const mastersForService = await deps.fetchMasters(session.locale, session.serviceId);
+      const masterCandidate = session.collectedEntities?.masterNameCandidate;
+      const matchedMasters = findMastersByCandidate(mastersForService, masterCandidate);
+      if (matchedMasters.length === 1) {
+        const matched = matchedMasters[0];
+        if (matched) {
+          session.masterId = matched.id;
+          session.masterName = matched.displayName;
+          const candidateAdvanced = await advanceWithDateAndTimeCandidates(
+            input,
+            session,
+            deps,
+            "choose_service"
+          );
+          if (candidateAdvanced) {
+            return { handled: true };
+          }
+          session.state = "choose_date";
+          session.datePage = 0;
+          session.slotPage = 0;
+          await deps.saveSession(input.from, session);
+          await promptDate(input, session, deps);
+          return { handled: true };
+        }
+      }
+      if (mastersForService.length === 1) {
+        const onlyMaster = mastersForService[0];
+        if (onlyMaster) {
+          session.masterId = onlyMaster.id;
+          session.masterName = onlyMaster.displayName;
+          const candidateAdvanced = await advanceWithDateAndTimeCandidates(
+            input,
+            session,
+            deps,
+            "choose_service"
+          );
+          if (candidateAdvanced) {
+            return { handled: true };
+          }
+          session.state = "choose_date";
+          session.datePage = 0;
+          session.slotPage = 0;
+          await deps.saveSession(input.from, session);
+          await promptDate(input, session, deps);
+          return { handled: true };
+        }
+      }
       session.state = "choose_master";
       session.masterPage = 0;
       await deps.saveSession(input.from, session);
@@ -1164,7 +1718,7 @@ export async function processWhatsAppConversation(
         return { handled: true };
       }
       const masterId = token.replace("master:", "");
-      const masters = await deps.fetchMasters(session.locale);
+      const masters = await deps.fetchMasters(session.locale, session.serviceId);
       const picked = masters.find((item) => item.id === masterId);
       if (!picked) {
         await promptMaster(input, session, deps);
@@ -1172,6 +1726,15 @@ export async function processWhatsAppConversation(
       }
       session.masterId = picked.id;
       session.masterName = picked.displayName;
+      const candidateAdvanced = await advanceWithDateAndTimeCandidates(
+        input,
+        session,
+        deps,
+        "choose_master"
+      );
+      if (candidateAdvanced) {
+        return { handled: true };
+      }
       session.state = "choose_date";
       session.datePage = 0;
       session.slotPage = 0;
@@ -1237,14 +1800,51 @@ export async function processWhatsAppConversation(
       session.slotStartAt = picked.startAt;
       session.slotDisplayTime = picked.displayTime;
       session.state = "collect_client_name";
+      session.clientNameInvalidAttempts = 0;
       await deps.saveSession(input.from, session);
       await promptClientName(input, session, deps);
       return { handled: true };
     }
 
     case "collect_client_name": {
+      if (token === KEEP_NAME_TOKEN && session.clientName) {
+        session.clientNameInvalidAttempts = 0;
+        session.state = "confirm";
+        await deps.saveSession(input.from, session);
+        await promptConfirm(input, session, deps);
+        return { handled: true };
+      }
+      if (isChangeTimeRequest(input.text ?? "")) {
+        session.state = "choose_slot";
+        session.slotPage = 0;
+        await deps.saveSession(input.from, session);
+        await promptSlot(input, session, deps);
+        return { handled: true };
+      }
       const parsedName = parseClientName(input.text ?? token);
       if (!parsedName) {
+        const nextAttempts = (session.clientNameInvalidAttempts ?? 0) + 1;
+        session.clientNameInvalidAttempts = nextAttempts;
+        await deps.saveSession(input.from, session);
+        if (nextAttempts >= MAX_CLIENT_NAME_ATTEMPTS) {
+          await deps.sendButtons(
+            input.from,
+            session.locale === "it"
+              ? "Non riesco a leggere il nome. Scegli: torna all'orario o ricomincia."
+              : "I cannot read the name yet. Choose: go back to time selection or restart.",
+            [
+              {
+                id: BACK_FLOW_TOKEN,
+                title: session.locale === "it" ? "Indietro" : "Back"
+              },
+              {
+                id: RESTART_FLOW_TOKEN,
+                title: session.locale === "it" ? "Inizio" : "Start over"
+              }
+            ]
+          );
+          return { handled: true };
+        }
         await deps.sendText(
           input.from,
           session.locale === "it"
@@ -1255,6 +1855,7 @@ export async function processWhatsAppConversation(
         return { handled: true };
       }
       session.clientName = parsedName;
+      session.clientNameInvalidAttempts = 0;
       session.state = "confirm";
       await deps.saveSession(input.from, session);
       await promptConfirm(input, session, deps);
@@ -1302,7 +1903,7 @@ export async function processWhatsAppConversation(
       return { handled: true };
     }
     default:
-      await promptIntent(input, deps);
+      await promptIntent(input, deps, session);
       return { handled: true };
   }
 }
