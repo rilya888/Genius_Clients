@@ -76,6 +76,9 @@
 
 - Таблицы, фильтры, CRUD, статусные чипы.
 - Унификация ошибок/тостов.
+- Статус: **выполняется**.
+  - Добавлены summary-блоки operational KPI для `bookings`, `services`, `masters`, `working-hours`, `exceptions`, `master-services`.
+  - Сохранены текущие CRUD-контракты и маршрутная структура.
 
 ### Срез D: Schedule
 

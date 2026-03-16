@@ -184,6 +184,12 @@ export default function ExceptionsPage() {
     });
   }
 
+  const summary = {
+    total: items.length,
+    closed: items.filter((item) => item.isClosed).length,
+    partial: items.filter((item) => !item.isClosed).length
+  };
+
   return (
     <main className={`gc-admin-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
       <h1 className="gc-admin-title">Schedule Exceptions</h1>
@@ -249,6 +255,24 @@ export default function ExceptionsPage() {
         </label>
       </section>
       <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
+
+      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
+        <h2 className={uiV2Enabled ? "gc-admin-v2-section-title" : "gc-admin-section"}>Exception summary</h2>
+        <div className="gc-admin-grid-3">
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">Total exceptions</div>
+            <div className="gc-admin-stat-value">{summary.total}</div>
+          </div>
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">Closed days</div>
+            <div className="gc-admin-stat-value">{summary.closed}</div>
+          </div>
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">Partial windows</div>
+            <div className="gc-admin-stat-value">{summary.partial}</div>
+          </div>
+        </div>
+      </section>
 
       <div className={`gc-admin-table-wrap${uiV2Enabled ? " gc-admin-table-wrap-v2" : ""}`}>
         <table className="gc-admin-table">

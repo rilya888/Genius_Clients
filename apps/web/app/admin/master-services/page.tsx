@@ -140,6 +140,12 @@ export default function MasterServicesPage() {
     });
   }
 
+  const summary = {
+    total: items.length,
+    withOverride: items.filter((item) => item.durationMinutesOverride !== null).length,
+    defaultDuration: items.filter((item) => item.durationMinutesOverride === null).length
+  };
+
   return (
     <main className={`gc-admin-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
       <h1 className="gc-admin-title">Master Services</h1>
@@ -183,6 +189,23 @@ export default function MasterServicesPage() {
         </div>
       </section>
       <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
+      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
+        <h2 className={uiV2Enabled ? "gc-admin-v2-section-title" : "gc-admin-section"}>Assignment summary</h2>
+        <div className="gc-admin-grid-3">
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">Total links</div>
+            <div className="gc-admin-stat-value">{summary.total}</div>
+          </div>
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">Override duration</div>
+            <div className="gc-admin-stat-value">{summary.withOverride}</div>
+          </div>
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">Default duration</div>
+            <div className="gc-admin-stat-value">{summary.defaultDuration}</div>
+          </div>
+        </div>
+      </section>
       <div className={`gc-admin-table-wrap${uiV2Enabled ? " gc-admin-table-wrap-v2" : ""}`}>
         <table className="gc-admin-table">
           <thead>
