@@ -89,6 +89,11 @@ export default function ServiceTranslationsPage() {
   }
 
   const serviceNameById = Object.fromEntries(services.map((item) => [item.id, item.displayName]));
+  const summary = {
+    total: items.length,
+    it: items.filter((item) => item.locale === "it").length,
+    en: items.filter((item) => item.locale === "en").length
+  };
 
   return (
     <main className={`gc-admin-page${uiV2Enabled ? " gc-admin-page-v2" : ""}`}>
@@ -139,6 +144,23 @@ export default function ServiceTranslationsPage() {
       </section>
 
       <p className={`gc-muted-line gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
+      <section className={uiV2Enabled ? "gc-admin-v2-section" : ""}>
+        <h2 className={uiV2Enabled ? "gc-admin-v2-section-title" : "gc-admin-section"}>Locale summary</h2>
+        <div className="gc-admin-grid-3">
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">Total translations</div>
+            <div className="gc-admin-stat-value">{summary.total}</div>
+          </div>
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">Italian (it)</div>
+            <div className="gc-admin-stat-value">{summary.it}</div>
+          </div>
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">English (en)</div>
+            <div className="gc-admin-stat-value">{summary.en}</div>
+          </div>
+        </div>
+      </section>
 
       <div className={`gc-admin-table-wrap${uiV2Enabled ? " gc-admin-table-wrap-v2" : ""}`}>
         <table className="gc-admin-table">
