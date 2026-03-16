@@ -1,0 +1,59 @@
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { login } from "../shared/api/authApi";
+import { useI18n } from "../shared/i18n/I18nProvider";
+
+export function LoginPage() {
+  const navigate = useNavigate();
+  const { t } = useI18n();
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <section className="section auth-shell">
+      <form
+        className="auth-card"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const formData = new FormData(event.currentTarget);
+          const email = String(formData.get("email") ?? "");
+          const password = String(formData.get("password") ?? "");
+          setPending(true);
+          setMessage(null);
+          setError(null);
+          login({ email, password })
+            .then((data) => {
+              localStorage.setItem("access_token", data.accessToken);
+              localStorage.setItem("refresh_token", data.refreshToken);
+              setMessage(t("auth.loginSuccess"));
+              setTimeout(() => navigate("/app"), 150);
+            })
+            .catch(() => {
+              setError(t("auth.loginFailed"));
+            })
+            .finally(() => setPending(false));
+        }}
+      >
+        <h1>{t("auth.loginTitle")}</h1>
+        <label>
+          {t("auth.email")}
+          <input name="email" type="email" required placeholder={t("auth.placeholder.email")} />
+        </label>
+        <label>
+          {t("auth.password")}
+          <input name="password" type="password" required minLength={8} placeholder={t("auth.placeholder.password")} />
+        </label>
+        <button className="btn btn-primary" type="submit" disabled={pending}>
+          {pending ? t("auth.loading") : t("auth.submitLogin")}
+        </button>
+        <div className="auth-links">
+          <Link to="/forgot-password">{t("auth.forgotLink")}</Link>
+          <Link to="/email-verification">{t("auth.verifyLink")}</Link>
+        </div>
+        {message ? <p>{message}</p> : null}
+        {error ? <p className="status-error">{error}</p> : null}
+      </form>
+    </section>
+  );
+}

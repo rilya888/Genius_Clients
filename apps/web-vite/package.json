@@ -1,0 +1,28 @@
+{
+  "name": "@genius/web-vite",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:prerender": "vite build && node scripts/prerender-marketing.mjs",
+    "preview": "vite preview",
+    "start": "vite preview --host 0.0.0.0 --port ${PORT:-4173}",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@genius/i18n": "workspace:*",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "react-router-dom": "7.9.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.0.2",
+    "typescript": "5.9.2",
+    "vite": "7.1.7"
+  }
+}
