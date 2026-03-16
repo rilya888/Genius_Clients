@@ -28,6 +28,7 @@ export type ConversationState =
   | "choose_master"
   | "choose_date"
   | "choose_slot"
+  | "collect_client_name"
   | "confirm"
   | "cancel_wait_booking_id"
   | "reschedule_wait_booking_id";
@@ -66,6 +67,7 @@ export type WhatsAppConversationSession = {
   slotPage?: number;
   slotStartAt?: string;
   slotDisplayTime?: string;
+  clientName?: string;
   bookingIdToReschedule?: string;
   bookingIdInContext?: string;
   collectedEntities?: {
@@ -596,8 +598,8 @@ async function promptConfirm(
 ) {
   const summary =
     session.locale === "it"
-      ? `Confermi prenotazione?\nServizio: ${session.serviceName ?? "-"}\nMaster: ${session.masterName ?? "-"}\nData: ${session.date ?? "-"}\nOrario: ${session.slotDisplayTime ?? "-"}`
-      : `Confirm booking?\nService: ${session.serviceName ?? "-"}\nMaster: ${session.masterName ?? "-"}\nDate: ${session.date ?? "-"}\nTime: ${session.slotDisplayTime ?? "-"}`;
+      ? `Confermi prenotazione?\nNome: ${session.clientName ?? "-"}\nServizio: ${session.serviceName ?? "-"}\nMaster: ${session.masterName ?? "-"}\nData: ${session.date ?? "-"}\nOrario: ${session.slotDisplayTime ?? "-"}`
+      : `Confirm booking?\nName: ${session.clientName ?? "-"}\nService: ${session.serviceName ?? "-"}\nMaster: ${session.masterName ?? "-"}\nDate: ${session.date ?? "-"}\nTime: ${session.slotDisplayTime ?? "-"}`;
 
   const confirmCta = deps.createFlowCtaAction?.({
     action: "flow_confirm_booking",
@@ -647,6 +649,33 @@ async function promptConfirm(
       buildRestartChoice(session.locale)
     ].slice(0, 10)
   );
+}
+
+async function promptClientName(
+  input: ConversationInput,
+  session: WhatsAppConversationSession,
+  deps: WhatsAppConversationDeps
+) {
+  await deps.sendText(
+    input.from,
+    session.locale === "it"
+      ? "Perfetto. Ora scrivi il tuo nome e cognome."
+      : "Great. Now please type your full name."
+  );
+}
+
+function parseClientName(value: string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length < 2 || compact.length > 80) {
+    return undefined;
+  }
+  if (/^(intent:|service:|master:|date:|slot:|confirm:|booking:|flow:)/i.test(compact)) {
+    return undefined;
+  }
+  return compact;
 }
 
 async function promptCancelConfirm(
@@ -744,7 +773,7 @@ async function runCreateOrReschedule(
       startAtIso: session.slotStartAt,
       phone: input.from,
       locale: session.locale,
-      clientName: "WhatsApp Client"
+      clientName: session.clientName ?? "WhatsApp Client"
     });
     await deps.sendText(
       input.from,
@@ -844,6 +873,12 @@ export async function processWhatsAppConversation(
         session.datePage = 0;
         await deps.saveSession(input.from, session);
         await promptDate(input, session, deps);
+        return { handled: true };
+      case "collect_client_name":
+        session.state = "choose_slot";
+        session.slotPage = 0;
+        await deps.saveSession(input.from, session);
+        await promptSlot(input, session, deps);
         return { handled: true };
       case "confirm":
         if (session.intent === "cancel_booking") {
@@ -1201,6 +1236,25 @@ export async function processWhatsAppConversation(
       }
       session.slotStartAt = picked.startAt;
       session.slotDisplayTime = picked.displayTime;
+      session.state = "collect_client_name";
+      await deps.saveSession(input.from, session);
+      await promptClientName(input, session, deps);
+      return { handled: true };
+    }
+
+    case "collect_client_name": {
+      const parsedName = parseClientName(input.text ?? token);
+      if (!parsedName) {
+        await deps.sendText(
+          input.from,
+          session.locale === "it"
+            ? "Per continuare, scrivi un nome valido (minimo 2 caratteri)."
+            : "To continue, type a valid name (at least 2 characters)."
+        );
+        await promptClientName(input, session, deps);
+        return { handled: true };
+      }
+      session.clientName = parsedName;
       session.state = "confirm";
       await deps.saveSession(input.from, session);
       await promptConfirm(input, session, deps);

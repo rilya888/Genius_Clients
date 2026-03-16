@@ -403,6 +403,10 @@ async function classifyContinuation(
       const matched = isTimeLike(text);
       return { matched, classifier: matched ? ("semantic" as const) : ("none" as const), count: matched ? 1 : 0, type: matched ? ("slot" as const) : null };
     }
+    case "collect_client_name": {
+      const matched = text.trim().length >= 2;
+      return { matched, classifier: matched ? ("semantic" as const) : ("none" as const), count: matched ? 1 : 0, type: matched ? ("confirm" as const) : null };
+    }
     case "confirm": {
       const matched = /\b(yes|confirm|change|cancel|si|sì|conferma|cambia|annulla|no)\b/.test(text);
       return { matched, classifier: matched ? ("semantic" as const) : ("none" as const), count: matched ? 1 : 0, type: matched ? ("confirm" as const) : null };
@@ -486,6 +490,7 @@ function isIntentConflict(
     session.state === "choose_master" ||
     session.state === "choose_date" ||
     session.state === "choose_slot" ||
+    session.state === "collect_client_name" ||
     session.state === "confirm";
 
   if (detectedIntent === "cancel_booking" || detectedIntent === "reschedule_booking") {

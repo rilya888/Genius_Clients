@@ -1488,7 +1488,7 @@ async function handleWhatsAppCtaReply(input: {
           locale: session.locale,
           source: "whatsapp",
           masterId: session.masterId,
-          clientName: "WhatsApp Client"
+          clientName: session.clientName ?? "WhatsApp Client"
         });
         await sendWhatsAppMessage({
           to: input.from,

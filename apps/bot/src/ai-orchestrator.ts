@@ -1225,12 +1225,24 @@ async function renderArtifact(
     }
     case "confirm_booking": {
       input.session.currentMode = "ai_assisted";
+      input.session.intent = input.session.intent ?? "new_booking";
+      if (!input.session.clientName) {
+        input.session.state = "collect_client_name";
+        await deps.saveSession(input.from, input.session);
+        await deps.sendText(
+          input.from,
+          input.locale === "it"
+            ? "Perfetto. Ora scrivi il tuo nome e cognome."
+            : "Great. Now please type your full name."
+        );
+        return;
+      }
       input.session.state = "confirm";
       await deps.saveSession(input.from, input.session);
       const summary =
         input.locale === "it"
-          ? `Confermi prenotazione?\nServizio: ${input.artifact.serviceName ?? "-"}\nMaster: ${input.artifact.masterName ?? "-"}\nData: ${input.artifact.date ?? "-"}\nOrario: ${input.artifact.slotDisplayTime ?? "-"}`
-          : `Confirm booking?\nService: ${input.artifact.serviceName ?? "-"}\nMaster: ${input.artifact.masterName ?? "-"}\nDate: ${input.artifact.date ?? "-"}\nTime: ${input.artifact.slotDisplayTime ?? "-"}`;
+          ? `Confermi prenotazione?\nNome: ${input.session.clientName}\nServizio: ${input.artifact.serviceName ?? "-"}\nMaster: ${input.artifact.masterName ?? "-"}\nData: ${input.artifact.date ?? "-"}\nOrario: ${input.artifact.slotDisplayTime ?? "-"}`
+          : `Confirm booking?\nName: ${input.session.clientName}\nService: ${input.artifact.serviceName ?? "-"}\nMaster: ${input.artifact.masterName ?? "-"}\nDate: ${input.artifact.date ?? "-"}\nTime: ${input.artifact.slotDisplayTime ?? "-"}`;
       await deps.sendList(input.from, summary, input.locale === "it" ? "Conferma" : "Confirm", [
         {
           id: "confirm:yes",
