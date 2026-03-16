@@ -16,7 +16,6 @@ RUN pnpm --filter @genius/bot run build
 
 FROM node:22-alpine
 WORKDIR /app
-RUN corepack enable
 
 COPY --from=base /app/package.json /app/pnpm-workspace.yaml /app/
 COPY --from=base /app/node_modules /app/node_modules
@@ -25,4 +24,4 @@ COPY --from=base /app/packages /app/packages
 
 ENV NODE_ENV=production
 EXPOSE 3002
-CMD ["pnpm", "--filter", "@genius/bot", "run", "start:runtime"]
+CMD ["node", "apps/bot/dist/index.js"]

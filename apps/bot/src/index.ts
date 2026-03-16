@@ -1,11 +1,20 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { resolveLocale, t, type SupportedLocale } from "@genius/i18n";
-import { captureException } from "@genius/shared";
+import {
+  captureException,
+  createBookingActionToken,
+  verifyBookingActionToken,
+  type BookingActionType
+} from "@genius/shared";
 import Redis from "ioredis";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import { processWhatsAppConversation, type WhatsAppConversationSession } from "./whatsapp-conversation";
-import { processAiWhatsAppMessage } from "./ai-orchestrator";
+import {
+  createInitialSession,
+  processWhatsAppConversation,
+  type WhatsAppConversationSession
+} from "./whatsapp-conversation";
+import { detectTransportFallbackIntent, processAiWhatsAppMessage } from "./ai-orchestrator";
 import { OpenAIResponsesClient } from "./openai-responses-client";
 import { applyConversationResetPolicy, toDeterministicIntentToken } from "./conversation-reset-policy";
 import { resolveConversationLocale } from "./conversation-locale";
@@ -17,10 +26,23 @@ const waPhoneNumberId = process.env.WA_PHONE_NUMBER_ID ?? "";
 const waAccessToken = process.env.WA_ACCESS_TOKEN ?? "";
 const waVerifyToken = process.env.WA_VERIFY_TOKEN ?? "";
 const waWebhookSecret = process.env.WA_WEBHOOK_SECRET ?? "";
+const waActionTokenSecret = process.env.WA_ACTION_TOKEN_SECRET ?? "";
 const openAiApiKey = process.env.OPENAI_API_KEY ?? "";
 const openAiModel = process.env.OPENAI_MODEL ?? "gpt-5-mini";
 const openAiResponsesEnabled = process.env.OPENAI_RESPONSES_ENABLED !== "false";
+const openAiCanaryTenants = (process.env.OPENAI_CANARY_TENANTS ?? "")
+  .split(",")
+  .map((item) => item.trim())
+  .filter(Boolean);
+const openAiMaxCallsPerSession = Math.max(1, Number.parseInt(process.env.OPENAI_MAX_CALLS_PER_SESSION ?? "12", 10) || 12);
+const openAiMaxCallsPerDay = Math.max(1, Number.parseInt(process.env.OPENAI_MAX_CALLS_PER_DAY_PER_TENANT ?? "500", 10) || 500);
+const aiFailureHandoffThreshold = Math.max(1, Number.parseInt(process.env.AI_FAILURE_HANDOFF_THRESHOLD ?? "3", 10) || 3);
+const unknownTurnHandoffThreshold = Math.max(1, Number.parseInt(process.env.UNKNOWN_TURN_HANDOFF_THRESHOLD ?? "3", 10) || 3);
+const rateLimitWindowSeconds = Math.max(10, Number.parseInt(process.env.RATE_LIMIT_WINDOW_SECONDS ?? "60", 10) || 60);
+const rateLimitMaxMessages = Math.max(1, Number.parseInt(process.env.RATE_LIMIT_MAX_MESSAGES ?? "20", 10) || 20);
 const sessionIdleResetMinutes = Math.max(1, Number.parseInt(process.env.SESSION_IDLE_RESET_MINUTES ?? "45", 10) || 45);
+const opsAlertWebhookUrl = process.env.OPS_ALERT_WEBHOOK_URL ?? "";
+const opsAlertWebhookToken = process.env.OPS_ALERT_WEBHOOK_TOKEN ?? "";
 const apiUrl = process.env.API_URL ?? "";
 const internalApiSecret = process.env.INTERNAL_API_SECRET ?? "";
 const botTenantSlug = process.env.BOT_TENANT_SLUG ?? "";
@@ -35,7 +57,9 @@ const redis = redisUrl
   : null;
 if (redis) {
   redis.on("error", (error) => {
-    console.error("[bot] redis client error", error);
+    console.error("[bot] redis client error", {
+      error: toLogError(error)
+    });
   });
 }
 
@@ -62,6 +86,8 @@ type WhatsAppChoice = {
   description?: string;
 };
 
+type OpsAlertSeverity = "warning" | "critical";
+
 function maskPhone(value: string): string {
   const raw = value.trim();
   if (!raw) {
@@ -74,28 +100,139 @@ function maskPhone(value: string): string {
   return `${normalized.slice(0, 3)}***${normalized.slice(-2)}`;
 }
 
+function redactLogString(value: string): string {
+  return value
+    .replace(/\bBearer\s+[A-Za-z0-9._-]+\b/gi, "Bearer [redacted]")
+    .replace(/\b(EA[A-Za-z0-9]+)\b/g, "[redacted_token]")
+    .replace(/\bgh[opus]_[A-Za-z0-9_]+\b/g, "[redacted_token]")
+    .replace(/\+?\d[\d\s-]{6,}\d/g, "[redacted_phone]");
+}
+
+function toLogError(error: unknown): string {
+  if (error instanceof Error) {
+    return redactLogString(error.message).slice(0, 300);
+  }
+  return redactLogString(String(error)).slice(0, 300);
+}
+
+function sanitizeAlertContext(context: Record<string, unknown>) {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(context)) {
+    if (typeof value === "string") {
+      out[key] = redactLogString(value).slice(0, 300);
+      continue;
+    }
+    if (
+      typeof value === "number" ||
+      typeof value === "boolean" ||
+      value === null ||
+      value === undefined
+    ) {
+      out[key] = value;
+      continue;
+    }
+    try {
+      out[key] = redactLogString(JSON.stringify(value)).slice(0, 300);
+    } catch {
+      out[key] = "[unserializable]";
+    }
+  }
+  return out;
+}
+
+async function emitOpsAlert(input: {
+  event: string;
+  severity: OpsAlertSeverity;
+  context: Record<string, unknown>;
+}) {
+  const payload = {
+    source: "bot",
+    event: input.event,
+    severity: input.severity,
+    ts: new Date().toISOString(),
+    context: sanitizeAlertContext(input.context)
+  };
+  const logger = input.severity === "critical" ? console.error : console.warn;
+  logger("[bot][alert]", payload);
+
+  if (!opsAlertWebhookUrl) {
+    return;
+  }
+
+  try {
+    const headers: Record<string, string> = {
+      "content-type": "application/json"
+    };
+    if (opsAlertWebhookToken) {
+      headers.authorization = `Bearer ${opsAlertWebhookToken}`;
+    }
+    await fetch(opsAlertWebhookUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload)
+    });
+  } catch (error) {
+    console.error("[bot][alert] delivery failed", {
+      event: input.event,
+      error: toLogError(error)
+    });
+  }
+}
+
 async function sendTelegramMessage(input: { chatId: number; text: string }) {
   if (!telegramBotToken) {
     console.warn("[bot] TG_BOT_TOKEN is not configured; message send skipped");
     return { sent: false, reason: "missing_bot_token" as const };
   }
 
-  const response = await fetch(`https://api.telegram.org/bot${telegramBotToken}/sendMessage`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      chat_id: input.chatId,
-      text: input.text
-    })
-  });
+  let response: Response;
+  try {
+    response = await fetch(`https://api.telegram.org/bot${telegramBotToken}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: input.chatId,
+        text: input.text
+      })
+    });
+  } catch (error) {
+    console.error("[bot] telegram send network error", {
+      error: toLogError(error)
+    });
+    await emitOpsAlert({
+      event: "telegram_send_network_error",
+      severity: "warning",
+      context: {
+        error: toLogError(error)
+      }
+    });
+    await captureException({
+      service: "bot",
+      error,
+      context: { operation: "telegram_send_message" }
+    });
+    return { sent: false, reason: "telegram_network_error" as const };
+  }
 
   if (!response.ok) {
     const payload = await response.text();
-    console.error("[bot] telegram send failed", payload);
+    const sanitizedPayload = redactLogString(payload).slice(0, 500);
+    console.error("[bot] telegram send failed", {
+      status: response.status,
+      payload: sanitizedPayload
+    });
+    await emitOpsAlert({
+      event: "telegram_send_failed",
+      severity: "warning",
+      context: {
+        status: response.status,
+        payload: sanitizedPayload
+      }
+    });
     await captureException({
       service: "bot",
       error: new Error(`telegram_send_failed:${response.status}`),
-      context: { payload }
+      context: { payload: sanitizedPayload }
     });
     return { sent: false, reason: "telegram_api_failed" as const };
   }
@@ -115,22 +252,64 @@ async function sendWhatsAppPayload(input: { to: string; payload: Record<string, 
     type: kind
   });
 
-  const response = await fetch(`https://graph.facebook.com/v21.0/${waPhoneNumberId}/messages`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${waAccessToken}`
-    },
-    body: JSON.stringify(input.payload)
-  });
+  let response: Response;
+  try {
+    response = await fetch(`https://graph.facebook.com/v21.0/${waPhoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${waAccessToken}`
+      },
+      body: JSON.stringify(input.payload)
+    });
+  } catch (error) {
+    console.error("[bot] whatsapp send network error", {
+      to: maskPhone(input.to),
+      type: kind,
+      error: toLogError(error)
+    });
+    await emitOpsAlert({
+      event: "whatsapp_send_network_error",
+      severity: "warning",
+      context: {
+        to: maskPhone(input.to),
+        type: kind,
+        error: toLogError(error)
+      }
+    });
+    await captureException({
+      service: "bot",
+      error,
+      context: {
+        operation: "whatsapp_send_message",
+        to: maskPhone(input.to),
+        type: kind
+      }
+    });
+    return { sent: false, reason: "whatsapp_network_error" as const };
+  }
 
   if (!response.ok) {
     const payload = await response.text();
-    console.error("[bot] whatsapp send failed", payload);
+    const sanitizedPayload = redactLogString(payload).slice(0, 500);
+    console.error("[bot] whatsapp send failed", {
+      status: response.status,
+      payload: sanitizedPayload
+    });
+    await emitOpsAlert({
+      event: "whatsapp_send_failed",
+      severity: "warning",
+      context: {
+        status: response.status,
+        payload: sanitizedPayload,
+        to: maskPhone(input.to),
+        type: kind
+      }
+    });
     await captureException({
       service: "bot",
       error: new Error(`whatsapp_send_failed:${response.status}`),
-      context: { payload }
+      context: { payload: sanitizedPayload }
     });
     return { sent: false, reason: "whatsapp_api_failed" as const };
   }
@@ -282,6 +461,125 @@ function isStructuredControlMessage(value: string) {
   );
 }
 
+function isAiCanaryEnabledForTenant() {
+  if (openAiCanaryTenants.length === 0) {
+    return true;
+  }
+  const tenantKeys = [botTenantSlug, botTenantId].filter(Boolean);
+  return tenantKeys.some((key) => openAiCanaryTenants.includes(key));
+}
+
+async function consumeAiDailyQuota(input: { tenantKey: string; dayKey: string; limit: number }) {
+  if (!redis) {
+    return { allowed: true, used: 0 };
+  }
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+  const quotaKey = `bot:ai:quota:${input.tenantKey}:${input.dayKey}`;
+  const used = await redis.incr(quotaKey);
+  if (used === 1) {
+    await redis.expire(quotaKey, 60 * 60 * 30);
+  }
+  const warningThreshold = Math.max(1, Math.floor(input.limit * 0.8));
+  if (used === warningThreshold) {
+    console.warn("[bot] ai daily quota reached warning threshold", {
+      tenantKey: input.tenantKey,
+      dayKey: input.dayKey,
+      used,
+      limit: input.limit,
+      threshold: warningThreshold
+    });
+    await emitOpsAlert({
+      event: "ai_daily_quota_warning",
+      severity: "warning",
+      context: {
+        tenantKey: input.tenantKey,
+        dayKey: input.dayKey,
+        used,
+        limit: input.limit,
+        threshold: warningThreshold
+      }
+    });
+  }
+  if (used === input.limit) {
+    console.warn("[bot] ai daily quota reached hard limit", {
+      tenantKey: input.tenantKey,
+      dayKey: input.dayKey,
+      used,
+      limit: input.limit
+    });
+    await emitOpsAlert({
+      event: "ai_daily_quota_exceeded",
+      severity: "critical",
+      context: {
+        tenantKey: input.tenantKey,
+        dayKey: input.dayKey,
+        used,
+        limit: input.limit
+      }
+    });
+  }
+  return {
+    allowed: used <= input.limit,
+    used
+  };
+}
+
+async function checkInboundRateLimit(input: { phone: string; windowSeconds: number; maxMessages: number }) {
+  if (!redis) {
+    return { allowed: true, used: 0 };
+  }
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+  const key = `bot:rl:wa:${input.phone}`;
+  const used = await redis.incr(key);
+  if (used === 1) {
+    await redis.expire(key, input.windowSeconds);
+  }
+  return {
+    allowed: used <= input.maxMessages,
+    used
+  };
+}
+
+async function sleepMs(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithApiRetry(
+  url: string,
+  init: RequestInit,
+  input: { retries?: number; baseDelayMs?: number } = {}
+) {
+  const retries = Math.max(0, input.retries ?? 2);
+  const baseDelayMs = Math.max(50, input.baseDelayMs ?? 250);
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetch(url, init);
+      if (response.status >= 500 || response.status === 429) {
+        lastError = new Error(`api_retryable_status:${response.status}`);
+      } else {
+        return response;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (attempt < retries) {
+      await sleepMs(baseDelayMs * (attempt + 1));
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error("api_retry_failed");
+}
+
 function extractWhatsAppInbound(payload: unknown): WhatsAppInbound[] {
   const root = typeof payload === "object" && payload ? (payload as Record<string, unknown>) : {};
   const entries = Array.isArray(root.entry) ? root.entry : [];
@@ -321,6 +619,8 @@ function extractWhatsAppInbound(payload: unknown): WhatsAppInbound[] {
         const textContainer =
           typeof msg.text === "object" && msg.text ? (msg.text as Record<string, unknown>) : {};
         const text = textContainer.body;
+        const button =
+          typeof msg.button === "object" && msg.button ? (msg.button as Record<string, unknown>) : {};
         const interactive =
           typeof msg.interactive === "object" && msg.interactive
             ? (msg.interactive as Record<string, unknown>)
@@ -339,6 +639,8 @@ function extractWhatsAppInbound(payload: unknown): WhatsAppInbound[] {
             ? buttonReply.id
             : interactiveType === "list_reply"
               ? listReply.id
+              : type === "button"
+                ? button.payload
               : undefined;
         const from = msg.from;
         const messageId = msg.id;
@@ -348,7 +650,7 @@ function extractWhatsAppInbound(payload: unknown): WhatsAppInbound[] {
         if (type === "text" && typeof text !== "string") {
           continue;
         }
-        if (type === "interactive" && typeof replyId !== "string") {
+        if ((type === "interactive" || type === "button") && typeof replyId !== "string") {
           continue;
         }
         items.push({
@@ -394,7 +696,7 @@ async function fetchSlotsFromApi(input: {
     headers["x-internal-tenant-id"] = botTenantId;
   }
 
-  const response = await fetch(`${apiUrl}/api/v1/public/slots?${params.toString()}`, {
+  const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/slots?${params.toString()}`, {
     method: "GET",
     headers
   });
@@ -501,7 +803,7 @@ async function fetchServicesForConversation(locale: SupportedLocale) {
   if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
     return [] as Array<{ id: string; displayName: string; durationMinutes?: number }>;
   }
-  const response = await fetch(`${apiUrl}/api/v1/public/services?locale=${locale}`, {
+  const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/services?locale=${locale}`, {
     method: "GET",
     headers: buildInternalHeaders()
   });
@@ -525,7 +827,7 @@ async function fetchMastersForConversation(locale: SupportedLocale, serviceId?: 
   if (serviceId) {
     params.set("serviceId", serviceId);
   }
-  const response = await fetch(`${apiUrl}/api/v1/public/masters?${params.toString()}`, {
+  const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/masters?${params.toString()}`, {
     method: "GET",
     headers: buildInternalHeaders()
   });
@@ -540,51 +842,71 @@ async function fetchMastersForConversation(locale: SupportedLocale, serviceId?: 
 }
 
 async function getTenantTimezoneForConversation() {
-  if (botTenantSlug && apiUrl && internalApiSecret) {
-    const response = await fetch(`${apiUrl}/api/v1/public/tenants/${botTenantSlug}`, {
-      method: "GET",
-      headers: buildInternalHeaders()
-    });
-    const payload = await response.json().catch(() => null);
-    const timezone = payload?.data?.timezone;
-    if (response.ok && typeof timezone === "string" && timezone) {
-      return timezone;
+  try {
+    if (botTenantSlug && apiUrl && internalApiSecret) {
+      const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/tenants/${botTenantSlug}`, {
+        method: "GET",
+        headers: buildInternalHeaders()
+      });
+      const payload = await response.json().catch(() => null);
+      const timezone = payload?.data?.timezone;
+      if (response.ok && typeof timezone === "string" && timezone) {
+        return timezone;
+      }
     }
+  } catch (error) {
+    console.warn("[bot] getTenantTimezoneForConversation fallback", {
+      error: toLogError(error)
+    });
   }
   return "Europe/Rome";
 }
 
 async function getTenantBotConfig() {
-  if (botTenantSlug && apiUrl && internalApiSecret) {
-    const response = await fetch(`${apiUrl}/api/v1/public/tenants/${botTenantSlug}`, {
-      method: "GET",
-      headers: buildInternalHeaders()
-    });
-    const payload = await response.json().catch(() => null);
-    if (response.ok && payload?.data) {
-      return {
-        name: String(payload.data.name ?? "Tenant"),
-        defaultLocale: resolveLocale({
-          requested:
-            payload.data.defaultLocale === "it" || payload.data.defaultLocale === "en"
-              ? payload.data.defaultLocale
-              : undefined,
-          tenantDefault: "it",
-          fallback: "en"
-        }),
-        timezone: typeof payload.data.timezone === "string" && payload.data.timezone ? payload.data.timezone : "Europe/Rome",
-        openaiEnabled: payload.data.botConfig?.openaiEnabled !== false,
-        openaiModel:
-          typeof payload.data.botConfig?.openaiModel === "string" && payload.data.botConfig.openaiModel
-            ? payload.data.botConfig.openaiModel
-            : openAiModel,
-        humanHandoffEnabled: payload.data.botConfig?.humanHandoffEnabled !== false,
-        adminNotificationWhatsappE164:
-          typeof payload.data.botConfig?.adminNotificationWhatsappE164 === "string"
-            ? payload.data.botConfig.adminNotificationWhatsappE164
-            : null
-      };
+  try {
+    if (botTenantSlug && apiUrl && internalApiSecret) {
+      const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/tenants/${botTenantSlug}`, {
+        method: "GET",
+        headers: buildInternalHeaders()
+      });
+      const payload = await response.json().catch(() => null);
+      if (response.ok && payload?.data) {
+        return {
+          name: String(payload.data.name ?? "Tenant"),
+          defaultLocale: resolveLocale({
+            requested:
+              payload.data.defaultLocale === "it" || payload.data.defaultLocale === "en"
+                ? payload.data.defaultLocale
+                : undefined,
+            tenantDefault: "it",
+            fallback: "en"
+          }),
+          timezone:
+            typeof payload.data.timezone === "string" && payload.data.timezone
+              ? payload.data.timezone
+              : "Europe/Rome",
+          openaiEnabled: payload.data.botConfig?.openaiEnabled !== false,
+          openaiModel:
+            typeof payload.data.botConfig?.openaiModel === "string" && payload.data.botConfig.openaiModel
+              ? payload.data.botConfig.openaiModel
+              : openAiModel,
+          promptVariant:
+            typeof payload.data.botConfig?.promptVariant === "string" &&
+            payload.data.botConfig.promptVariant
+              ? payload.data.botConfig.promptVariant
+              : null,
+          humanHandoffEnabled: payload.data.botConfig?.humanHandoffEnabled !== false,
+          adminNotificationWhatsappE164:
+            typeof payload.data.botConfig?.adminNotificationWhatsappE164 === "string"
+              ? payload.data.botConfig.adminNotificationWhatsappE164
+              : null
+        };
+      }
     }
+  } catch (error) {
+    console.warn("[bot] getTenantBotConfig fallback", {
+      error: toLogError(error)
+    });
   }
 
   return {
@@ -593,6 +915,7 @@ async function getTenantBotConfig() {
     timezone: "Europe/Rome",
     openaiEnabled: true,
     openaiModel: openAiModel,
+    promptVariant: null as string | null,
     humanHandoffEnabled: true,
     adminNotificationWhatsappE164: null as string | null
   };
@@ -624,7 +947,7 @@ async function fetchServiceDuration(serviceId: string): Promise<number | null> {
   if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
     return null;
   }
-  const response = await fetch(`${apiUrl}/api/v1/public/services?locale=en`, {
+  const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/services?locale=en`, {
     method: "GET",
     headers: buildInternalHeaders()
   });
@@ -666,7 +989,7 @@ async function createBookingFromBot(input: {
   const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
   const idempotencyKey = randomUUID();
 
-  const response = await fetch(`${apiUrl}/api/v1/public/bookings`, {
+  const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/bookings`, {
     method: "POST",
     headers: {
       ...buildInternalHeaders(),
@@ -699,7 +1022,7 @@ async function cancelBookingFromBot(input: { bookingId: string; phone: string })
     throw new Error("bot_api_config_missing");
   }
 
-  const response = await fetch(`${apiUrl}/api/v1/public/bookings/${input.bookingId}/cancel`, {
+  const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/bookings/${input.bookingId}/cancel`, {
     method: "POST",
     headers: {
       ...buildInternalHeaders(),
@@ -740,7 +1063,7 @@ async function rescheduleBookingFromBot(input: {
     throw new Error("invalid_startAt");
   }
   const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
-  const response = await fetch(`${apiUrl}/api/v1/public/bookings/${input.bookingId}/reschedule`, {
+  const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/bookings/${input.bookingId}/reschedule`, {
     method: "POST",
     headers: {
       ...buildInternalHeaders(),
@@ -764,9 +1087,56 @@ async function rescheduleBookingFromBot(input: {
   return payload?.data?.newBookingId ? String(payload.data.newBookingId) : "ok";
 }
 
-async function listBookingsByPhoneFromBot(input: { phone: string; limit?: number }) {
+async function applyAdminBookingActionFromBot(input: {
+  bookingId: string;
+  adminPhoneE164: string;
+  action: "confirm" | "cancel";
+}) {
   if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
-    return [] as Array<{ id: string; startAt: string; status: string }>;
+    throw new Error("bot_api_config_missing");
+  }
+
+  const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/bookings/${input.bookingId}/admin-action`, {
+    method: "POST",
+    headers: {
+      ...buildInternalHeaders(),
+      "idempotency-key": randomUUID()
+    },
+    body: JSON.stringify({
+      adminPhoneE164: input.adminPhoneE164,
+      action: input.action
+    })
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error?.message ?? "booking_admin_action_failed");
+  }
+  return {
+    bookingId: String(payload?.data?.bookingId ?? input.bookingId),
+    status: String(payload?.data?.status ?? ""),
+    applied: payload?.data?.applied !== false
+  };
+}
+
+async function listBookingsByPhoneFromBot(input: { phone: string; limit?: number }): Promise<
+  Array<{
+    id: string;
+    startAt: string;
+    status: string;
+    serviceId: string;
+    masterId?: string;
+    clientLocale?: SupportedLocale;
+  }>
+> {
+  if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
+    return [] as Array<{
+      id: string;
+      startAt: string;
+      status: string;
+      serviceId: string;
+      masterId?: string;
+      clientLocale?: SupportedLocale;
+    }>;
   }
   const params = new URLSearchParams({
     clientPhoneE164: input.phone
@@ -774,21 +1144,438 @@ async function listBookingsByPhoneFromBot(input: { phone: string; limit?: number
   if (input.limit && Number.isFinite(input.limit)) {
     params.set("limit", String(Math.trunc(input.limit)));
   }
-  const response = await fetch(`${apiUrl}/api/v1/public/bookings?${params.toString()}`, {
+  const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/bookings?${params.toString()}`, {
     method: "GET",
     headers: buildInternalHeaders()
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || !Array.isArray(payload?.data?.items)) {
-    return [] as Array<{ id: string; startAt: string; status: string }>;
+    return [] as Array<{
+      id: string;
+      startAt: string;
+      status: string;
+      serviceId: string;
+      masterId?: string;
+      clientLocale?: SupportedLocale;
+    }>;
   }
   return payload.data.items
     .map((item: Record<string, unknown>) => ({
       id: String(item.id ?? ""),
       startAt: String(item.startAt ?? ""),
-      status: String(item.status ?? "")
+      status: String(item.status ?? ""),
+      serviceId: String(item.serviceId ?? ""),
+      masterId: item.masterId ? String(item.masterId) : undefined,
+      clientLocale:
+        item.clientLocale === "it" || item.clientLocale === "en"
+          ? (item.clientLocale as SupportedLocale)
+          : undefined
     }))
-    .filter((item: { id: string; startAt: string; status: string }) => item.id && item.startAt);
+    .filter(
+      (item: { id: string; startAt: string; status: string; serviceId: string }) =>
+        item.id && item.startAt && item.serviceId
+    );
+}
+
+function parseCtaToken(replyId?: string) {
+  if (!replyId?.startsWith("cta:")) {
+    return null;
+  }
+  return replyId.slice(4);
+}
+
+function buildBookingActionTokenForBot(input: {
+  action: BookingActionType;
+  bookingId: string;
+  phoneE164: string;
+  ttlMinutes?: number;
+}) {
+  if (!waActionTokenSecret) {
+    return null;
+  }
+  const expiresAtUnix = Math.floor(Date.now() / 1000) + (input.ttlMinutes ?? 60) * 60;
+  return createBookingActionToken(
+    {
+      action: input.action,
+      bookingId: input.bookingId,
+      phoneE164: input.phoneE164,
+      expiresAtUnix
+    },
+    waActionTokenSecret
+  );
+}
+
+function getNextDays(timezone: string, count: number) {
+  const out: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const date = new Date(Date.now() + index * 24 * 60 * 60 * 1000);
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(date);
+    const year = parts.find((item) => item.type === "year")?.value;
+    const month = parts.find((item) => item.type === "month")?.value;
+    const day = parts.find((item) => item.type === "day")?.value;
+    if (year && month && day) {
+      out.push(`${year}-${month}-${day}`);
+    }
+  }
+  return Array.from(new Set(out));
+}
+
+function formatDateChoiceLabel(dateIso: string, locale: SupportedLocale, timezone: string) {
+  return new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-GB", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: timezone
+  }).format(new Date(`${dateIso}T00:00:00.000Z`));
+}
+
+async function sendRescheduleDateChoices(input: {
+  to: string;
+  locale: SupportedLocale;
+  serviceId: string;
+  masterId?: string;
+}) {
+  const timezone = await getTenantTimezoneForConversation();
+  const dates = getNextDays(timezone, 10);
+  const choices: Array<{ id: string; title: string; description?: string }> = [];
+  for (const date of dates) {
+    const slots = await fetchSlotsFromApi({
+      serviceId: input.serviceId,
+      masterId: input.masterId,
+      date,
+      locale: input.locale
+    });
+    if (slots.length === 0) {
+      continue;
+    }
+    choices.push({
+      id: `date:${date}`,
+      title: formatDateChoiceLabel(date, input.locale, timezone),
+      description:
+        input.locale === "it" ? `${slots.length} slot disponibili` : `${slots.length} slots available`
+    });
+  }
+  if (choices.length === 0) {
+    await sendWhatsAppMessage({
+      to: input.to,
+      text:
+        input.locale === "it"
+          ? "Non trovo slot disponibili per il trasferimento in questo momento."
+          : "I cannot find available slots for rescheduling right now."
+    });
+    return;
+  }
+  await sendWhatsAppList({
+    to: input.to,
+    bodyText:
+      input.locale === "it"
+        ? "Scegli una nuova data per la prenotazione."
+        : "Choose a new date for your booking.",
+    buttonText: input.locale === "it" ? "Date" : "Dates",
+    choices: [
+      ...choices.slice(0, 8),
+      { id: "flow:back", title: input.locale === "it" ? "Indietro" : "Back" },
+      { id: "flow:restart", title: input.locale === "it" ? "Inizio" : "Start over" }
+    ]
+  });
+}
+
+async function handleWhatsAppCtaReply(input: {
+  from: string;
+  replyId: string;
+  locale: SupportedLocale;
+}) {
+  const token = parseCtaToken(input.replyId);
+  if (!token || !waActionTokenSecret) {
+    return false;
+  }
+
+  const verified = verifyBookingActionToken(token, waActionTokenSecret);
+  if (!verified.ok) {
+    await sendWhatsAppMessage({
+      to: input.from,
+      text:
+        input.locale === "it"
+          ? "Azione non valida o scaduta. Riprova dal menu."
+          : "Action is invalid or expired. Please retry from the menu."
+    });
+    console.warn("[bot] cta action rejected", {
+      from: maskPhone(input.from),
+      reason: verified.reason
+    });
+    return true;
+  }
+
+  const action = verified.payload.action;
+  const bookingId = verified.payload.bookingId;
+  const ownerPhone = verified.payload.phoneE164;
+
+  console.info("[bot] cta action received", {
+    from: maskPhone(input.from),
+    action,
+    bookingId
+  });
+
+  if (action.startsWith("client_") && ownerPhone !== input.from) {
+    await sendWhatsAppMessage({
+      to: input.from,
+      text: input.locale === "it" ? "Azione non autorizzata." : "Unauthorized action."
+    });
+    return true;
+  }
+
+  if (action.startsWith("admin_") && ownerPhone !== input.from) {
+    await sendWhatsAppMessage({
+      to: input.from,
+      text: input.locale === "it" ? "Azione admin non autorizzata." : "Unauthorized admin action."
+    });
+    return true;
+  }
+
+  if (action.startsWith("flow_") && ownerPhone !== input.from) {
+    await sendWhatsAppMessage({
+      to: input.from,
+      text: input.locale === "it" ? "Azione non autorizzata." : "Unauthorized action."
+    });
+    return true;
+  }
+
+  if (action === "client_confirm") {
+    await sendWhatsAppMessage({
+      to: input.from,
+      text:
+        input.locale === "it"
+          ? "Perfetto, confermato. Ti aspettiamo."
+          : "Great, confirmed. We look forward to seeing you."
+    });
+    return true;
+  }
+
+  if (action === "client_cancel_init") {
+    const confirmToken = buildBookingActionTokenForBot({
+      action: "client_cancel_confirm",
+      bookingId,
+      phoneE164: ownerPhone,
+      ttlMinutes: 20
+    });
+    if (!confirmToken) {
+      await sendWhatsAppMessage({
+        to: input.from,
+        text:
+          input.locale === "it"
+            ? "Impossibile confermare l'annullamento ora."
+            : "Cannot confirm cancellation right now."
+      });
+      return true;
+    }
+    await sendWhatsAppButtons({
+      to: input.from,
+      bodyText:
+        input.locale === "it"
+          ? "Sei sicuro di voler annullare questa prenotazione?"
+          : "Are you sure you want to cancel this booking?",
+      choices: [
+        { id: `cta:${confirmToken}`, title: input.locale === "it" ? "Si, annulla" : "Yes, cancel" },
+        { id: "flow:restart", title: input.locale === "it" ? "No" : "No" }
+      ]
+    });
+    return true;
+  }
+
+  if (action === "client_cancel_confirm") {
+    try {
+      await cancelBookingFromBot({
+        bookingId,
+        phone: ownerPhone
+      });
+      await sendWhatsAppMessage({
+        to: input.from,
+        text: input.locale === "it" ? "Prenotazione annullata." : "Booking cancelled."
+      });
+    } catch {
+      await sendWhatsAppMessage({
+        to: input.from,
+        text:
+          input.locale === "it"
+            ? "Impossibile annullare la prenotazione. Verifica lo stato."
+            : "Unable to cancel the booking. Please verify its current status."
+      });
+    }
+    return true;
+  }
+
+  if (action === "client_reschedule") {
+    const bookings = await listBookingsByPhoneFromBot({
+      phone: ownerPhone,
+      limit: 20
+    });
+    const booking = bookings.find((item) => item.id === bookingId && (item.status === "pending" || item.status === "confirmed"));
+    if (!booking) {
+      await sendWhatsAppMessage({
+        to: input.from,
+        text:
+          input.locale === "it"
+            ? "Non trovo una prenotazione attiva da spostare."
+            : "I cannot find an active booking to reschedule."
+      });
+      return true;
+    }
+    const session = createInitialSession(input.locale);
+    session.currentMode = "ai_assisted";
+    session.intent = "reschedule_booking";
+    session.state = "choose_date";
+    session.bookingIdToReschedule = booking.id;
+    session.serviceId = booking.serviceId;
+    session.masterId = booking.masterId;
+    session.lastUserMessageAt = new Date().toISOString();
+    await saveWhatsAppSession(input.from, session);
+    await sendRescheduleDateChoices({
+      to: input.from,
+      locale: input.locale,
+      serviceId: booking.serviceId,
+      masterId: booking.masterId
+    });
+    return true;
+  }
+
+  if (action === "flow_confirm_booking") {
+    const session = await loadWhatsAppSession(input.from);
+    if (
+      !session ||
+      session.state !== "confirm" ||
+      session.intent === "cancel_booking" ||
+      !session.serviceId ||
+      !session.slotStartAt
+    ) {
+      await sendWhatsAppMessage({
+        to: input.from,
+        text:
+          input.locale === "it"
+            ? "Sessione scaduta. Riprova dal menu."
+            : "Session expired. Please retry from the menu."
+      });
+      await clearWhatsAppSession(input.from);
+      return true;
+    }
+
+    try {
+      if (session.intent === "reschedule_booking" && session.bookingIdToReschedule) {
+        await rescheduleBookingFromBot({
+          bookingId: session.bookingIdToReschedule,
+          phone: input.from,
+          serviceId: session.serviceId,
+          masterId: session.masterId,
+          startAtIso: session.slotStartAt,
+          locale: session.locale
+        });
+        await sendWhatsAppMessage({
+          to: input.from,
+          text:
+            session.locale === "it"
+              ? "Prenotazione spostata con successo."
+              : "Booking rescheduled successfully."
+        });
+      } else {
+        await createBookingFromBot({
+          serviceId: session.serviceId,
+          startAtIso: session.slotStartAt,
+          phone: input.from,
+          locale: session.locale,
+          source: "whatsapp",
+          masterId: session.masterId,
+          clientName: "WhatsApp Client"
+        });
+        await sendWhatsAppMessage({
+          to: input.from,
+          text:
+            session.locale === "it"
+              ? "Richiesta prenotazione ricevuta. Attendi conferma dall'amministratore."
+              : "Booking request received. Please wait for admin confirmation."
+        });
+      }
+    } catch {
+      await sendWhatsAppMessage({
+        to: input.from,
+        text:
+          input.locale === "it"
+            ? "Non riesco a completare l'operazione ora. Riprova dal menu."
+            : "Unable to complete the action now. Please retry from the menu."
+      });
+    }
+    await clearWhatsAppSession(input.from);
+    return true;
+  }
+
+  if (action === "flow_confirm_cancel") {
+    const session = await loadWhatsAppSession(input.from);
+    const bookingIdToCancel = session?.bookingIdInContext ?? bookingId;
+    if (
+      !bookingIdToCancel ||
+      (session?.bookingIdInContext && session.bookingIdInContext !== bookingId)
+    ) {
+      await sendWhatsAppMessage({
+        to: input.from,
+        text:
+          input.locale === "it"
+            ? "Sessione scaduta. Riprova dal menu."
+            : "Session expired. Please retry from the menu."
+      });
+      await clearWhatsAppSession(input.from);
+      return true;
+    }
+    try {
+      await cancelBookingFromBot({
+        bookingId: bookingIdToCancel,
+        phone: ownerPhone
+      });
+      await sendWhatsAppMessage({
+        to: input.from,
+        text: input.locale === "it" ? "Prenotazione annullata." : "Booking cancelled."
+      });
+    } catch {
+      await sendWhatsAppMessage({
+        to: input.from,
+        text:
+          input.locale === "it"
+            ? "Impossibile annullare la prenotazione. Verifica lo stato."
+            : "Unable to cancel the booking. Please verify its current status."
+      });
+    }
+    await clearWhatsAppSession(input.from);
+    return true;
+  }
+
+  if (action === "admin_confirm" || action === "admin_cancel") {
+    try {
+      const result = await applyAdminBookingActionFromBot({
+        bookingId,
+        adminPhoneE164: ownerPhone,
+        action: action === "admin_confirm" ? "confirm" : "cancel"
+      });
+      await sendWhatsAppMessage({
+        to: input.from,
+        text:
+          result.status === "confirmed"
+            ? "Booking confirmed."
+            : result.status === "cancelled"
+              ? "Booking cancelled."
+              : "Action applied."
+      });
+    } catch {
+      await sendWhatsAppMessage({
+        to: input.from,
+        text: "Unable to apply admin action."
+      });
+    }
+    return true;
+  }
+
+  return false;
 }
 
 async function buildStaticReply(text: string, locale: SupportedLocale) {
@@ -1025,6 +1812,41 @@ app.get("/ready", async (c) => {
   );
 });
 
+app.post("/internal/smoke/ai-failover", async (c) => {
+  if (!internalApiSecret) {
+    return c.json({ error: { code: "CONFIG_ERROR", message: "INTERNAL_API_SECRET is not configured" } }, 503);
+  }
+  const providedSecret = c.req.header("x-internal-secret");
+  if (providedSecret !== internalApiSecret) {
+    return c.json({ error: { code: "AUTH_FORBIDDEN", message: "Invalid internal secret" } }, 403);
+  }
+
+  const payload = await c.req.json().catch(() => null);
+  const text = typeof payload?.text === "string" ? payload.text : "";
+  const locale = payload?.locale === "en" ? "en" : "it";
+  if (!text.trim()) {
+    return c.json({ error: { code: "VALIDATION_ERROR", message: "text is required" } }, 400);
+  }
+
+  const parsed = detectTransportFallbackIntent(text, locale);
+  return c.json({
+    data: {
+      ok: true,
+      input: { text, locale },
+      fallbackDetected: Boolean(parsed),
+      parsed:
+        parsed == null
+          ? null
+          : {
+              intent: parsed.intent,
+              confidence: parsed.confidence,
+              dateText: parsed.dateText ?? null,
+              timeText: parsed.timeText ?? null
+            }
+    }
+  });
+});
+
 app.post("/webhooks/telegram", async (c) => {
   if (telegramWebhookSecret) {
     const secret = c.req.header("x-telegram-bot-api-secret-token");
@@ -1091,14 +1913,15 @@ app.post("/webhooks/whatsapp", async (c) => {
     console.info("[bot] whatsapp webhook accepted", { inboundCount: inbound.length });
 
     for (const item of inbound) {
-      const notDuplicate = await dedupInboundMessage(item.messageId);
-      if (!notDuplicate) {
-        console.info("[bot] whatsapp duplicate ignored", {
-          messageId: item.messageId,
-          from: maskPhone(item.from)
-        });
-        continue;
-      }
+      try {
+        const notDuplicate = await dedupInboundMessage(item.messageId);
+        if (!notDuplicate) {
+          console.info("[bot] whatsapp duplicate ignored", {
+            messageId: item.messageId,
+            from: maskPhone(item.from)
+          });
+          continue;
+        }
 
       const existingSession = await loadWhatsAppSession(item.from);
       const localeResolution = resolveConversationLocale({
@@ -1117,6 +1940,53 @@ app.post("/webhooks/whatsapp", async (c) => {
         locale: effectiveLocale,
         localeReason: localeResolution.localeReason
       });
+
+      const rateLimit = await checkInboundRateLimit({
+        phone: item.from,
+        windowSeconds: rateLimitWindowSeconds,
+        maxMessages: rateLimitMaxMessages
+      });
+      if (!rateLimit.allowed) {
+        await sendWhatsAppMessage({
+          to: item.from,
+          text:
+            effectiveLocale === "it"
+              ? "Hai inviato troppi messaggi in poco tempo. Riprova tra circa un minuto."
+              : "You sent too many messages in a short time. Please try again in about a minute."
+        });
+        console.warn("[bot] whatsapp rate limit exceeded", {
+          messageId: item.messageId,
+          from: maskPhone(item.from),
+          used: rateLimit.used,
+          maxMessages: rateLimitMaxMessages,
+          windowSeconds: rateLimitWindowSeconds
+        });
+        if (rateLimit.used === rateLimitMaxMessages + 1) {
+          await emitOpsAlert({
+            event: "inbound_rate_limit_exceeded",
+            severity: "warning",
+            context: {
+              from: maskPhone(item.from),
+              used: rateLimit.used,
+              maxMessages: rateLimitMaxMessages,
+              windowSeconds: rateLimitWindowSeconds,
+              messageId: item.messageId
+            }
+          });
+        }
+        continue;
+      }
+
+      if (item.replyId?.startsWith("cta:")) {
+        const handledCta = await handleWhatsAppCtaReply({
+          from: item.from,
+          replyId: item.replyId,
+          locale: effectiveLocale
+        });
+        if (handledCta) {
+          continue;
+        }
+      }
 
       const resetResult = await applyConversationResetPolicy(
         {
@@ -1168,6 +2038,20 @@ app.post("/webhooks/whatsapp", async (c) => {
         sendButtons: async (to: string, bodyText: string, choices: Array<{ id: string; title: string; description?: string }>) => {
           await sendWhatsAppButtons({ to, bodyText, choices });
         },
+        createFlowCtaAction: (input: {
+          action: "flow_confirm_booking" | "flow_confirm_cancel";
+          bookingId: string;
+          phone: string;
+          ttlMinutes?: number;
+        }) => {
+          const token = buildBookingActionTokenForBot({
+            action: input.action,
+            bookingId: input.bookingId,
+            phoneE164: input.phone,
+            ttlMinutes: input.ttlMinutes
+          });
+          return token ?? undefined;
+        },
         fetchServices: fetchServicesForConversation,
         fetchMasters: fetchMastersForConversation,
         fetchSlots: async (input: {
@@ -1200,13 +2084,37 @@ app.post("/webhooks/whatsapp", async (c) => {
       };
 
       let flowResult = { handled: false };
+      const shouldAttemptAiFromChooseIntent =
+        resetResult.decision === "continue_current_flow" &&
+        resetResult.session.state === "choose_intent" &&
+        !resetResult.session.intent &&
+        !item.replyId &&
+        Boolean(item.text) &&
+        !isStructuredControlMessage(item.text ?? "");
+
       if (
         !resetResult.shouldFallbackToMenuImmediately &&
-        resetResult.shouldRerouteCurrentMessage &&
         !item.replyId &&
         item.text &&
-        !isStructuredControlMessage(item.text)
+        !isStructuredControlMessage(item.text) &&
+        (resetResult.shouldRerouteCurrentMessage || shouldAttemptAiFromChooseIntent)
       ) {
+        const aiEnabledForTenant = openAiResponsesEnabled && isAiCanaryEnabledForTenant();
+        if (!aiEnabledForTenant) {
+          console.info("[bot] ai canary disabled for tenant", {
+            messageId: item.messageId,
+            tenantSlug: botTenantSlug || null,
+            tenantId: botTenantId || null
+          });
+        }
+        console.info("[bot] ai route decision", {
+          messageId: item.messageId,
+          from: maskPhone(item.from),
+          shouldRerouteCurrentMessage: resetResult.shouldRerouteCurrentMessage,
+          shouldAttemptAiFromChooseIntent,
+          state: resetResult.session.state,
+          intent: resetResult.session.intent ?? null
+        });
         const aiResult = await processAiWhatsAppMessage(
           {
             from: item.from,
@@ -1214,7 +2122,12 @@ app.post("/webhooks/whatsapp", async (c) => {
             locale: effectiveLocale,
             openAiApiKey,
             globalModel: openAiModel,
-            globalEnabled: openAiResponsesEnabled
+            globalEnabled: aiEnabledForTenant,
+            tenantQuotaKey: botTenantSlug || botTenantId || "default",
+            aiMaxCallsPerSession: openAiMaxCallsPerSession,
+            aiMaxCallsPerDay: openAiMaxCallsPerDay,
+            aiFailureHandoffThreshold,
+            unknownTurnHandoffThreshold
           },
           {
             loadSession: loadWhatsAppSession,
@@ -1225,6 +2138,9 @@ app.post("/webhooks/whatsapp", async (c) => {
             },
             sendList: async (to, bodyText, buttonText, choices) => {
               await sendWhatsAppList({ to, bodyText, buttonText, choices });
+            },
+            sendButtons: async (to, bodyText, choices) => {
+              await sendWhatsAppButtons({ to, bodyText, choices });
             },
             fetchServices: fetchServicesForConversation,
             fetchMasters: fetchMastersForConversation,
@@ -1243,7 +2159,9 @@ app.post("/webhooks/whatsapp", async (c) => {
             cancelBooking: cancelBookingFromBot,
             rescheduleBooking: rescheduleBookingFromBot,
             getTenantConfig: getTenantBotConfig,
-            notifyAdminHandoff: notifyAdminWhatsAppHandoff
+            notifyAdminHandoff: notifyAdminWhatsAppHandoff,
+            emitOpsAlert,
+            consumeAiDailyQuota
           }
         );
         flowResult = aiResult;
@@ -1275,18 +2193,55 @@ app.post("/webhooks/whatsapp", async (c) => {
         handled: flowResult.handled
       });
 
-      if (!flowResult.handled && item.text) {
-        const replyText = await processIncomingText({
-          text: item.text,
-          locale: effectiveLocale,
-          source: "whatsapp",
-          senderPhoneE164: item.from
-        });
-        await sendWhatsAppMessage({ to: item.from, text: replyText });
-        console.info("[bot] whatsapp fallback reply sent", {
+        if (!flowResult.handled && item.text) {
+          const replyText = await processIncomingText({
+            text: item.text,
+            locale: effectiveLocale,
+            source: "whatsapp",
+            senderPhoneE164: item.from
+          });
+          await sendWhatsAppMessage({ to: item.from, text: replyText });
+          console.info("[bot] whatsapp fallback reply sent", {
+            messageId: item.messageId,
+            from: maskPhone(item.from)
+          });
+        }
+      } catch (error) {
+        console.error("[bot] whatsapp message processing failed", {
           messageId: item.messageId,
-          from: maskPhone(item.from)
+          from: maskPhone(item.from),
+          message: toLogError(error)
         });
+        await emitOpsAlert({
+          event: "whatsapp_message_processing_failed",
+          severity: "warning",
+          context: {
+            messageId: item.messageId,
+            from: maskPhone(item.from),
+            message: toLogError(error)
+          }
+        });
+        await captureException({
+          service: "bot",
+          error,
+          context: { route: "/webhooks/whatsapp", messageId: item.messageId }
+        });
+        try {
+          await sendWhatsAppMessage({
+            to: item.from,
+            text:
+              item.locale === "it"
+                ? "Servizio temporaneamente non disponibile. Riprova tra pochi secondi."
+                : "Service is temporarily unavailable. Please retry in a few seconds."
+          });
+        } catch (fallbackError) {
+          console.error("[bot] fallback whatsapp send failed", {
+            messageId: item.messageId,
+            from: maskPhone(item.from),
+            error: toLogError(fallbackError)
+          });
+        }
+        continue;
       }
     }
 
@@ -1298,7 +2253,14 @@ app.post("/webhooks/whatsapp", async (c) => {
     });
   } catch (error) {
     console.error("[bot] whatsapp webhook processing failed", {
-      message: error instanceof Error ? error.message : "unknown_error"
+      message: toLogError(error)
+    });
+    await emitOpsAlert({
+      event: "whatsapp_webhook_processing_failed",
+      severity: "critical",
+      context: {
+        message: toLogError(error)
+      }
     });
     await captureException({
       service: "bot",
@@ -1310,6 +2272,18 @@ app.post("/webhooks/whatsapp", async (c) => {
 });
 
 const port = Number(process.env.PORT ?? 3002);
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[bot] unhandled rejection", {
+    message: toLogError(reason)
+  });
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("[bot] uncaught exception", {
+    message: toLogError(error)
+  });
+});
 
 serve({
   fetch: app.fetch,
