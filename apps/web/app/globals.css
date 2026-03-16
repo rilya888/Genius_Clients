@@ -903,6 +903,37 @@ button {
   font-size: 18px;
 }
 
+.gc-book-progress-row {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--gc-text-secondary);
+}
+
+.gc-book-progress-row strong {
+  color: var(--gc-text-primary);
+  font-size: 13px;
+}
+
+.gc-book-progress-bar {
+  margin-top: 8px;
+  height: 8px;
+  border-radius: 999px;
+  border: 1px solid var(--gc-border);
+  background: var(--gc-surface-muted);
+  overflow: hidden;
+}
+
+.gc-book-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--gc-primary), #49c5be);
+}
+
 .gc-book-summary-list {
   margin: 12px 0 0;
   padding-left: 18px;
@@ -915,6 +946,40 @@ button {
 .gc-book-summary-list li[data-done="true"] {
   color: var(--gc-text-primary);
   font-weight: 600;
+}
+
+.gc-book-summary-facts {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.gc-book-summary-facts > div {
+  border: 1px solid var(--gc-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 8px 10px;
+  display: grid;
+  gap: 2px;
+}
+
+.gc-book-summary-facts span {
+  color: var(--gc-text-secondary);
+  font-size: 11px;
+}
+
+.gc-book-summary-facts strong {
+  font-size: 13px;
+  color: var(--gc-text-primary);
+}
+
+.gc-book-policy-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  color: var(--gc-text-secondary);
+  font-size: 12px;
 }
 
 .gc-book-form-main {

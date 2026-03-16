@@ -55,6 +55,15 @@ export default function PublicBookingPage() {
   const canBook =
     Boolean(serviceId && selectedSlot && clientName.trim() && phoneValid && clientConsent) &&
     Boolean(csrfToken);
+  const progressSteps = [
+    Boolean(serviceId),
+    Boolean(date),
+    Boolean(selectedSlot),
+    Boolean(clientName.trim() && phoneValid),
+    Boolean(clientConsent)
+  ];
+  const completedSteps = progressSteps.filter(Boolean).length;
+  const progressPercent = Math.round((completedSteps / progressSteps.length) * 100);
 
   useEffect(() => {
     const requestedFromQuery = searchParams.get("locale");
@@ -254,6 +263,12 @@ export default function PublicBookingPage() {
     }
     return masters.find((item) => item.id === selectedSlot.masterId)?.displayName ?? selectedSlot.masterId;
   }, [masters, selectedSlot]);
+  const selectedServiceName = useMemo(() => {
+    if (!serviceId) {
+      return "Not selected";
+    }
+    return services.find((item) => item.id === serviceId)?.displayName ?? serviceId;
+  }, [serviceId, services]);
 
   const bookingForm = (
     <div className="gc-card gc-form-card gc-book-form-main">
@@ -377,6 +392,13 @@ export default function PublicBookingPage() {
           <aside className="gc-book-summary-stack">
           <div className="gc-card gc-book-summary gc-v2-fade-up">
             <h2 className="gc-book-summary-title">Booking progress</h2>
+            <div className="gc-book-progress-row">
+              <span>{completedSteps}/{progressSteps.length} completed</span>
+              <strong>{progressPercent}%</strong>
+            </div>
+            <div className="gc-book-progress-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent}>
+              <span style={{ width: `${progressPercent}%` }} />
+            </div>
             <ul className="gc-book-summary-list">
               <li data-done={serviceId ? "true" : "false"}>Service selected</li>
               <li data-done={date ? "true" : "false"}>Date selected</li>
@@ -384,12 +406,31 @@ export default function PublicBookingPage() {
               <li data-done={clientName.trim() && phoneValid ? "true" : "false"}>Contact details filled</li>
               <li data-done={clientConsent ? "true" : "false"}>Consent accepted</li>
             </ul>
+            <div className="gc-book-summary-facts">
+              <div>
+                <span>Service</span>
+                <strong>{selectedServiceName}</strong>
+              </div>
+              <div>
+                <span>Specialist</span>
+                <strong>{selectedSlot ? selectedMasterName : "Not selected"}</strong>
+              </div>
+              <div>
+                <span>Slot</span>
+                <strong>{selectedSlot ? selectedSlot.displayTime : "Not selected"}</strong>
+              </div>
+            </div>
           </div>
           <div className="gc-card gc-book-summary-note gc-v2-fade-up gc-v2-fade-up-delay-1">
             <h3 className="gc-feature-title">Booking policy</h3>
             <p className="gc-feature-text">
               Slots are validated in real time and protected with idempotent booking creation.
             </p>
+            <ul className="gc-book-policy-list">
+              <li>Live slot validation with schedule constraints</li>
+              <li>Secure booking submit with CSRF + idempotency key</li>
+              <li>Locale-aware confirmation response</li>
+            </ul>
           </div>
           </aside>
           <div className="gc-v2-fade-up gc-v2-fade-up-delay-1">{bookingForm}</div>
