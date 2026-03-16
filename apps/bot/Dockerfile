@@ -16,6 +16,7 @@ RUN pnpm --filter @genius/bot run build
 
 FROM node:22-alpine
 WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@10.16.1 --activate
 
 COPY --from=base /app/package.json /app/pnpm-workspace.yaml /app/
 COPY --from=base /app/node_modules /app/node_modules
