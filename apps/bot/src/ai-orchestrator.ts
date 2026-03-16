@@ -660,11 +660,14 @@ async function resolveAiPlan(
           intent: input.parsed.intent
         });
         return {
-          artifact: { kind: "none" },
-          outputText:
-            input.locale === "it"
-              ? "Non hai prenotazioni attive."
-              : "You do not have active bookings."
+          artifact: {
+            kind: "quick_actions",
+            prompt:
+              input.locale === "it"
+                ? "Non hai prenotazioni attive. Cosa vuoi fare?"
+                : "You do not have active bookings. What would you like to do?",
+            items: buildIntentQuickActions(input.locale)
+          }
         };
       }
       const lines = items.slice(0, 6).map((item, index) => `${index + 1}. ${formatBookingChoice(item.startAt, input.locale)} (${item.status})`);
@@ -1174,11 +1177,12 @@ async function renderArtifact(
     }
     case "booking_list": {
       if (input.artifact.items.length === 0) {
-        await deps.sendText(
+        await deps.sendButtons(
           input.from,
           input.locale === "it"
-            ? "Non ci sono prenotazioni attive da gestire."
-            : "There are no active bookings to manage."
+            ? "Non ci sono prenotazioni attive da gestire. Cosa vuoi fare?"
+            : "There are no active bookings to manage. What would you like to do?",
+          buildIntentQuickActions(input.locale).slice(0, 3)
         );
         return;
       }
@@ -1958,6 +1962,23 @@ function appendFlowRows(choices: Choice[], locale: SupportedLocale) {
       title: locale === "it" ? "Inizio" : "Start over"
     }
   ].slice(0, 10);
+}
+
+function buildIntentQuickActions(locale: SupportedLocale): Choice[] {
+  return [
+    {
+      id: "intent:new",
+      title: locale === "it" ? "Nuova prenotazione" : "New booking"
+    },
+    {
+      id: "intent:cancel",
+      title: locale === "it" ? "Annulla prenotazione" : "Cancel booking"
+    },
+    {
+      id: "intent:reschedule",
+      title: locale === "it" ? "Sposta prenotazione" : "Reschedule booking"
+    }
+  ];
 }
 
 function truncate(value: string, maxLength: number) {
