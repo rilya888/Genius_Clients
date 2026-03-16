@@ -81,6 +81,9 @@ type OpsKpiResponse = {
     unknownIntentHandled?: number;
     handoffEscalations?: number;
     fallbackTextHandled?: number;
+    complaintSignalsDetected?: number;
+    complaintHandoffs?: number;
+    complaintToHandoffLatencyAvgMs?: number;
   };
 };
 type StatusTone = "neutral" | "error";
@@ -305,6 +308,10 @@ export default function AdminPage() {
               unknown: {opsHealth?.bot?.data?.stats?.unknownIntentHandled ?? 0} · handoff:{" "}
               {opsHealth?.bot?.data?.stats?.handoffEscalations ?? 0}
             </div>
+            <div className="gc-muted-line">
+              complaints: {opsHealth?.bot?.data?.stats?.complaintSignalsDetected ?? 0} · c-handoff:{" "}
+              {opsHealth?.bot?.data?.stats?.complaintHandoffs ?? 0}
+            </div>
           </div>
           <div className="gc-card gc-status-card-small">
             <div className="gc-status-name">worker health</div>
@@ -365,6 +372,22 @@ export default function AdminPage() {
           <div className="gc-card gc-admin-stat">
             <div className="gc-admin-stat-label">Fallback (day)</div>
             <div className="gc-admin-stat-value">{opsKpi?.conversational?.fallbackTextHandled ?? 0}</div>
+          </div>
+        </div>
+        <div className="gc-admin-grid-3" style={{ marginTop: 12 }}>
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">Complaints (day)</div>
+            <div className="gc-admin-stat-value">{opsKpi?.conversational?.complaintSignalsDetected ?? 0}</div>
+          </div>
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">Complaint Handoffs</div>
+            <div className="gc-admin-stat-value">{opsKpi?.conversational?.complaintHandoffs ?? 0}</div>
+          </div>
+          <div className="gc-card gc-admin-stat">
+            <div className="gc-admin-stat-label">Complaint→Handoff Avg</div>
+            <div className="gc-admin-stat-value">
+              {Math.round((opsKpi?.conversational?.complaintToHandoffLatencyAvgMs ?? 0) / 1000)}s
+            </div>
           </div>
         </div>
       </section>
