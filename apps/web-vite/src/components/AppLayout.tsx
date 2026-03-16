@@ -25,7 +25,7 @@ export function AppLayout() {
   return (
     <div className="admin-shell">
       <aside className="admin-sidebar">
-        <h2>{t("app.brand")}</h2>
+        <LinkLikeBrand label={t("app.brand")} />
         <div className="scope-panel">
           <label>
             {t("app.scope.account")}
@@ -94,6 +94,15 @@ export function AppLayout() {
         </div>
         <Outlet />
       </main>
+    </div>
+  );
+}
+
+function LinkLikeBrand({ label }: { label: string }) {
+  return (
+    <div className="admin-brand">
+      <img className="admin-brand-mark" src="/branding/logo-mark.svg" alt="" aria-hidden="true" />
+      <span>{label}</span>
     </div>
   );
 }

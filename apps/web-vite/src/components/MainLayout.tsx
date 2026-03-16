@@ -21,8 +21,7 @@ export function MainLayout() {
     <div className="site-shell">
       <header className={`site-header ${isScrolled ? "is-scrolled" : ""}`}>
         <Link className="brand" to="/">
-          <span className="brand-dot" />
-          {t("app.brand")}
+          <img className="brand-logo" src="/branding/logo-horizontal.svg" alt={t("app.brand")} />
         </Link>
         <button
           type="button"

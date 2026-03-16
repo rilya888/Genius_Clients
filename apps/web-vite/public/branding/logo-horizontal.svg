@@ -1,0 +1,23 @@
+<svg width="1600" height="420" viewBox="0 0 1600 420" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="32" y1="24" x2="360" y2="360" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0BB7A6"/>
+      <stop offset="1" stop-color="#28D8C6"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="88" y1="88" x2="312" y2="312" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B8F57A"/>
+      <stop offset="1" stop-color="#7EEA4A"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="24" y="24" width="336" height="336" rx="92" fill="url(#bg)"/>
+
+  <path d="M263 121C244 102 221 93 196 93C137 93 93 138 93 196C93 254 137 299 196 299C221 299 244 290 263 271" stroke="white" stroke-width="28" stroke-linecap="round"/>
+  <path d="M254 171H196C182 171 171 182 171 196C171 210 182 221 196 221H286" stroke="url(#accent)" stroke-width="26" stroke-linecap="round"/>
+  <circle cx="286" cy="221" r="18" fill="url(#accent)"/>
+
+  <text x="410" y="185" fill="#0E2A27" font-family="'Plus Jakarta Sans','Manrope','Segoe UI',Arial,sans-serif" font-size="106" font-weight="800" letter-spacing="-1.5">Genius</text>
+  <text x="410" y="292" fill="#2E4F4A" font-family="'Plus Jakarta Sans','Manrope','Segoe UI',Arial,sans-serif" font-size="106" font-weight="700" letter-spacing="-1.2">Clients</text>
+
+  <rect x="412" y="316" width="356" height="18" rx="9" fill="#0BB7A6" fill-opacity="0.22"/>
+</svg>
