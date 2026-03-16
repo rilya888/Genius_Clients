@@ -737,6 +737,11 @@ button {
   margin-bottom: 12px;
 }
 
+.gc-auth-toolbar-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .gc-pill-btn {
   min-height: 34px;
   border-radius: 999px;
@@ -820,6 +825,12 @@ button {
 .gc-status-text {
   color: var(--gc-text-secondary);
   margin-top: 12px;
+}
+
+.gc-auth-hint {
+  margin: 0;
+  color: var(--gc-text-secondary);
+  font-size: 13px;
 }
 
 .gc-debug-box {
@@ -1109,6 +1120,63 @@ button {
   padding: 10px 12px;
 }
 
+.gc-session-toolbar-v3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gc-session-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex: 1;
+}
+
+.gc-session-brand {
+  display: grid;
+  gap: 2px;
+}
+
+.gc-session-brand strong {
+  font-size: 14px;
+  color: var(--gc-text-primary);
+}
+
+.gc-session-brand span {
+  font-size: 12px;
+}
+
+.gc-session-user {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gc-session-user-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--gc-primary-soft);
+  border: 1px solid var(--gc-border-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  color: var(--gc-text-primary);
+}
+
+.gc-session-user-meta {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+}
+
 .gc-admin-v2-intro {
   margin-top: 10px;
   border: 1px solid var(--gc-border);
@@ -1190,6 +1258,10 @@ button {
   padding: 0;
   display: grid;
   gap: 6px;
+}
+
+.gc-admin-mobile-nav {
+  display: none;
 }
 
 .gc-admin-sidebar-link {
@@ -1306,6 +1378,64 @@ button {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+
+.gc-admin-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gc-admin-quick-card {
+  text-decoration: none;
+  padding: 14px;
+  display: grid;
+  gap: 6px;
+  color: var(--gc-text-primary);
+  border: 1px solid var(--gc-border);
+}
+
+.gc-admin-quick-card strong {
+  font-size: 14px;
+}
+
+.gc-admin-quick-card span {
+  font-size: 12px;
+  color: var(--gc-text-secondary);
+}
+
+.gc-admin-quick-card:hover {
+  border-color: var(--gc-border-strong);
+  box-shadow: var(--gc-shadow-md);
+  transform: translateY(-1px);
+}
+
+.gc-admin-recent-list {
+  display: grid;
+  gap: 8px;
+}
+
+.gc-admin-recent-item {
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.gc-admin-recent-main {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.gc-admin-recent-main strong {
+  font-size: 14px;
+}
+
+.gc-admin-recent-main span {
+  color: var(--gc-text-secondary);
+  font-size: 12px;
 }
 
 .gc-admin-stat {
@@ -1543,6 +1673,19 @@ button {
 }
 
 @media (max-width: 980px) {
+  .gc-session-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .gc-session-user {
+    width: 100%;
+  }
+
+  .gc-session-user-meta {
+    max-width: 100%;
+  }
+
   .gc-home-hero-layout {
     grid-template-columns: 1fr;
   }
@@ -1608,6 +1751,10 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .gc-auth-toolbar-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .gc-services-create-grid {
     grid-template-columns: 1fr 1fr;
   }
@@ -1623,6 +1770,10 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .gc-admin-quick-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .gc-admin-layout {
     grid-template-columns: 1fr;
   }
@@ -1633,6 +1784,12 @@ button {
 
   .gc-admin-sidebar-v2 {
     top: auto;
+  }
+
+  .gc-admin-mobile-nav {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 10px;
   }
 
   .gc-admin-sidebar-list {
@@ -1658,6 +1815,10 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .gc-admin-quick-grid {
+    grid-template-columns: 1fr;
+  }
+
   .gc-working-hours-create-grid,
   .gc-exceptions-create-grid,
   .gc-master-services-create-grid,
@@ -1668,6 +1829,10 @@ button {
   }
 
   .gc-auth-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .gc-auth-toolbar-grid {
     grid-template-columns: 1fr;
   }
 

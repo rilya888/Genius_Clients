@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { resolveLocale, t, type SupportedLocale } from "@genius/i18n";
 import { parseLocaleCookie, setUiLocaleCookie } from "../../lib/ui-locale";
-import { isUiV2Enabled } from "../../lib/ui-flags";
+import { isUiV2Enabled, isUiV3Enabled } from "../../lib/ui-flags";
 
 type SessionInfo = {
   userId: string;
@@ -12,33 +12,102 @@ type SessionInfo = {
   email: string;
   role: string;
 };
+
 type StatusTone = "neutral" | "error" | "success";
+type AuthMode = "login" | "register" | "forgot" | "reset" | "verify";
+
+type ApiErrorPayload = {
+  error?: {
+    message?: string;
+  };
+  data?: {
+    verificationTokenPreview?: string;
+  };
+};
+
+const AUTH_MODES: AuthMode[] = ["login", "register", "forgot", "reset", "verify"];
+
+function modeLabel(mode: AuthMode): string {
+  if (mode === "login") {
+    return "Login";
+  }
+  if (mode === "register") {
+    return "Register";
+  }
+  if (mode === "forgot") {
+    return "Forgot";
+  }
+  if (mode === "reset") {
+    return "Reset";
+  }
+  return "Verify";
+}
+
+async function postJson(path: string, body: Record<string, unknown>): Promise<{ response: Response; payload: ApiErrorPayload | null }> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+
+  const payload = (await response.json().catch(() => null)) as ApiErrorPayload | null;
+  return { response, payload };
+}
 
 export default function AuthPage() {
   const uiV2Enabled = isUiV2Enabled();
+  const uiV3Enabled = isUiV3Enabled();
+  const modernUiEnabled = uiV3Enabled || uiV2Enabled;
   const searchParams = useSearchParams();
+
   const [uiLocale, setUiLocale] = useState<SupportedLocale>("it");
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<AuthMode>("login");
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [slug, setSlug] = useState("");
+
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [resetToken, setResetToken] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
+
   const [verificationEmail, setVerificationEmail] = useState("");
   const [verificationToken, setVerificationToken] = useState("");
+
   const [status, setStatus] = useState<string>("");
   const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     const requestedFromQuery = searchParams.get("locale");
     const requestedFromCookie = parseLocaleCookie(document.cookie);
+
     setUiLocale(
       resolveLocale({
         requested: requestedFromQuery ?? requestedFromCookie ?? window.navigator.language.toLowerCase(),
         tenantDefault: "it"
       })
     );
+
+    const modeFromQuery = searchParams.get("mode");
+    if (modeFromQuery && AUTH_MODES.includes(modeFromQuery as AuthMode)) {
+      setMode(modeFromQuery as AuthMode);
+    }
+
+    const tokenFromQuery = searchParams.get("token");
+    if (tokenFromQuery) {
+      setResetToken(tokenFromQuery);
+    }
+
+    const emailFromQuery = searchParams.get("email");
+    if (emailFromQuery) {
+      setEmail(emailFromQuery);
+      setForgotEmail(emailFromQuery);
+      setVerificationEmail(emailFromQuery);
+    }
   }, [searchParams]);
 
   useEffect(() => {
@@ -83,14 +152,20 @@ export default function AuthPage() {
   }, []);
 
   const canSubmit = useMemo(() => {
-    if (!email || !password) {
-      return false;
+    if (mode === "login") {
+      return email.trim().length > 0 && password.length > 0;
     }
-    if (mode === "register" && !businessName) {
-      return false;
+    if (mode === "register") {
+      return email.trim().length > 0 && password.length > 0 && businessName.trim().length > 0;
     }
-    return true;
-  }, [businessName, email, mode, password]);
+    if (mode === "forgot") {
+      return forgotEmail.trim().length > 0;
+    }
+    if (mode === "reset") {
+      return resetToken.trim().length > 0 && resetPassword.length > 0;
+    }
+    return verificationToken.trim().length > 0 || verificationEmail.trim().length > 0;
+  }, [businessName, email, forgotEmail, mode, password, resetPassword, resetToken, verificationEmail, verificationToken]);
 
   function setNeutralStatus(message: string) {
     setStatus(message);
@@ -107,43 +182,127 @@ export default function AuthPage() {
     setStatusTone("success");
   }
 
-  async function submit() {
-    setNeutralStatus(t("auth.submitting", { locale: uiLocale }));
-    const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
-    const body =
-      mode === "login"
-        ? { email, password }
-        : { email, password, businessName, slug: slug || undefined };
+  async function loadProfileAndRedirect() {
+    const meResponse = await fetch("/api/auth/me", {
+      method: "GET",
+      cache: "no-store",
+      credentials: "same-origin"
+    });
+    const mePayload = await meResponse.json().catch(() => null);
 
-    let response: Response;
-    let payload: any = null;
+    if (!meResponse.ok) {
+      setErrorStatus(t("auth.profileLoadFailed", { locale: uiLocale }));
+      return;
+    }
+
+    setSession(mePayload?.data as SessionInfo);
+    setSuccessStatus(t("auth.authenticated", { locale: uiLocale }));
+    window.location.href = "/admin";
+  }
+
+  async function submit() {
+    if (!canSubmit || submitting) {
+      return;
+    }
+
+    setSubmitting(true);
+    setNeutralStatus(t("auth.submitting", { locale: uiLocale }));
+
     try {
-      response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body)
+      if (mode === "login") {
+        const { response, payload } = await postJson("/api/auth/login", { email, password });
+        if (!response.ok) {
+          setErrorStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
+          return;
+        }
+        await loadProfileAndRedirect();
+        return;
+      }
+
+      if (mode === "register") {
+        const { response, payload } = await postJson("/api/auth/register", {
+          email,
+          password,
+          businessName,
+          slug: slug || undefined
+        });
+        if (!response.ok) {
+          setErrorStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
+          return;
+        }
+        await loadProfileAndRedirect();
+        return;
+      }
+
+      if (mode === "forgot") {
+        const { response, payload } = await postJson("/api/auth/forgot-password", {
+          email: forgotEmail.trim()
+        });
+        if (!response.ok) {
+          setErrorStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
+          return;
+        }
+        setSuccessStatus("Password reset instructions were sent if the email exists.");
+        return;
+      }
+
+      if (mode === "reset") {
+        const { response, payload } = await postJson("/api/auth/reset-password", {
+          token: resetToken.trim(),
+          password: resetPassword
+        });
+        if (!response.ok) {
+          setErrorStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
+          return;
+        }
+        setSuccessStatus("Password updated. You can now log in.");
+        setMode("login");
+        return;
+      }
+
+      const { response, payload } = await postJson("/api/auth/verify-email", {
+        token: verificationToken.trim()
       });
-      payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setErrorStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
+        return;
+      }
+      setSuccessStatus(t("auth.emailVerified", { locale: uiLocale }));
     } catch {
       setErrorStatus(t("common.errors.generic", { locale: uiLocale }));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function requestEmailVerification() {
+    if (!verificationEmail.trim() || submitting) {
       return;
     }
 
-    if (!response.ok) {
-      setErrorStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
-      return;
-    }
+    setSubmitting(true);
+    setNeutralStatus(t("auth.submitting", { locale: uiLocale }));
 
-    const meResponse = await fetch("/api/auth/me");
-    const mePayload = await meResponse.json();
-    if (meResponse.ok) {
-      setSession(mePayload.data as SessionInfo);
-      setSuccessStatus(t("auth.authenticated", { locale: uiLocale }));
-      window.location.href = "/admin";
-      return;
-    }
+    try {
+      const { response, payload } = await postJson("/api/auth/request-email-verification", {
+        email: verificationEmail.trim()
+      });
+      if (!response.ok) {
+        setErrorStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
+        return;
+      }
 
-    setErrorStatus(t("auth.profileLoadFailed", { locale: uiLocale }));
+      const preview = payload?.data?.verificationTokenPreview;
+      setSuccessStatus(
+        preview
+          ? `${t("auth.verificationRequested", { locale: uiLocale })}: ${String(preview)}`
+          : t("auth.verificationRequested", { locale: uiLocale })
+      );
+    } catch {
+      setErrorStatus(t("common.errors.generic", { locale: uiLocale }));
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function logout() {
@@ -152,182 +311,185 @@ export default function AuthPage() {
     setSuccessStatus(t("auth.loggedOut", { locale: uiLocale }));
   }
 
-  async function requestEmailVerification() {
-    const response = await fetch("/api/auth/request-email-verification", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: verificationEmail || email || undefined })
-    });
-    const payload = await response.json();
-    if (!response.ok) {
-      setErrorStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
-      return;
-    }
-
-    const preview = payload?.data?.verificationTokenPreview;
-    setSuccessStatus(
-      preview
-        ? `${t("auth.verificationRequested", { locale: uiLocale })}: ${String(preview)}`
-        : t("auth.verificationRequested", { locale: uiLocale })
-    );
-  }
-
-  async function verifyEmail() {
-    if (!verificationToken.trim()) {
-      return;
-    }
-
-    const response = await fetch("/api/auth/verify-email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: verificationToken.trim() })
-    });
-    const payload = await response.json();
-    if (!response.ok) {
-      setErrorStatus(payload?.error?.message ?? t("common.errors.generic", { locale: uiLocale }));
-      return;
-    }
-
-    setSuccessStatus(t("auth.emailVerified", { locale: uiLocale }));
-  }
-
   if (checkingSession) {
     return (
       <main className="gc-auth-page">
-        <p className="gc-status-text gc-mt-0">
-          Checking session...
-        </p>
+        <p className="gc-status-text gc-mt-0">Checking session...</p>
       </main>
     );
   }
 
   return (
-    <main className={`gc-auth-page${uiV2Enabled ? " gc-auth-page-v2" : ""}`}>
+    <main className={`gc-auth-page${modernUiEnabled ? " gc-auth-page-v2" : ""}`}>
       <h1 className="gc-auth-title">{t("auth.title", { locale: uiLocale })}</h1>
-      {uiV2Enabled ? (
+      {modernUiEnabled ? (
         <p className="gc-auth-subtitle gc-v2-fade-up">
           Secure authentication gateway for tenant onboarding and operator access.
         </p>
       ) : null}
 
-      <section className={uiV2Enabled ? "gc-auth-layout" : ""}>
-        {uiV2Enabled ? (
+      <section className={modernUiEnabled ? "gc-auth-layout" : ""}>
+        {modernUiEnabled ? (
           <aside className="gc-card gc-auth-intro-card gc-v2-fade-up">
-            <h2 className="gc-auth-intro-title">Access and onboarding</h2>
+            <h2 className="gc-auth-intro-title">Auth workflow</h2>
             <p className="gc-auth-intro-text">
-              Use login for existing operators or create a new tenant account to initialize your
-              business workspace.
+              One place for sign-in, tenant onboarding, password recovery, and email verification.
             </p>
             <ul className="gc-auth-points">
-              <li>Session-based authentication via BFF routes</li>
-              <li>Tenant-aware onboarding with optional slug</li>
-              <li>Email verification flow for account trust</li>
+              <li>Session-safe auth through BFF routes</li>
+              <li>Forgot/reset password fully connected to backend</li>
+              <li>Email verification request + token confirmation</li>
             </ul>
             <div className="gc-auth-intro-metrics">
               <div>
                 <strong>IT/EN</strong>
-                <span>locale-aware onboarding</span>
+                <span>locale-aware copy</span>
               </div>
               <div>
-                <strong>BFF</strong>
-                <span>session-safe auth flow</span>
+                <strong>CSRF/session</strong>
+                <span>same security model</span>
               </div>
             </div>
           </aside>
         ) : null}
 
-        <div className={`gc-auth-main${uiV2Enabled ? " gc-v2-fade-up gc-v2-fade-up-delay-1" : ""}`}>
-          <div className={`gc-auth-toolbar${uiV2Enabled ? " gc-auth-toolbar-v2" : ""}`}>
-            <button className="gc-pill-btn" onClick={() => setMode("login")} disabled={mode === "login"}>
-              {t("auth.login", { locale: uiLocale })}
-            </button>
-            <button
-              className="gc-pill-btn"
-              onClick={() => setMode("register")}
-              disabled={mode === "register"}
-            >
-              {t("auth.register", { locale: uiLocale })}
-            </button>
-            <button className="gc-pill-btn" onClick={logout}>
+        <div className={`gc-auth-main${modernUiEnabled ? " gc-v2-fade-up gc-v2-fade-up-delay-1" : ""}`}>
+          <div className={`gc-auth-toolbar${modernUiEnabled ? " gc-auth-toolbar-v2 gc-auth-toolbar-grid" : ""}`}>
+            {AUTH_MODES.map((authMode) => (
+              <button
+                key={authMode}
+                className="gc-pill-btn"
+                onClick={() => setMode(authMode)}
+                disabled={mode === authMode || submitting}
+              >
+                {modeLabel(authMode)}
+              </button>
+            ))}
+            <button className="gc-pill-btn" onClick={logout} disabled={submitting}>
               {t("auth.logout", { locale: uiLocale })}
             </button>
           </div>
 
           <div className="gc-card gc-form-card">
-            <label className="gc-form-label">
-              {t("auth.email", { locale: uiLocale })}
-              <input
-                className="gc-form-input"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </label>
-            <label className="gc-form-label">
-              {t("auth.password", { locale: uiLocale })}
-              <input
-                className="gc-form-input"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </label>
-
-            {mode === "register" ? (
+            {(mode === "login" || mode === "register") ? (
               <>
                 <label className="gc-form-label">
-                  {t("auth.businessName", { locale: uiLocale })}
+                  {t("auth.email", { locale: uiLocale })}
+                  <input className="gc-form-input" value={email} onChange={(e) => setEmail(e.target.value)} />
+                </label>
+                <label className="gc-form-label">
+                  {t("auth.password", { locale: uiLocale })}
                   <input
                     className="gc-form-input"
-                    value={businessName}
-                    onChange={(e) => setBusinessName(e.target.value)}
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </label>
+
+                {mode === "register" ? (
+                  <>
+                    <label className="gc-form-label">
+                      {t("auth.businessName", { locale: uiLocale })}
+                      <input
+                        className="gc-form-input"
+                        value={businessName}
+                        onChange={(e) => setBusinessName(e.target.value)}
+                      />
+                    </label>
+                    <label className="gc-form-label">
+                      {t("auth.slugOptional", { locale: uiLocale })}
+                      <input className="gc-form-input" value={slug} onChange={(e) => setSlug(e.target.value)} />
+                    </label>
+                  </>
+                ) : null}
+              </>
+            ) : null}
+
+            {mode === "forgot" ? (
+              <>
+                <label className="gc-form-label">
+                  {t("auth.email", { locale: uiLocale })}
+                  <input
+                    className="gc-form-input"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                  />
+                </label>
+                <p className="gc-auth-hint">We will send a reset link if this account exists.</p>
+              </>
+            ) : null}
+
+            {mode === "reset" ? (
+              <>
+                <label className="gc-form-label">
+                  Reset token
+                  <input
+                    className="gc-form-input"
+                    value={resetToken}
+                    onChange={(e) => setResetToken(e.target.value)}
                   />
                 </label>
                 <label className="gc-form-label">
-                  {t("auth.slugOptional", { locale: uiLocale })}
-                  <input className="gc-form-input" value={slug} onChange={(e) => setSlug(e.target.value)} />
+                  New password
+                  <input
+                    className="gc-form-input"
+                    type="password"
+                    value={resetPassword}
+                    onChange={(e) => setResetPassword(e.target.value)}
+                  />
                 </label>
               </>
             ) : null}
 
-            <button className="gc-primary-btn" disabled={!canSubmit} onClick={submit}>
-              {mode === "login"
-                ? t("auth.login", { locale: uiLocale })
-                : t("auth.register", { locale: uiLocale })}
-            </button>
+            {mode === "verify" ? (
+              <>
+                <label className="gc-form-label">
+                  {t("auth.email", { locale: uiLocale })}
+                  <input
+                    className="gc-form-input"
+                    value={verificationEmail}
+                    onChange={(e) => setVerificationEmail(e.target.value)}
+                  />
+                </label>
+                <button
+                  className="gc-primary-btn"
+                  onClick={requestEmailVerification}
+                  disabled={!verificationEmail.trim() || submitting}
+                >
+                  {t("auth.requestVerification", { locale: uiLocale })}
+                </button>
+
+                <label className="gc-form-label">
+                  {t("auth.verificationToken", { locale: uiLocale })}
+                  <input
+                    className="gc-form-input"
+                    value={verificationToken}
+                    onChange={(e) => setVerificationToken(e.target.value)}
+                  />
+                </label>
+              </>
+            ) : null}
+
+            {mode !== "verify" ? (
+              <button className="gc-primary-btn" disabled={!canSubmit || submitting} onClick={submit}>
+                {submitting ? "Submitting..." : modeLabel(mode)}
+              </button>
+            ) : (
+              <button
+                className="gc-primary-btn"
+                disabled={!verificationToken.trim() || submitting}
+                onClick={submit}
+              >
+                {submitting ? "Submitting..." : t("auth.verifyEmail", { locale: uiLocale })}
+              </button>
+            )}
           </div>
 
-          <div className="gc-card gc-form-card gc-mt-12">
-            <label className="gc-form-label">
-              {t("auth.email", { locale: uiLocale })}
-              <input
-                className="gc-form-input"
-                value={verificationEmail}
-                onChange={(e) => setVerificationEmail(e.target.value)}
-              />
-            </label>
-            <button className="gc-primary-btn" onClick={requestEmailVerification}>
-              {t("auth.requestVerification", { locale: uiLocale })}
-            </button>
-
-            <label className="gc-form-label">
-              {t("auth.verificationToken", { locale: uiLocale })}
-              <input
-                className="gc-form-input"
-                value={verificationToken}
-                onChange={(e) => setVerificationToken(e.target.value)}
-              />
-            </label>
-            <button className="gc-primary-btn" onClick={verifyEmail}>
-              {t("auth.verifyEmail", { locale: uiLocale })}
-            </button>
-          </div>
-
-          <p className={`gc-status-text gc-status-${statusTone}`} role="status" aria-live="polite">{status}</p>
-          {session ? (
-            <pre className="gc-debug-box">
-              {JSON.stringify(session, null, 2)}
-            </pre>
-          ) : null}
+          <p className={`gc-status-text gc-status-${statusTone}`} role="status" aria-live="polite">
+            {status}
+          </p>
+          {session ? <pre className="gc-debug-box">{JSON.stringify(session, null, 2)}</pre> : null}
         </div>
       </section>
     </main>

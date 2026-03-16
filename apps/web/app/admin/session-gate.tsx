@@ -76,10 +76,27 @@ export function SessionGate({ children }: { children: ReactNode }) {
 
   return (
     <div className={uiV2Enabled ? "gc-admin-v2-root" : ""}>
-      <div className={`gc-admin-shell gc-session-toolbar${uiV2Enabled ? " gc-session-toolbar-v2" : ""}`}>
-        <span>
-          {session?.email ?? "unknown"} ({session?.role ?? "unknown"})
-        </span>
+      <div className={`gc-admin-shell gc-session-toolbar${uiV2Enabled ? " gc-session-toolbar-v2 gc-session-toolbar-v3" : ""}`}>
+        {uiV2Enabled ? (
+          <div className="gc-session-head">
+            <div className="gc-session-brand">
+              <strong>Genius Clients</strong>
+              <span>Admin workspace</span>
+            </div>
+            <div className="gc-session-user">
+              <span className="gc-session-user-avatar">
+                {(session?.email ?? "U").slice(0, 1).toUpperCase()}
+              </span>
+              <span className="gc-session-user-meta">
+                {session?.email ?? "unknown"} ({session?.role ?? "unknown"})
+              </span>
+            </div>
+          </div>
+        ) : (
+          <span>
+            {session?.email ?? "unknown"} ({session?.role ?? "unknown"})
+          </span>
+        )}
         <LogoutButton />
       </div>
       {uiV2Enabled ? (
@@ -98,6 +115,22 @@ export function SessionGate({ children }: { children: ReactNode }) {
       {uiV2Enabled ? (
         <div className="gc-admin-layout gc-admin-layout-v2">
           <aside className="gc-admin-sidebar gc-admin-sidebar-v2">
+            <label className="gc-admin-mobile-nav">
+              <span className="gc-field-label">Jump to section</span>
+              <select
+                className="gc-select"
+                value={pathname}
+                onChange={(event) => {
+                  window.location.href = event.target.value;
+                }}
+              >
+                {navItems.map((item) => (
+                  <option key={item.href} value={item.href}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <ul className="gc-admin-sidebar-list">
               {navItems.map((item) => {
                 const active =

@@ -7,6 +7,9 @@ function parseBoolean(value: string | undefined): boolean {
 }
 
 export function isUiV2Enabled(): boolean {
-  return parseBoolean(process.env.NEXT_PUBLIC_UI_V2_ENABLED);
+  return parseBoolean(process.env.NEXT_PUBLIC_UI_V2_ENABLED) || parseBoolean(process.env.NEXT_PUBLIC_UI_V3_ENABLED);
 }
 
+export function isUiV3Enabled(): boolean {
+  return parseBoolean(process.env.NEXT_PUBLIC_UI_V3_ENABLED);
+}
