@@ -349,11 +349,25 @@ async function promptBookingSelectionForAction(input: {
   });
 
   if (items.length === 0) {
-    await input.deps.sendText(
+    await input.deps.sendButtons(
       input.from,
       input.locale === "it"
-        ? "Non ci sono prenotazioni attive da gestire."
-      : "There are no active bookings to manage."
+        ? "Non ci sono prenotazioni attive da gestire. Cosa vuoi fare?"
+        : "There are no active bookings to manage. What would you like to do?",
+      [
+        {
+          id: "intent:new",
+          title: input.locale === "it" ? "Nuova prenotazione" : "New booking"
+        },
+        {
+          id: "intent:cancel",
+          title: input.locale === "it" ? "Annulla prenotazione" : "Cancel booking"
+        },
+        {
+          id: "intent:reschedule",
+          title: input.locale === "it" ? "Sposta prenotazione" : "Reschedule booking"
+        }
+      ]
     );
     return false;
   }
