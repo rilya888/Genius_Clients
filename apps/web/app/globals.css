@@ -274,6 +274,118 @@ button {
   font-size: 13px;
 }
 
+.gc-flow-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gc-flow-card {
+  padding: 14px;
+}
+
+.gc-flow-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  min-height: 28px;
+  border-radius: 999px;
+  border: 1px solid var(--gc-border-strong);
+  background: var(--gc-primary-soft);
+  color: var(--gc-text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.gc-pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gc-pricing-card {
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.gc-pricing-card-recommended {
+  border-color: var(--gc-border-strong);
+  box-shadow: var(--gc-shadow-md);
+}
+
+.gc-plan-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  background: var(--gc-accent-soft);
+  color: var(--gc-text-primary);
+  border: 1px solid var(--gc-border-strong);
+  min-height: 24px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.gc-pricing-name {
+  margin: 0;
+  font-size: 20px;
+}
+
+.gc-pricing-description {
+  margin: 0;
+  color: var(--gc-text-secondary);
+  font-size: 13px;
+}
+
+.gc-pricing-price {
+  margin: 2px 0;
+  display: inline-flex;
+  align-items: end;
+  gap: 6px;
+}
+
+.gc-pricing-price span {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.gc-pricing-price small {
+  color: var(--gc-text-secondary);
+  font-size: 13px;
+}
+
+.gc-pricing-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  color: var(--gc-text-secondary);
+  font-size: 13px;
+}
+
+.gc-faq-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gc-faq-card {
+  padding: 14px;
+}
+
+.gc-home-cta {
+  padding: 20px;
+  background:
+    radial-gradient(circle at 15% 15%, var(--gc-accent-soft) 0%, transparent 40%),
+    radial-gradient(circle at 84% 80%, var(--gc-primary-soft) 0%, transparent 45%),
+    var(--gc-surface);
+}
+
 .gc-home-gap {
   height: 20px;
 }
@@ -975,6 +1087,18 @@ button {
 
   .gc-feature-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .gc-flow-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gc-pricing-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gc-faq-grid {
+    grid-template-columns: 1fr;
   }
 
   .gc-home-metrics {
