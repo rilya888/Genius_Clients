@@ -1203,6 +1203,17 @@ async function runCreateOrReschedule(
         await recoverFromSlotConflict(input, session, deps);
         return;
       }
+      if (isBackendTemporarilyUnavailableError(error)) {
+        await deps.sendText(
+          input.from,
+          session.locale === "it"
+            ? "Ho una difficolta tecnica temporanea. Riprova tra qualche minuto."
+            : "I have a temporary technical issue. Please try again in a few minutes."
+        );
+        await deps.saveSession(input.from, session);
+        await promptConfirm(input, session, deps);
+        return;
+      }
       throw error;
     }
   } else {
@@ -1224,6 +1235,17 @@ async function runCreateOrReschedule(
     } catch (error) {
       if (isSlotConflictError(error)) {
         await recoverFromSlotConflict(input, session, deps);
+        return;
+      }
+      if (isBackendTemporarilyUnavailableError(error)) {
+        await deps.sendText(
+          input.from,
+          session.locale === "it"
+            ? "Ho una difficolta tecnica temporanea. Riprova tra qualche minuto."
+            : "I have a temporary technical issue. Please try again in a few minutes."
+        );
+        await deps.saveSession(input.from, session);
+        await promptConfirm(input, session, deps);
         return;
       }
       throw error;
@@ -1265,6 +1287,21 @@ function isSlotConflictError(error: unknown): boolean {
   );
 }
 
+function isBackendTemporarilyUnavailableError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const text = error.message.toLowerCase();
+  return (
+    text.includes("api_retryable_status:") ||
+    text.includes("api_retry_failed") ||
+    text.includes("service_unavailable") ||
+    text.includes("gateway_timeout") ||
+    text.includes("timeout") ||
+    text.includes("internal_error")
+  );
+}
+
 async function runCancelWithConfirm(
   input: ConversationInput,
   session: WhatsAppConversationSession,
@@ -1290,7 +1327,18 @@ async function runCancelWithConfirm(
         ? "Prenotazione annullata."
         : "Booking cancelled."
     );
-  } catch {
+  } catch (error) {
+    if (isBackendTemporarilyUnavailableError(error)) {
+      await deps.sendText(
+        input.from,
+        session.locale === "it"
+          ? "Ho una difficolta tecnica temporanea. Riprova tra qualche minuto."
+          : "I have a temporary technical issue. Please try again in a few minutes."
+      );
+      await deps.saveSession(input.from, session);
+      await promptCancelConfirm(input, session, deps);
+      return;
+    }
     await deps.sendText(
       input.from,
       session.locale === "it"

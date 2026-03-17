@@ -261,6 +261,7 @@ export async function processAiWhatsAppMessage(
   const traceId = randomUUID();
   const session = existingSession ?? createInitialSession(detectedLocale);
   const nowIso = new Date().toISOString();
+  const promptVersion = resolvePromptVersion(tenantConfig.promptVariant);
   session.locale = detectedLocale;
   session.lastUserMessageAt = nowIso;
   session.currentMode = session.currentMode === "human_handoff" ? "human_handoff" : "ai_assisted";
@@ -289,7 +290,7 @@ export async function processAiWhatsAppMessage(
     inputTruncated,
     state: session.state,
     intent: session.intent ?? "unknown",
-    promptVersion: resolvePromptVersion(tenantConfig.promptVariant),
+    promptVersion,
     policyVersion: POLICY_VERSION,
     fastPathVersion: FAST_PATH_VERSION
   });
@@ -418,7 +419,7 @@ export async function processAiWhatsAppMessage(
               session,
               catalogHints,
               userText,
-              promptVersion: resolvePromptVersion(tenantConfig.promptVariant),
+              promptVersion,
               traceId
             });
             session.aiCallsInSession = sessionCallCount + 1;
@@ -433,7 +434,7 @@ export async function processAiWhatsAppMessage(
             session,
             catalogHints,
             userText,
-            promptVersion: resolvePromptVersion(tenantConfig.promptVariant),
+            promptVersion,
             traceId
           });
           session.aiCallsInSession = sessionCallCount + 1;
@@ -481,6 +482,7 @@ export async function processAiWhatsAppMessage(
       hasBookingReference: Boolean(normalizedParsed.bookingReference),
       parserSchemaVersion: normalizedParsed.schemaVersion ?? "none",
       expectedSchemaVersion: OPENAI_PARSER_SCHEMA_VERSION,
+      promptVersion,
       policyVersion: POLICY_VERSION,
       fastPathVersion: FAST_PATH_VERSION
     });

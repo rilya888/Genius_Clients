@@ -11,6 +11,7 @@ import Redis from "ioredis";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   createInitialSession,
+  migrateWhatsAppSession,
   processWhatsAppConversation,
   type WhatsAppConversationSession
 } from "./whatsapp-conversation";
@@ -18,12 +19,19 @@ import { detectTransportFallbackIntent, processAiWhatsAppMessage } from "./ai-or
 import { OpenAIResponsesClient } from "./openai-responses-client";
 import { applyConversationResetPolicy, toDeterministicIntentToken } from "./conversation-reset-policy";
 import { resolveConversationLocale } from "./conversation-locale";
+import {
+  resolveChannelRouteFromApi,
+  resolveLegacyBotRoute,
+  type BotRoutingContext
+} from "./enterprise/channel-routing";
+import { buildScopedSessionKey, getRoutingScopeSegment } from "./enterprise/session-scope";
 
 const app = new Hono();
 const telegramWebhookSecret = process.env.TG_WEBHOOK_SECRET_TOKEN ?? "";
 const telegramBotToken = process.env.TG_BOT_TOKEN ?? "";
 const waPhoneNumberId = process.env.WA_PHONE_NUMBER_ID ?? "";
 const waAccessToken = process.env.WA_ACCESS_TOKEN ?? "";
+const waAccessTokenByPhoneRaw = process.env.WA_ACCESS_TOKEN_BY_PHONE_JSON ?? "";
 const waVerifyToken = process.env.WA_VERIFY_TOKEN ?? "";
 const waWebhookSecret = process.env.WA_WEBHOOK_SECRET ?? "";
 const waActionTokenSecret = process.env.WA_ACTION_TOKEN_SECRET ?? "";
@@ -47,6 +55,7 @@ const apiUrl = process.env.API_URL ?? "";
 const internalApiSecret = process.env.INTERNAL_API_SECRET ?? "";
 const botTenantSlug = process.env.BOT_TENANT_SLUG ?? "";
 const botTenantId = process.env.BOT_TENANT_ID ?? "";
+const waEnterpriseRoutingRequired = process.env.WA_ENTERPRISE_ROUTING_REQUIRED === "true";
 const redisUrl = process.env.REDIS_URL?.trim();
 const redis = redisUrl
   ? new Redis(redisUrl, {
@@ -63,6 +72,118 @@ if (redis) {
   });
 }
 
+type RuntimeCounterKey =
+  | "inboundMessages"
+  | "aiHandled"
+  | "deterministicHandled"
+  | "ctaHandled"
+  | "nonTextHandled"
+  | "fallbackTextHandled"
+  | "processingErrors"
+  | "unknownIntentHandled"
+  | "handoffEscalations"
+  | "complaintSignalsDetected"
+  | "complaintHandoffs";
+
+const runtimeStats = {
+  startedAt: new Date().toISOString(),
+  inboundMessages: 0,
+  aiHandled: 0,
+  deterministicHandled: 0,
+  ctaHandled: 0,
+  nonTextHandled: 0,
+  fallbackTextHandled: 0,
+  processingErrors: 0,
+  unknownIntentHandled: 0,
+  handoffEscalations: 0,
+  complaintSignalsDetected: 0,
+  complaintHandoffs: 0,
+  complaintToHandoffLatencyMsTotal: 0,
+  complaintToHandoffLatencyMsLast: 0,
+  complaintToHandoffLatencyCount: 0,
+  daily: {
+    dayKey: getUtcDayKey(),
+    inboundMessages: 0,
+    aiHandled: 0,
+    deterministicHandled: 0,
+    ctaHandled: 0,
+    nonTextHandled: 0,
+    fallbackTextHandled: 0,
+    processingErrors: 0,
+    unknownIntentHandled: 0,
+    handoffEscalations: 0,
+    complaintSignalsDetected: 0,
+    complaintHandoffs: 0,
+    complaintToHandoffLatencyMsTotal: 0,
+    complaintToHandoffLatencyMsLast: 0,
+    complaintToHandoffLatencyCount: 0
+  }
+};
+const buildInfo = {
+  commit: process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+  branch: process.env.RAILWAY_GIT_BRANCH ?? process.env.VERCEL_GIT_COMMIT_REF ?? null,
+  startedAt: runtimeStats.startedAt
+};
+
+function getUtcDayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function bumpRuntimeCounter(key: RuntimeCounterKey) {
+  runtimeStats[key] += 1;
+  const dayKey = getUtcDayKey();
+  if (runtimeStats.daily.dayKey !== dayKey) {
+    runtimeStats.daily = {
+      dayKey,
+      inboundMessages: 0,
+      aiHandled: 0,
+      deterministicHandled: 0,
+      ctaHandled: 0,
+      nonTextHandled: 0,
+      fallbackTextHandled: 0,
+      processingErrors: 0,
+      unknownIntentHandled: 0,
+      handoffEscalations: 0,
+      complaintSignalsDetected: 0,
+      complaintHandoffs: 0,
+      complaintToHandoffLatencyMsTotal: 0,
+      complaintToHandoffLatencyMsLast: 0,
+      complaintToHandoffLatencyCount: 0
+    };
+  }
+  runtimeStats.daily[key] += 1;
+}
+
+function recordComplaintToHandoffLatency(latencyMs: number) {
+  const safeLatency = Math.max(0, Math.round(latencyMs));
+  runtimeStats.complaintToHandoffLatencyMsTotal += safeLatency;
+  runtimeStats.complaintToHandoffLatencyMsLast = safeLatency;
+  runtimeStats.complaintToHandoffLatencyCount += 1;
+  const dayKey = getUtcDayKey();
+  if (runtimeStats.daily.dayKey !== dayKey) {
+    runtimeStats.daily = {
+      dayKey,
+      inboundMessages: 0,
+      aiHandled: 0,
+      deterministicHandled: 0,
+      ctaHandled: 0,
+      nonTextHandled: 0,
+      fallbackTextHandled: 0,
+      processingErrors: 0,
+      unknownIntentHandled: 0,
+      handoffEscalations: 0,
+      complaintSignalsDetected: 0,
+      complaintHandoffs: 0,
+      complaintToHandoffLatencyMsTotal: 0,
+      complaintToHandoffLatencyMsLast: 0,
+      complaintToHandoffLatencyCount: 0
+    };
+  }
+  runtimeStats.daily.complaintToHandoffLatencyMsTotal += safeLatency;
+  runtimeStats.daily.complaintToHandoffLatencyMsLast = safeLatency;
+  runtimeStats.daily.complaintToHandoffLatencyCount += 1;
+}
+
 type TelegramUpdate = {
   update_id?: number;
   message?: {
@@ -75,6 +196,8 @@ type TelegramUpdate = {
 type WhatsAppInbound = {
   messageId: string;
   from: string;
+  phoneNumberId?: string;
+  messageType: string;
   text?: string;
   replyId?: string;
   locale: SupportedLocale;
@@ -87,6 +210,36 @@ type WhatsAppChoice = {
 };
 
 type OpsAlertSeverity = "warning" | "critical";
+
+const routingCache = new Map<string, { context: BotRoutingContext; expiresAtMs: number }>();
+const routingCacheTtlMs = 5 * 60 * 1000;
+const waAccessTokenByPhone = parseWhatsAppAccessTokenMap(waAccessTokenByPhoneRaw);
+
+function parseWhatsAppAccessTokenMap(raw: string) {
+  if (!raw.trim()) {
+    return new Map<string, string>();
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      return new Map<string, string>();
+    }
+    const out = new Map<string, string>();
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      const phoneNumberId = key.trim();
+      const token = typeof value === "string" ? value.trim() : "";
+      if (phoneNumberId && token) {
+        out.set(phoneNumberId, token);
+      }
+    }
+    return out;
+  } catch (error) {
+    console.warn("[bot] WA_ACCESS_TOKEN_BY_PHONE_JSON parse failed", {
+      error: toLogError(error)
+    });
+    return new Map<string, string>();
+  }
+}
 
 function maskPhone(value: string): string {
   const raw = value.trim();
@@ -105,7 +258,17 @@ function redactLogString(value: string): string {
     .replace(/\bBearer\s+[A-Za-z0-9._-]+\b/gi, "Bearer [redacted]")
     .replace(/\b(EA[A-Za-z0-9]+)\b/g, "[redacted_token]")
     .replace(/\bgh[opus]_[A-Za-z0-9_]+\b/g, "[redacted_token]")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted_email]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[redacted_id]")
     .replace(/\+?\d[\d\s-]{6,}\d/g, "[redacted_phone]");
+}
+
+function maskIdentifier(value: string): string {
+  const normalized = value.trim();
+  if (normalized.length <= 8) {
+    return "[id]";
+  }
+  return `${normalized.slice(0, 4)}...${normalized.slice(-4)}`;
 }
 
 function toLogError(error: unknown): string {
@@ -240,8 +403,32 @@ async function sendTelegramMessage(input: { chatId: number; text: string }) {
   return { sent: true as const };
 }
 
-async function sendWhatsAppPayload(input: { to: string; payload: Record<string, unknown> }) {
-  if (!waPhoneNumberId || !waAccessToken) {
+function resolveOutgoingWhatsAppPhoneNumberId(routeContext?: BotRoutingContext | null) {
+  const routed = routeContext?.externalEndpointId?.trim();
+  if (routed) {
+    return routed;
+  }
+  return waPhoneNumberId;
+}
+
+function resolveOutgoingWhatsAppAccessToken(phoneNumberId: string) {
+  const byPhone = waAccessTokenByPhone.get(phoneNumberId);
+  if (byPhone) {
+    return byPhone;
+  }
+  return waAccessToken;
+}
+
+async function sendWhatsAppPayload(input: {
+  to: string;
+  payload: Record<string, unknown>;
+  routeContext?: BotRoutingContext | null;
+}) {
+  const outgoingPhoneNumberId = resolveOutgoingWhatsAppPhoneNumberId(input.routeContext);
+  const outgoingAccessToken = outgoingPhoneNumberId
+    ? resolveOutgoingWhatsAppAccessToken(outgoingPhoneNumberId)
+    : "";
+  if (!outgoingPhoneNumberId || !outgoingAccessToken) {
     console.warn("[bot] WhatsApp API credentials are not configured; message send skipped");
     return { sent: false, reason: "missing_whatsapp_config" as const };
   }
@@ -254,11 +441,11 @@ async function sendWhatsAppPayload(input: { to: string; payload: Record<string, 
 
   let response: Response;
   try {
-    response = await fetch(`https://graph.facebook.com/v21.0/${waPhoneNumberId}/messages`, {
+    response = await fetch(`https://graph.facebook.com/v21.0/${outgoingPhoneNumberId}/messages`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${waAccessToken}`
+        authorization: `Bearer ${outgoingAccessToken}`
       },
       body: JSON.stringify(input.payload)
     });
@@ -320,12 +507,28 @@ async function sendWhatsAppPayload(input: { to: string; payload: Record<string, 
     status: response.status
   });
 
+  if (input.routeContext?.accountId && input.routeContext?.salonId) {
+    await recordEnterpriseUsageEvent({
+      routeContext: input.routeContext,
+      metric: "messages_outbound",
+      context: {
+        source: "whatsapp_send",
+        messageType: kind
+      }
+    });
+  }
+
   return { sent: true as const };
 }
 
-async function sendWhatsAppMessage(input: { to: string; text: string }) {
+async function sendWhatsAppMessage(input: {
+  to: string;
+  text: string;
+  routeContext?: BotRoutingContext | null;
+}) {
   return sendWhatsAppPayload({
     to: input.to,
+    routeContext: input.routeContext,
     payload: {
       messaging_product: "whatsapp",
       to: input.to,
@@ -339,6 +542,7 @@ async function sendWhatsAppButtons(input: {
   to: string;
   bodyText: string;
   choices: WhatsAppChoice[];
+  routeContext?: BotRoutingContext | null;
 }) {
   const buttons = input.choices.slice(0, 3).map((choice) => ({
     type: "reply",
@@ -349,6 +553,7 @@ async function sendWhatsAppButtons(input: {
   }));
   return sendWhatsAppPayload({
     to: input.to,
+    routeContext: input.routeContext,
     payload: {
       messaging_product: "whatsapp",
       to: input.to,
@@ -367,6 +572,7 @@ async function sendWhatsAppList(input: {
   bodyText: string;
   buttonText: string;
   choices: WhatsAppChoice[];
+  routeContext?: BotRoutingContext | null;
 }) {
   const rows = input.choices.slice(0, 10).map((choice) => ({
     id: choice.id,
@@ -375,6 +581,7 @@ async function sendWhatsAppList(input: {
   }));
   return sendWhatsAppPayload({
     to: input.to,
+    routeContext: input.routeContext,
     payload: {
       messaging_product: "whatsapp",
       to: input.to,
@@ -461,13 +668,72 @@ function isStructuredControlMessage(value: string) {
   );
 }
 
-function isAiCanaryEnabledForTenant() {
+function getLegacyRouteContext() {
+  return resolveLegacyBotRoute({
+    tenantSlug: botTenantSlug,
+    tenantId: botTenantId
+  });
+}
+
+function getTenantQuotaKey(routeContext: BotRoutingContext | null) {
+  if (!routeContext) {
+    return "default";
+  }
+  return routeContext.tenantSlug || routeContext.tenantId || routeContext.salonId || "default";
+}
+
+function isAiCanaryEnabledForTenant(routeContext: BotRoutingContext | null = getLegacyRouteContext()) {
   if (openAiCanaryTenants.length === 0) {
     return true;
   }
-  const tenantKeys = [botTenantSlug, botTenantId].filter(Boolean);
+  const tenantKeys = [
+    routeContext?.tenantSlug,
+    routeContext?.tenantId,
+    routeContext?.salonId,
+    routeContext?.accountId
+  ].filter((value): value is string => Boolean(value));
   return tenantKeys.some((key) => openAiCanaryTenants.includes(key));
 }
+
+async function resolveWhatsAppRouteContext(item: WhatsAppInbound) {
+  const externalEndpointId = item.phoneNumberId?.trim();
+  if (!externalEndpointId) {
+    return getLegacyRouteContext();
+  }
+
+  const now = Date.now();
+  const cached = routingCache.get(externalEndpointId);
+  if (cached && cached.expiresAtMs > now) {
+    return cached.context;
+  }
+
+  const resolved = await resolveChannelRouteFromApi({
+    apiUrl,
+    internalApiSecret,
+    provider: "whatsapp",
+    externalEndpointId
+  });
+  if (resolved.ok) {
+    routingCache.set(externalEndpointId, {
+      context: resolved.context,
+      expiresAtMs: now + routingCacheTtlMs
+    });
+    return resolved.context;
+  }
+
+  if (waEnterpriseRoutingRequired) {
+    return null;
+  }
+
+  if (resolved.reason !== "not_found") {
+    console.warn("[bot] channel routing resolver fallback", {
+      reason: resolved.reason,
+      externalEndpointId
+    });
+  }
+  return getLegacyRouteContext();
+}
+
 
 async function consumeAiDailyQuota(input: { tenantKey: string; dayKey: string; limit: number }) {
   if (!redis) {
@@ -526,14 +792,20 @@ async function consumeAiDailyQuota(input: { tenantKey: string; dayKey: string; l
   };
 }
 
-async function checkInboundRateLimit(input: { phone: string; windowSeconds: number; maxMessages: number }) {
+async function checkInboundRateLimit(input: {
+  phone: string;
+  windowSeconds: number;
+  maxMessages: number;
+  routeContext?: BotRoutingContext | null;
+}) {
   if (!redis) {
     return { allowed: true, used: 0 };
   }
   if (redis.status === "wait") {
     await redis.connect();
   }
-  const key = `bot:rl:wa:${input.phone}`;
+  const scope = input.routeContext ? getRoutingScopeSegment(input.routeContext) : "legacy";
+  const key = `bot:rl:wa:${scope}:${input.phone}`;
   const used = await redis.incr(key);
   if (used === 1) {
     await redis.expire(key, input.windowSeconds);
@@ -580,6 +852,39 @@ async function fetchWithApiRetry(
   throw new Error("api_retry_failed");
 }
 
+async function recordEnterpriseUsageEvent(input: {
+  routeContext: BotRoutingContext | null;
+  metric: "messages_inbound" | "messages_outbound" | "ai_calls";
+  quantity?: number;
+  dedupeKey?: string;
+  context?: Record<string, unknown>;
+}) {
+  if (!apiUrl || !internalApiSecret || !input.routeContext) {
+    return;
+  }
+  try {
+    await fetchWithApiRetry(`${apiUrl}/api/v1/enterprise-v2/usage-events`, {
+      method: "POST",
+      headers: buildInternalHeaders(input.routeContext),
+      body: JSON.stringify({
+        accountId: input.routeContext.accountId,
+        salonId: input.routeContext.salonId,
+        metric: input.metric,
+        quantity: input.quantity ?? 1,
+        dedupeKey: input.dedupeKey,
+        context: input.context
+      })
+    });
+  } catch (error) {
+    console.warn("[bot] usage event emit failed", {
+      metric: input.metric,
+      accountId: input.routeContext.accountId,
+      salonId: input.routeContext.salonId,
+      error: toLogError(error)
+    });
+  }
+}
+
 function extractWhatsAppInbound(payload: unknown): WhatsAppInbound[] {
   const root = typeof payload === "object" && payload ? (payload as Record<string, unknown>) : {};
   const entries = Array.isArray(root.entry) ? root.entry : [];
@@ -595,6 +900,12 @@ function extractWhatsAppInbound(payload: unknown): WhatsAppInbound[] {
         typeof changeObj.value === "object" && changeObj.value
           ? (changeObj.value as Record<string, unknown>)
           : {};
+      const metadata =
+        typeof value.metadata === "object" && value.metadata
+          ? (value.metadata as Record<string, unknown>)
+          : {};
+      const phoneNumberId =
+        typeof metadata.phone_number_id === "string" ? metadata.phone_number_id : undefined;
       const contacts = Array.isArray(value.contacts) ? value.contacts : [];
       const messages = Array.isArray(value.messages) ? value.messages : [];
 
@@ -656,6 +967,8 @@ function extractWhatsAppInbound(payload: unknown): WhatsAppInbound[] {
         items.push({
           messageId,
           from: normalizeWhatsAppPhone(from),
+          phoneNumberId,
+          messageType: type || "unknown",
           text: typeof text === "string" ? text : undefined,
           replyId: typeof replyId === "string" ? replyId : undefined,
           locale: resolveLocaleFromWhatsApp(locale)
@@ -672,8 +985,10 @@ async function fetchSlotsFromApi(input: {
   date: string;
   masterId?: string;
   locale: SupportedLocale;
+  routeContext?: BotRoutingContext | null;
 }) {
-  if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
+  const routeContext = input.routeContext ?? getLegacyRouteContext();
+  if (!apiUrl || !internalApiSecret || (!routeContext?.tenantSlug && !routeContext?.tenantId)) {
     throw new Error("bot_api_config_missing");
   }
 
@@ -685,16 +1000,7 @@ async function fetchSlotsFromApi(input: {
     params.set("masterId", input.masterId);
   }
 
-  const headers: Record<string, string> = {
-    "x-internal-secret": internalApiSecret,
-    "x-csrf-token": "bot-internal"
-  };
-  if (botTenantSlug) {
-    headers["x-internal-tenant-slug"] = botTenantSlug;
-  }
-  if (botTenantId) {
-    headers["x-internal-tenant-id"] = botTenantId;
-  }
+  const headers = buildInternalHeaders(routeContext, { includeContentType: false });
 
   const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/slots?${params.toString()}`, {
     method: "GET",
@@ -717,75 +1023,97 @@ async function fetchSlotsFromApi(input: {
     .filter((item: { startAt: string; displayTime: string }) => item.startAt && item.displayTime);
 }
 
-function buildInternalHeaders() {
+function buildInternalHeaders(
+  routeContext: BotRoutingContext | null = getLegacyRouteContext(),
+  options: { includeContentType?: boolean } = {}
+) {
   const headers: Record<string, string> = {
     "x-internal-secret": internalApiSecret,
-    "x-csrf-token": "bot-internal",
-    "content-type": "application/json"
+    "x-csrf-token": "bot-internal"
   };
-  if (botTenantSlug) {
-    headers["x-internal-tenant-slug"] = botTenantSlug;
+  if (options.includeContentType !== false) {
+    headers["content-type"] = "application/json";
   }
-  if (botTenantId) {
-    headers["x-internal-tenant-id"] = botTenantId;
+  if (routeContext?.tenantSlug) {
+    headers["x-internal-tenant-slug"] = routeContext.tenantSlug;
+  }
+  if (routeContext?.tenantId) {
+    headers["x-internal-tenant-id"] = routeContext.tenantId;
+  }
+  if (routeContext?.accountId) {
+    headers["x-internal-account-id"] = routeContext.accountId;
+  }
+  if (routeContext?.salonId) {
+    headers["x-internal-salon-id"] = routeContext.salonId;
   }
   return headers;
 }
 
-function getSessionTenantSegment() {
-  if (botTenantSlug) {
-    return `slug:${botTenantSlug}`;
+function getSessionKey(phone: string, routeContext: BotRoutingContext | null = getLegacyRouteContext()) {
+  if (!routeContext) {
+    return `wa:session:unknown:${phone}`;
   }
-  if (botTenantId) {
-    return `id:${botTenantId}`;
-  }
-  return "unknown";
-}
-
-function getSessionKey(phone: string) {
-  return `wa:session:${getSessionTenantSegment()}:${phone}`;
+  return buildScopedSessionKey({
+    context: routeContext,
+    provider: "whatsapp",
+    identity: phone
+  });
 }
 
 function getInboundDedupKey(messageId: string) {
   return `wa:inbound:${messageId}`;
 }
 
-async function loadWhatsAppSession(phone: string): Promise<WhatsAppConversationSession | null> {
+async function loadWhatsAppSession(
+  phone: string,
+  routeContext: BotRoutingContext | null = getLegacyRouteContext()
+): Promise<WhatsAppConversationSession | null> {
   if (!redis) {
     return null;
   }
   if (redis.status === "wait") {
     await redis.connect();
   }
-  const raw = await redis.get(getSessionKey(phone));
+  const raw = await redis.get(getSessionKey(phone, routeContext));
   if (!raw) {
     return null;
   }
   try {
-    return JSON.parse(raw) as WhatsAppConversationSession;
+    const parsed = JSON.parse(raw) as Partial<WhatsAppConversationSession>;
+    const fallbackLocale: SupportedLocale =
+      parsed.locale === "it" || parsed.locale === "en" ? parsed.locale : "it";
+    return migrateWhatsAppSession(parsed as WhatsAppConversationSession, fallbackLocale);
   } catch {
     return null;
   }
 }
 
-async function saveWhatsAppSession(phone: string, session: WhatsAppConversationSession) {
+async function saveWhatsAppSession(
+  phone: string,
+  session: WhatsAppConversationSession,
+  routeContext: BotRoutingContext | null = getLegacyRouteContext()
+) {
   if (!redis) {
     return;
   }
   if (redis.status === "wait") {
     await redis.connect();
   }
-  await redis.set(getSessionKey(phone), JSON.stringify(session), "EX", 60 * 60);
+  const safeSession = migrateWhatsAppSession(session, session.locale);
+  await redis.set(getSessionKey(phone, routeContext), JSON.stringify(safeSession), "EX", 60 * 60);
 }
 
-async function clearWhatsAppSession(phone: string) {
+async function clearWhatsAppSession(
+  phone: string,
+  routeContext: BotRoutingContext | null = getLegacyRouteContext()
+) {
   if (!redis) {
     return;
   }
   if (redis.status === "wait") {
     await redis.connect();
   }
-  await redis.del(getSessionKey(phone));
+  await redis.del(getSessionKey(phone, routeContext));
 }
 
 async function dedupInboundMessage(messageId: string): Promise<boolean> {
@@ -799,13 +1127,16 @@ async function dedupInboundMessage(messageId: string): Promise<boolean> {
   return created === "OK";
 }
 
-async function fetchServicesForConversation(locale: SupportedLocale) {
-  if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
+async function fetchServicesForConversation(
+  locale: SupportedLocale,
+  routeContext: BotRoutingContext | null = getLegacyRouteContext()
+) {
+  if (!apiUrl || !internalApiSecret || (!routeContext?.tenantSlug && !routeContext?.tenantId)) {
     return [] as Array<{ id: string; displayName: string; durationMinutes?: number }>;
   }
   const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/services?locale=${locale}`, {
     method: "GET",
-    headers: buildInternalHeaders()
+    headers: buildInternalHeaders(routeContext, { includeContentType: false })
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || !Array.isArray(payload?.data?.items)) {
@@ -819,8 +1150,12 @@ async function fetchServicesForConversation(locale: SupportedLocale) {
   }));
 }
 
-async function fetchMastersForConversation(locale: SupportedLocale, serviceId?: string) {
-  if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
+async function fetchMastersForConversation(
+  locale: SupportedLocale,
+  serviceId?: string,
+  routeContext: BotRoutingContext | null = getLegacyRouteContext()
+) {
+  if (!apiUrl || !internalApiSecret || (!routeContext?.tenantSlug && !routeContext?.tenantId)) {
     return [] as Array<{ id: string; displayName: string }>;
   }
   const params = new URLSearchParams({ locale });
@@ -829,7 +1164,7 @@ async function fetchMastersForConversation(locale: SupportedLocale, serviceId?: 
   }
   const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/masters?${params.toString()}`, {
     method: "GET",
-    headers: buildInternalHeaders()
+    headers: buildInternalHeaders(routeContext, { includeContentType: false })
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || !Array.isArray(payload?.data?.items)) {
@@ -841,13 +1176,18 @@ async function fetchMastersForConversation(locale: SupportedLocale, serviceId?: 
   }));
 }
 
-async function getTenantTimezoneForConversation() {
+async function getTenantTimezoneForConversation(
+  routeContext: BotRoutingContext | null = getLegacyRouteContext()
+) {
   try {
-    if (botTenantSlug && apiUrl && internalApiSecret) {
-      const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/tenants/${botTenantSlug}`, {
+    if (routeContext?.tenantSlug && apiUrl && internalApiSecret) {
+      const response = await fetchWithApiRetry(
+        `${apiUrl}/api/v1/public/tenants/${routeContext.tenantSlug}`,
+        {
         method: "GET",
-        headers: buildInternalHeaders()
-      });
+          headers: buildInternalHeaders(routeContext, { includeContentType: false })
+        }
+      );
       const payload = await response.json().catch(() => null);
       const timezone = payload?.data?.timezone;
       if (response.ok && typeof timezone === "string" && timezone) {
@@ -862,13 +1202,16 @@ async function getTenantTimezoneForConversation() {
   return "Europe/Rome";
 }
 
-async function getTenantBotConfig() {
+async function getTenantBotConfig(routeContext: BotRoutingContext | null = getLegacyRouteContext()) {
   try {
-    if (botTenantSlug && apiUrl && internalApiSecret) {
-      const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/tenants/${botTenantSlug}`, {
+    if (routeContext?.tenantSlug && apiUrl && internalApiSecret) {
+      const response = await fetchWithApiRetry(
+        `${apiUrl}/api/v1/public/tenants/${routeContext.tenantSlug}`,
+        {
         method: "GET",
-        headers: buildInternalHeaders()
-      });
+          headers: buildInternalHeaders(routeContext, { includeContentType: false })
+        }
+      );
       const payload = await response.json().catch(() => null);
       if (response.ok && payload?.data) {
         return {
@@ -899,7 +1242,8 @@ async function getTenantBotConfig() {
           adminNotificationWhatsappE164:
             typeof payload.data.botConfig?.adminNotificationWhatsappE164 === "string"
               ? payload.data.botConfig.adminNotificationWhatsappE164
-              : null
+              : null,
+          faqContent: normalizeTenantFaqContent(payload.data.botConfig?.faqContent)
         };
       }
     }
@@ -917,16 +1261,44 @@ async function getTenantBotConfig() {
     openaiModel: openAiModel,
     promptVariant: null as string | null,
     humanHandoffEnabled: true,
-    adminNotificationWhatsappE164: null as string | null
+    adminNotificationWhatsappE164: null as string | null,
+    faqContent: normalizeTenantFaqContent(undefined)
   };
+}
+
+function normalizeTenantFaqContent(value: unknown) {
+  const root = typeof value === "object" && value ? (value as Record<string, unknown>) : {};
+  return {
+    it: normalizeTenantFaqLocaleBlock(root.it),
+    en: normalizeTenantFaqLocaleBlock(root.en)
+  };
+}
+
+function normalizeTenantFaqLocaleBlock(value: unknown) {
+  const source = typeof value === "object" && value ? (value as Record<string, unknown>) : {};
+  return {
+    priceInfo: normalizeTenantFaqField(source.priceInfo),
+    addressInfo: normalizeTenantFaqField(source.addressInfo),
+    parkingInfo: normalizeTenantFaqField(source.parkingInfo),
+    workingHoursInfo: normalizeTenantFaqField(source.workingHoursInfo)
+  };
+}
+
+function normalizeTenantFaqField(value: unknown) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim().slice(0, 1000);
 }
 
 async function notifyAdminWhatsAppHandoff(input: {
   phone: string;
   summary: string;
   locale: SupportedLocale;
+  routeContext?: BotRoutingContext | null;
 }) {
-  const config = await getTenantBotConfig();
+  const routeContext = input.routeContext ?? getLegacyRouteContext();
+  const config = await getTenantBotConfig(routeContext);
   if (!config.humanHandoffEnabled || !config.adminNotificationWhatsappE164) {
     return false;
   }
@@ -938,18 +1310,22 @@ async function notifyAdminWhatsAppHandoff(input: {
 
   const result = await sendWhatsAppMessage({
     to: config.adminNotificationWhatsappE164,
-    text: text.slice(0, 1024)
+    text: text.slice(0, 1024),
+    routeContext
   });
   return result.sent;
 }
 
-async function fetchServiceDuration(serviceId: string): Promise<number | null> {
-  if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
+async function fetchServiceDuration(
+  serviceId: string,
+  routeContext: BotRoutingContext | null = getLegacyRouteContext()
+): Promise<number | null> {
+  if (!apiUrl || !internalApiSecret || (!routeContext?.tenantSlug && !routeContext?.tenantId)) {
     return null;
   }
   const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/services?locale=en`, {
     method: "GET",
-    headers: buildInternalHeaders()
+    headers: buildInternalHeaders(routeContext, { includeContentType: false })
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || !Array.isArray(payload?.data?.items)) {
@@ -972,12 +1348,14 @@ async function createBookingFromBot(input: {
   chatId?: number;
   masterId?: string;
   clientName?: string;
+  routeContext?: BotRoutingContext | null;
 }) {
-  if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
+  const routeContext = input.routeContext ?? getLegacyRouteContext();
+  if (!apiUrl || !internalApiSecret || (!routeContext?.tenantSlug && !routeContext?.tenantId)) {
     throw new Error("bot_api_config_missing");
   }
 
-  const durationMinutes = await fetchServiceDuration(input.serviceId);
+  const durationMinutes = await fetchServiceDuration(input.serviceId, routeContext);
   if (!durationMinutes) {
     throw new Error("service_not_found_or_duration_missing");
   }
@@ -992,7 +1370,7 @@ async function createBookingFromBot(input: {
   const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/bookings`, {
     method: "POST",
     headers: {
-      ...buildInternalHeaders(),
+      ...buildInternalHeaders(routeContext),
       "idempotency-key": idempotencyKey
     },
     body: JSON.stringify({
@@ -1011,21 +1389,26 @@ async function createBookingFromBot(input: {
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(payload?.error?.message ?? "booking_create_failed");
+    throw new Error(buildBotApiErrorCode("booking_create_failed", payload));
   }
 
   return payload?.data?.bookingId ? String(payload.data.bookingId) : "ok";
 }
 
-async function cancelBookingFromBot(input: { bookingId: string; phone: string }) {
-  if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
+async function cancelBookingFromBot(input: {
+  bookingId: string;
+  phone: string;
+  routeContext?: BotRoutingContext | null;
+}) {
+  const routeContext = input.routeContext ?? getLegacyRouteContext();
+  if (!apiUrl || !internalApiSecret || (!routeContext?.tenantSlug && !routeContext?.tenantId)) {
     throw new Error("bot_api_config_missing");
   }
 
   const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/bookings/${input.bookingId}/cancel`, {
     method: "POST",
     headers: {
-      ...buildInternalHeaders(),
+      ...buildInternalHeaders(routeContext),
       "idempotency-key": randomUUID()
     },
     body: JSON.stringify({
@@ -1035,7 +1418,7 @@ async function cancelBookingFromBot(input: { bookingId: string; phone: string })
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(payload?.error?.message ?? "booking_cancel_failed");
+    throw new Error(buildBotApiErrorCode("booking_cancel_failed", payload));
   }
 
   return payload?.data?.id ? String(payload.data.id) : input.bookingId;
@@ -1048,12 +1431,14 @@ async function rescheduleBookingFromBot(input: {
   masterId?: string;
   startAtIso: string;
   locale: SupportedLocale;
+  routeContext?: BotRoutingContext | null;
 }) {
-  if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
+  const routeContext = input.routeContext ?? getLegacyRouteContext();
+  if (!apiUrl || !internalApiSecret || (!routeContext?.tenantSlug && !routeContext?.tenantId)) {
     throw new Error("bot_api_config_missing");
   }
 
-  const durationMinutes = await fetchServiceDuration(input.serviceId);
+  const durationMinutes = await fetchServiceDuration(input.serviceId, routeContext);
   if (!durationMinutes) {
     throw new Error("service_not_found_or_duration_missing");
   }
@@ -1066,7 +1451,7 @@ async function rescheduleBookingFromBot(input: {
   const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/bookings/${input.bookingId}/reschedule`, {
     method: "POST",
     headers: {
-      ...buildInternalHeaders(),
+      ...buildInternalHeaders(routeContext),
       "idempotency-key": randomUUID()
     },
     body: JSON.stringify({
@@ -1081,25 +1466,46 @@ async function rescheduleBookingFromBot(input: {
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(payload?.error?.message ?? "booking_reschedule_failed");
+    throw new Error(buildBotApiErrorCode("booking_reschedule_failed", payload));
   }
 
   return payload?.data?.newBookingId ? String(payload.data.newBookingId) : "ok";
+}
+
+function buildBotApiErrorCode(fallback: string, payload: unknown): string {
+  const message =
+    typeof (payload as { error?: { message?: unknown } } | null)?.error?.message === "string"
+      ? ((payload as { error: { message: string } }).error.message)
+      : undefined;
+  const details = (payload as { error?: { details?: unknown } } | null)?.error?.details;
+  const reason =
+    typeof (details as { reason?: unknown } | null)?.reason === "string"
+      ? ((details as { reason: string }).reason)
+      : undefined;
+  if (reason) {
+    return `${fallback}:${reason}`;
+  }
+  if (message) {
+    return `${fallback}:${message.toLowerCase().replace(/\s+/g, "_")}`;
+  }
+  return fallback;
 }
 
 async function applyAdminBookingActionFromBot(input: {
   bookingId: string;
   adminPhoneE164: string;
   action: "confirm" | "cancel";
+  routeContext?: BotRoutingContext | null;
 }) {
-  if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
+  const routeContext = input.routeContext ?? getLegacyRouteContext();
+  if (!apiUrl || !internalApiSecret || (!routeContext?.tenantSlug && !routeContext?.tenantId)) {
     throw new Error("bot_api_config_missing");
   }
 
   const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/bookings/${input.bookingId}/admin-action`, {
     method: "POST",
     headers: {
-      ...buildInternalHeaders(),
+      ...buildInternalHeaders(routeContext),
       "idempotency-key": randomUUID()
     },
     body: JSON.stringify({
@@ -1118,21 +1524,28 @@ async function applyAdminBookingActionFromBot(input: {
   };
 }
 
-async function listBookingsByPhoneFromBot(input: { phone: string; limit?: number }): Promise<
+async function listBookingsByPhoneFromBot(input: {
+  phone: string;
+  limit?: number;
+  routeContext?: BotRoutingContext | null;
+}): Promise<
   Array<{
     id: string;
     startAt: string;
     status: string;
+    clientName?: string;
     serviceId: string;
     masterId?: string;
     clientLocale?: SupportedLocale;
   }>
 > {
-  if (!apiUrl || !internalApiSecret || (!botTenantSlug && !botTenantId)) {
+  const routeContext = input.routeContext ?? getLegacyRouteContext();
+  if (!apiUrl || !internalApiSecret || (!routeContext?.tenantSlug && !routeContext?.tenantId)) {
     return [] as Array<{
       id: string;
       startAt: string;
       status: string;
+      clientName?: string;
       serviceId: string;
       masterId?: string;
       clientLocale?: SupportedLocale;
@@ -1146,7 +1559,7 @@ async function listBookingsByPhoneFromBot(input: { phone: string; limit?: number
   }
   const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/bookings?${params.toString()}`, {
     method: "GET",
-    headers: buildInternalHeaders()
+    headers: buildInternalHeaders(routeContext, { includeContentType: false })
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || !Array.isArray(payload?.data?.items)) {
@@ -1154,6 +1567,7 @@ async function listBookingsByPhoneFromBot(input: { phone: string; limit?: number
       id: string;
       startAt: string;
       status: string;
+      clientName?: string;
       serviceId: string;
       masterId?: string;
       clientLocale?: SupportedLocale;
@@ -1164,6 +1578,7 @@ async function listBookingsByPhoneFromBot(input: { phone: string; limit?: number
       id: String(item.id ?? ""),
       startAt: String(item.startAt ?? ""),
       status: String(item.status ?? ""),
+      clientName: typeof item.clientName === "string" ? item.clientName : undefined,
       serviceId: String(item.serviceId ?? ""),
       masterId: item.masterId ? String(item.masterId) : undefined,
       clientLocale:
@@ -1239,8 +1654,10 @@ async function sendRescheduleDateChoices(input: {
   locale: SupportedLocale;
   serviceId: string;
   masterId?: string;
+  routeContext?: BotRoutingContext | null;
 }) {
-  const timezone = await getTenantTimezoneForConversation();
+  const routeContext = input.routeContext ?? getLegacyRouteContext();
+  const timezone = await getTenantTimezoneForConversation(routeContext);
   const dates = getNextDays(timezone, 10);
   const choices: Array<{ id: string; title: string; description?: string }> = [];
   for (const date of dates) {
@@ -1248,7 +1665,8 @@ async function sendRescheduleDateChoices(input: {
       serviceId: input.serviceId,
       masterId: input.masterId,
       date,
-      locale: input.locale
+      locale: input.locale,
+      routeContext
     });
     if (slots.length === 0) {
       continue;
@@ -1266,7 +1684,8 @@ async function sendRescheduleDateChoices(input: {
       text:
         input.locale === "it"
           ? "Non trovo slot disponibili per il trasferimento in questo momento."
-          : "I cannot find available slots for rescheduling right now."
+          : "I cannot find available slots for rescheduling right now.",
+      routeContext
     });
     return;
   }
@@ -1281,15 +1700,138 @@ async function sendRescheduleDateChoices(input: {
       ...choices.slice(0, 8),
       { id: "flow:back", title: input.locale === "it" ? "Indietro" : "Back" },
       { id: "flow:restart", title: input.locale === "it" ? "Inizio" : "Start over" }
-    ]
+    ],
+    routeContext
   });
+}
+
+async function sendBookingConflictRecoveryChoices(input: {
+  to: string;
+  locale: SupportedLocale;
+  serviceId: string;
+  masterId?: string;
+  selectedDate: string;
+  routeContext?: BotRoutingContext | null;
+}) {
+  const routeContext = input.routeContext ?? getLegacyRouteContext();
+  const emptySlots: Array<{ startAt: string; displayTime: string }> = [];
+  const sameDateSlots = await fetchSlotsFromApi({
+    serviceId: input.serviceId,
+    masterId: input.masterId,
+    date: input.selectedDate,
+    locale: input.locale,
+    routeContext
+  }).catch(() => emptySlots);
+
+  if (sameDateSlots.length > 0) {
+    const choices = sameDateSlots.slice(0, 8).map((slot: { startAt: string; displayTime: string }) => ({
+      id: `slot:${encodeURIComponent(slot.startAt)}`,
+      title: slot.displayTime
+    }));
+    await sendWhatsAppList({
+      to: input.to,
+      bodyText:
+        input.locale === "it"
+          ? "Questo orario non e piu disponibile. Scegli un altro orario."
+          : "This slot is no longer available. Please choose another time.",
+      buttonText: input.locale === "it" ? "Orari" : "Times",
+      choices: [
+        ...choices,
+        { id: "flow:back", title: input.locale === "it" ? "Indietro" : "Back" },
+        { id: "flow:restart", title: input.locale === "it" ? "Inizio" : "Start over" }
+      ].slice(0, 10),
+      routeContext
+    });
+    return;
+  }
+
+  const timezone = await getTenantTimezoneForConversation(routeContext);
+  const dates = getNextDays(timezone, 10).filter((date) => date !== input.selectedDate);
+  const dateChoices: Array<{ id: string; title: string; description?: string }> = [];
+  for (const date of dates) {
+    const slots = await fetchSlotsFromApi({
+      serviceId: input.serviceId,
+      masterId: input.masterId,
+      date,
+      locale: input.locale,
+      routeContext
+    }).catch(() => []);
+    if (slots.length === 0) {
+      continue;
+    }
+    dateChoices.push({
+      id: `date:${date}`,
+      title: formatDateChoiceLabel(date, input.locale, timezone),
+      description:
+        input.locale === "it" ? `${slots.length} slot disponibili` : `${slots.length} slots available`
+    });
+    if (dateChoices.length >= 8) {
+      break;
+    }
+  }
+
+  if (dateChoices.length > 0) {
+    await sendWhatsAppList({
+      to: input.to,
+      bodyText:
+        input.locale === "it"
+          ? "Non ci sono altri orari in questa data. Scegli una nuova data."
+          : "No more times are available on this date. Please choose a new date.",
+      buttonText: input.locale === "it" ? "Date" : "Dates",
+      choices: [
+        ...dateChoices,
+        { id: "flow:back", title: input.locale === "it" ? "Indietro" : "Back" },
+        { id: "flow:restart", title: input.locale === "it" ? "Inizio" : "Start over" }
+      ].slice(0, 10),
+      routeContext
+    });
+    return;
+  }
+
+  await sendWhatsAppMessage({
+    to: input.to,
+    text:
+      input.locale === "it"
+        ? "Al momento non trovo slot alternativi. Riprova tra poco."
+        : "I cannot find alternative slots right now. Please try again shortly.",
+    routeContext
+  });
+}
+
+function isSlotConflictErrorMessage(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const text = error.message.toLowerCase();
+  return (
+    text.includes("booking_create_failed:conflict") ||
+    text.includes("booking_reschedule_failed:conflict") ||
+    text.includes("booking_status_changed_concurrently")
+  );
+}
+
+function isBackendTemporarilyUnavailableError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const text = error.message.toLowerCase();
+  return (
+    text.includes("api_retryable_status:") ||
+    text.includes("api_retry_failed") ||
+    text.includes("service_unavailable") ||
+    text.includes("gateway_timeout") ||
+    text.includes("timeout") ||
+    text.includes("internal_error")
+  );
 }
 
 async function handleWhatsAppCtaReply(input: {
   from: string;
   replyId: string;
   locale: SupportedLocale;
+  routeContext?: BotRoutingContext | null;
 }) {
+  const routeContext = input.routeContext ?? getLegacyRouteContext();
   const token = parseCtaToken(input.replyId);
   if (!token || !waActionTokenSecret) {
     return false;
@@ -1302,7 +1844,8 @@ async function handleWhatsAppCtaReply(input: {
       text:
         input.locale === "it"
           ? "Azione non valida o scaduta. Riprova dal menu."
-          : "Action is invalid or expired. Please retry from the menu."
+          : "Action is invalid or expired. Please retry from the menu.",
+      routeContext
     });
     console.warn("[bot] cta action rejected", {
       from: maskPhone(input.from),
@@ -1318,13 +1861,14 @@ async function handleWhatsAppCtaReply(input: {
   console.info("[bot] cta action received", {
     from: maskPhone(input.from),
     action,
-    bookingId
+    bookingId: maskIdentifier(bookingId)
   });
 
   if (action.startsWith("client_") && ownerPhone !== input.from) {
     await sendWhatsAppMessage({
       to: input.from,
-      text: input.locale === "it" ? "Azione non autorizzata." : "Unauthorized action."
+      text: input.locale === "it" ? "Azione non autorizzata." : "Unauthorized action.",
+      routeContext
     });
     return true;
   }
@@ -1332,7 +1876,8 @@ async function handleWhatsAppCtaReply(input: {
   if (action.startsWith("admin_") && ownerPhone !== input.from) {
     await sendWhatsAppMessage({
       to: input.from,
-      text: input.locale === "it" ? "Azione admin non autorizzata." : "Unauthorized admin action."
+      text: input.locale === "it" ? "Azione admin non autorizzata." : "Unauthorized admin action.",
+      routeContext
     });
     return true;
   }
@@ -1340,7 +1885,8 @@ async function handleWhatsAppCtaReply(input: {
   if (action.startsWith("flow_") && ownerPhone !== input.from) {
     await sendWhatsAppMessage({
       to: input.from,
-      text: input.locale === "it" ? "Azione non autorizzata." : "Unauthorized action."
+      text: input.locale === "it" ? "Azione non autorizzata." : "Unauthorized action.",
+      routeContext
     });
     return true;
   }
@@ -1351,7 +1897,8 @@ async function handleWhatsAppCtaReply(input: {
       text:
         input.locale === "it"
           ? "Perfetto, confermato. Ti aspettiamo."
-          : "Great, confirmed. We look forward to seeing you."
+          : "Great, confirmed. We look forward to seeing you.",
+      routeContext
     });
     return true;
   }
@@ -1369,7 +1916,8 @@ async function handleWhatsAppCtaReply(input: {
         text:
           input.locale === "it"
             ? "Impossibile confermare l'annullamento ora."
-            : "Cannot confirm cancellation right now."
+            : "Cannot confirm cancellation right now.",
+        routeContext
       });
       return true;
     }
@@ -1382,7 +1930,8 @@ async function handleWhatsAppCtaReply(input: {
       choices: [
         { id: `cta:${confirmToken}`, title: input.locale === "it" ? "Si, annulla" : "Yes, cancel" },
         { id: "flow:restart", title: input.locale === "it" ? "No" : "No" }
-      ]
+      ],
+      routeContext
     });
     return true;
   }
@@ -1391,11 +1940,13 @@ async function handleWhatsAppCtaReply(input: {
     try {
       await cancelBookingFromBot({
         bookingId,
-        phone: ownerPhone
+        phone: ownerPhone,
+        routeContext
       });
       await sendWhatsAppMessage({
         to: input.from,
-        text: input.locale === "it" ? "Prenotazione annullata." : "Booking cancelled."
+        text: input.locale === "it" ? "Prenotazione annullata." : "Booking cancelled.",
+        routeContext
       });
     } catch {
       await sendWhatsAppMessage({
@@ -1403,7 +1954,8 @@ async function handleWhatsAppCtaReply(input: {
         text:
           input.locale === "it"
             ? "Impossibile annullare la prenotazione. Verifica lo stato."
-            : "Unable to cancel the booking. Please verify its current status."
+            : "Unable to cancel the booking. Please verify its current status.",
+        routeContext
       });
     }
     return true;
@@ -1412,7 +1964,8 @@ async function handleWhatsAppCtaReply(input: {
   if (action === "client_reschedule") {
     const bookings = await listBookingsByPhoneFromBot({
       phone: ownerPhone,
-      limit: 20
+      limit: 20,
+      routeContext
     });
     const booking = bookings.find((item) => item.id === bookingId && (item.status === "pending" || item.status === "confirmed"));
     if (!booking) {
@@ -1421,7 +1974,8 @@ async function handleWhatsAppCtaReply(input: {
         text:
           input.locale === "it"
             ? "Non trovo una prenotazione attiva da spostare."
-            : "I cannot find an active booking to reschedule."
+            : "I cannot find an active booking to reschedule.",
+        routeContext
       });
       return true;
     }
@@ -1433,18 +1987,19 @@ async function handleWhatsAppCtaReply(input: {
     session.serviceId = booking.serviceId;
     session.masterId = booking.masterId;
     session.lastUserMessageAt = new Date().toISOString();
-    await saveWhatsAppSession(input.from, session);
+    await saveWhatsAppSession(input.from, session, routeContext);
     await sendRescheduleDateChoices({
       to: input.from,
       locale: input.locale,
       serviceId: booking.serviceId,
-      masterId: booking.masterId
+      masterId: booking.masterId,
+      routeContext
     });
     return true;
   }
 
   if (action === "flow_confirm_booking") {
-    const session = await loadWhatsAppSession(input.from);
+    const session = await loadWhatsAppSession(input.from, routeContext);
     if (
       !session ||
       session.state !== "confirm" ||
@@ -1457,9 +2012,10 @@ async function handleWhatsAppCtaReply(input: {
         text:
           input.locale === "it"
             ? "Sessione scaduta. Riprova dal menu."
-            : "Session expired. Please retry from the menu."
+            : "Session expired. Please retry from the menu.",
+        routeContext
       });
-      await clearWhatsAppSession(input.from);
+      await clearWhatsAppSession(input.from, routeContext);
       return true;
     }
 
@@ -1471,14 +2027,16 @@ async function handleWhatsAppCtaReply(input: {
           serviceId: session.serviceId,
           masterId: session.masterId,
           startAtIso: session.slotStartAt,
-          locale: session.locale
+          locale: session.locale,
+          routeContext
         });
         await sendWhatsAppMessage({
           to: input.from,
           text:
             session.locale === "it"
               ? "Prenotazione spostata con successo."
-              : "Booking rescheduled successfully."
+              : "Booking rescheduled successfully.",
+          routeContext
         });
       } else {
         await createBookingFromBot({
@@ -1488,31 +2046,62 @@ async function handleWhatsAppCtaReply(input: {
           locale: session.locale,
           source: "whatsapp",
           masterId: session.masterId,
-          clientName: session.clientName ?? "WhatsApp Client"
+          clientName: session.clientName ?? "WhatsApp Client",
+          routeContext
         });
         await sendWhatsAppMessage({
           to: input.from,
           text:
             session.locale === "it"
               ? "Richiesta prenotazione ricevuta. Attendi conferma dall'amministratore."
-              : "Booking request received. Please wait for admin confirmation."
+              : "Booking request received. Please wait for admin confirmation.",
+          routeContext
         });
       }
-    } catch {
+    } catch (error) {
+      if (isSlotConflictErrorMessage(error)) {
+        const selectedDate = session.date ?? session.slotStartAt?.slice(0, 10) ?? "";
+        session.state = "choose_slot";
+        session.slotPage = 0;
+        session.slotStartAt = undefined;
+        session.slotDisplayTime = undefined;
+        await saveWhatsAppSession(input.from, session, routeContext);
+        await sendBookingConflictRecoveryChoices({
+          to: input.from,
+          locale: session.locale,
+          serviceId: session.serviceId,
+          masterId: session.masterId,
+          selectedDate,
+          routeContext
+        });
+        return true;
+      }
+      if (isBackendTemporarilyUnavailableError(error)) {
+        await sendWhatsAppMessage({
+          to: input.from,
+          text:
+            input.locale === "it"
+              ? "Ho una difficolta tecnica temporanea. Riprova tra qualche minuto."
+              : "I have a temporary technical issue. Please try again in a few minutes.",
+          routeContext
+        });
+        return true;
+      }
       await sendWhatsAppMessage({
         to: input.from,
         text:
           input.locale === "it"
             ? "Non riesco a completare l'operazione ora. Riprova dal menu."
-            : "Unable to complete the action now. Please retry from the menu."
+            : "Unable to complete the action now. Please retry from the menu.",
+        routeContext
       });
     }
-    await clearWhatsAppSession(input.from);
+    await clearWhatsAppSession(input.from, routeContext);
     return true;
   }
 
   if (action === "flow_confirm_cancel") {
-    const session = await loadWhatsAppSession(input.from);
+    const session = await loadWhatsAppSession(input.from, routeContext);
     const bookingIdToCancel = session?.bookingIdInContext ?? bookingId;
     if (
       !bookingIdToCancel ||
@@ -1523,19 +2112,22 @@ async function handleWhatsAppCtaReply(input: {
         text:
           input.locale === "it"
             ? "Sessione scaduta. Riprova dal menu."
-            : "Session expired. Please retry from the menu."
+            : "Session expired. Please retry from the menu.",
+        routeContext
       });
-      await clearWhatsAppSession(input.from);
+      await clearWhatsAppSession(input.from, routeContext);
       return true;
     }
     try {
       await cancelBookingFromBot({
         bookingId: bookingIdToCancel,
-        phone: ownerPhone
+        phone: ownerPhone,
+        routeContext
       });
       await sendWhatsAppMessage({
         to: input.from,
-        text: input.locale === "it" ? "Prenotazione annullata." : "Booking cancelled."
+        text: input.locale === "it" ? "Prenotazione annullata." : "Booking cancelled.",
+        routeContext
       });
     } catch {
       await sendWhatsAppMessage({
@@ -1543,10 +2135,11 @@ async function handleWhatsAppCtaReply(input: {
         text:
           input.locale === "it"
             ? "Impossibile annullare la prenotazione. Verifica lo stato."
-            : "Unable to cancel the booking. Please verify its current status."
+            : "Unable to cancel the booking. Please verify its current status.",
+        routeContext
       });
     }
-    await clearWhatsAppSession(input.from);
+    await clearWhatsAppSession(input.from, routeContext);
     return true;
   }
 
@@ -1555,7 +2148,8 @@ async function handleWhatsAppCtaReply(input: {
       const result = await applyAdminBookingActionFromBot({
         bookingId,
         adminPhoneE164: ownerPhone,
-        action: action === "admin_confirm" ? "confirm" : "cancel"
+        action: action === "admin_confirm" ? "confirm" : "cancel",
+        routeContext
       });
       await sendWhatsAppMessage({
         to: input.from,
@@ -1564,12 +2158,14 @@ async function handleWhatsAppCtaReply(input: {
             ? "Booking confirmed."
             : result.status === "cancelled"
               ? "Booking cancelled."
-              : "Action applied."
+              : "Action applied.",
+        routeContext
       });
     } catch {
       await sendWhatsAppMessage({
         to: input.from,
-        text: "Unable to apply admin action."
+        text: "Unable to apply admin action.",
+        routeContext
       });
     }
     return true;
@@ -1578,7 +2174,11 @@ async function handleWhatsAppCtaReply(input: {
   return false;
 }
 
-async function buildStaticReply(text: string, locale: SupportedLocale) {
+async function buildStaticReply(
+  text: string,
+  locale: SupportedLocale,
+  routeContext: BotRoutingContext | null = getLegacyRouteContext()
+) {
   const normalized = text.trim().toLowerCase();
   if (normalized === "/start" || normalized === "/help") {
     return [
@@ -1607,7 +2207,7 @@ async function buildStaticReply(text: string, locale: SupportedLocale) {
     }
 
     try {
-      const slots = await fetchSlotsFromApi({ serviceId, date, masterId, locale });
+      const slots = await fetchSlotsFromApi({ serviceId, date, masterId, locale, routeContext });
       if (slots.length === 0) {
         return locale === "it"
           ? "Nessuna disponibilita trovata."
@@ -1693,7 +2293,9 @@ async function processIncomingText(input: {
   source: "telegram" | "whatsapp";
   chatId?: number;
   senderPhoneE164?: string;
+  routeContext?: BotRoutingContext | null;
 }) {
+  const routeContext = input.routeContext ?? getLegacyRouteContext();
   const normalized = input.text.trim().toLowerCase();
 
   if (normalized.startsWith("/book ")) {
@@ -1721,7 +2323,8 @@ async function processIncomingText(input: {
         source: input.source,
         chatId: input.chatId,
         masterId,
-        clientName: name || undefined
+        clientName: name || undefined,
+        routeContext
       });
       return input.locale === "it"
         ? "Richiesta prenotazione ricevuta. Attendi conferma dall'amministratore."
@@ -1745,7 +2348,7 @@ async function processIncomingText(input: {
     }
 
     try {
-      await cancelBookingFromBot({ bookingId, phone });
+      await cancelBookingFromBot({ bookingId, phone, routeContext });
       return input.locale === "it"
         ? "Prenotazione annullata."
         : "Booking cancelled.";
@@ -1756,7 +2359,7 @@ async function processIncomingText(input: {
     }
   }
 
-  const staticReply = await buildStaticReply(input.text, input.locale);
+  const staticReply = await buildStaticReply(input.text, input.locale, routeContext);
   return staticReply ?? (await generateAiReply({ text: input.text, locale: input.locale }));
 }
 
@@ -1790,7 +2393,14 @@ async function checkRedisHealth() {
 }
 
 app.get("/health", (c) => {
-  return c.json({ data: { status: "ok", service: "bot" } });
+  return c.json({
+    data: {
+      status: "ok",
+      service: "bot",
+      build: buildInfo,
+      stats: runtimeStats
+    }
+  });
 });
 
 app.get("/ready", async (c) => {
@@ -1913,6 +2523,7 @@ app.post("/webhooks/whatsapp", async (c) => {
     console.info("[bot] whatsapp webhook accepted", { inboundCount: inbound.length });
 
     for (const item of inbound) {
+      let routeContext: BotRoutingContext | null = null;
       try {
         const notDuplicate = await dedupInboundMessage(item.messageId);
         if (!notDuplicate) {
@@ -1922,8 +2533,34 @@ app.post("/webhooks/whatsapp", async (c) => {
           });
           continue;
         }
+        bumpRuntimeCounter("inboundMessages");
 
-      const existingSession = await loadWhatsAppSession(item.from);
+      routeContext = await resolveWhatsAppRouteContext(item);
+      if (!routeContext || (!routeContext.tenantSlug && !routeContext.tenantId)) {
+        console.warn("[bot] whatsapp routing context missing", {
+          messageId: item.messageId,
+          from: maskPhone(item.from),
+          phoneNumberId: item.phoneNumberId ?? null
+        });
+        await emitOpsAlert({
+          event: "whatsapp_routing_context_missing",
+          severity: "critical",
+          context: {
+            messageId: item.messageId,
+            from: maskPhone(item.from),
+            phoneNumberId: item.phoneNumberId ?? null
+          }
+        });
+        continue;
+      }
+
+      const existingSession = await loadWhatsAppSession(item.from, routeContext);
+      await recordEnterpriseUsageEvent({
+        routeContext,
+        metric: "messages_inbound",
+        dedupeKey: `${item.messageId}:inbound`,
+        context: { source: "whatsapp_webhook" }
+      });
       const localeResolution = resolveConversationLocale({
         text: item.text,
         rawInboundLocale: item.locale,
@@ -1935,16 +2572,50 @@ app.post("/webhooks/whatsapp", async (c) => {
       console.info("[bot] whatsapp inbound message", {
         messageId: item.messageId,
         from: maskPhone(item.from),
+        messageType: item.messageType,
         hasText: Boolean(item.text),
         hasReplyId: Boolean(item.replyId),
         locale: effectiveLocale,
         localeReason: localeResolution.localeReason
       });
 
+        if (!item.text && !item.replyId && item.messageType !== "text") {
+        await sendWhatsAppButtons({
+          to: item.from,
+          bodyText:
+            effectiveLocale === "it"
+              ? "Al momento posso gestire messaggi testuali. Scegli un'azione:"
+              : "I can process text messages right now. Choose an action:",
+          choices: [
+            {
+              id: "intent:new",
+              title: effectiveLocale === "it" ? "Nuova prenotazione" : "New booking"
+            },
+            {
+              id: "intent:cancel",
+              title: effectiveLocale === "it" ? "Annulla prenotazione" : "Cancel booking"
+            },
+            {
+              id: "flow:restart",
+              title: effectiveLocale === "it" ? "Inizio" : "Start over"
+            }
+          ],
+          routeContext
+        });
+        console.info("[bot] non-text inbound handled", {
+          messageId: item.messageId,
+          from: maskPhone(item.from),
+          messageType: item.messageType
+        });
+        bumpRuntimeCounter("nonTextHandled");
+        continue;
+      }
+
       const rateLimit = await checkInboundRateLimit({
         phone: item.from,
         windowSeconds: rateLimitWindowSeconds,
-        maxMessages: rateLimitMaxMessages
+        maxMessages: rateLimitMaxMessages,
+        routeContext
       });
       if (!rateLimit.allowed) {
         await sendWhatsAppMessage({
@@ -1952,7 +2623,8 @@ app.post("/webhooks/whatsapp", async (c) => {
           text:
             effectiveLocale === "it"
               ? "Hai inviato troppi messaggi in poco tempo. Riprova tra circa un minuto."
-              : "You sent too many messages in a short time. Please try again in about a minute."
+              : "You sent too many messages in a short time. Please try again in about a minute.",
+          routeContext
         });
         console.warn("[bot] whatsapp rate limit exceeded", {
           messageId: item.messageId,
@@ -1981,9 +2653,11 @@ app.post("/webhooks/whatsapp", async (c) => {
         const handledCta = await handleWhatsAppCtaReply({
           from: item.from,
           replyId: item.replyId,
-          locale: effectiveLocale
+          locale: effectiveLocale,
+          routeContext
         });
         if (handledCta) {
+          bumpRuntimeCounter("ctaHandled");
           continue;
         }
       }
@@ -1998,11 +2672,12 @@ app.post("/webhooks/whatsapp", async (c) => {
           idleResetMinutes: sessionIdleResetMinutes
         },
         {
-          fetchServices: fetchServicesForConversation,
-          fetchMasters: fetchMastersForConversation
+          fetchServices: async (locale) => fetchServicesForConversation(locale, routeContext),
+          fetchMasters: async (locale, serviceId) =>
+            fetchMastersForConversation(locale, serviceId, routeContext)
         }
       );
-      await saveWhatsAppSession(item.from, resetResult.session);
+      await saveWhatsAppSession(item.from, resetResult.session, routeContext);
       console.info("[bot] whatsapp reset policy", {
         messageId: item.messageId,
         from: maskPhone(item.from),
@@ -2026,17 +2701,18 @@ app.post("/webhooks/whatsapp", async (c) => {
 
       const conversationDeps = {
         dedupInboundMessage,
-        loadSession: loadWhatsAppSession,
-        saveSession: saveWhatsAppSession,
-        clearSession: clearWhatsAppSession,
+        loadSession: (phone: string) => loadWhatsAppSession(phone, routeContext),
+        saveSession: (phone: string, session: WhatsAppConversationSession) =>
+          saveWhatsAppSession(phone, session, routeContext),
+        clearSession: (phone: string) => clearWhatsAppSession(phone, routeContext),
         sendText: async (to: string, text: string) => {
-          await sendWhatsAppMessage({ to, text });
+          await sendWhatsAppMessage({ to, text, routeContext });
         },
         sendList: async (to: string, bodyText: string, buttonText: string, choices: Array<{ id: string; title: string; description?: string }>) => {
-          await sendWhatsAppList({ to, bodyText, buttonText, choices });
+          await sendWhatsAppList({ to, bodyText, buttonText, choices, routeContext });
         },
         sendButtons: async (to: string, bodyText: string, choices: Array<{ id: string; title: string; description?: string }>) => {
-          await sendWhatsAppButtons({ to, bodyText, choices });
+          await sendWhatsAppButtons({ to, bodyText, choices, routeContext });
         },
         createFlowCtaAction: (input: {
           action: "flow_confirm_booking" | "flow_confirm_cancel";
@@ -2052,15 +2728,18 @@ app.post("/webhooks/whatsapp", async (c) => {
           });
           return token ?? undefined;
         },
-        fetchServices: fetchServicesForConversation,
-        fetchMasters: fetchMastersForConversation,
+        fetchServices: async (locale: SupportedLocale) =>
+          fetchServicesForConversation(locale, routeContext),
+        fetchMasters: async (locale: SupportedLocale, serviceId?: string) =>
+          fetchMastersForConversation(locale, serviceId, routeContext),
         fetchSlots: async (input: {
           serviceId: string;
           masterId?: string;
           date: string;
           locale: SupportedLocale;
-        }) => fetchSlotsFromApi(input),
-        listBookingsByPhone: listBookingsByPhoneFromBot,
+        }) => fetchSlotsFromApi({ ...input, routeContext }),
+        listBookingsByPhone: (input: { phone: string; limit?: number }) =>
+          listBookingsByPhoneFromBot({ ...input, routeContext }),
         createBooking: async (input: {
           serviceId: string;
           masterId?: string;
@@ -2076,14 +2755,24 @@ app.post("/webhooks/whatsapp", async (c) => {
             locale: input.locale,
             source: "whatsapp",
             masterId: input.masterId,
-            clientName: input.clientName
+            clientName: input.clientName,
+            routeContext
           }),
-        cancelBooking: cancelBookingFromBot,
-        rescheduleBooking: rescheduleBookingFromBot,
-        getTenantTimezone: getTenantTimezoneForConversation
+        cancelBooking: (input: { bookingId: string; phone: string }) =>
+          cancelBookingFromBot({ ...input, routeContext }),
+        rescheduleBooking: (input: {
+          bookingId: string;
+          phone: string;
+          serviceId: string;
+          masterId?: string;
+          startAtIso: string;
+          locale: SupportedLocale;
+        }) => rescheduleBookingFromBot({ ...input, routeContext }),
+        getTenantTimezone: () => getTenantTimezoneForConversation(routeContext)
       };
 
       let flowResult = { handled: false };
+      let aiHandledThisMessage = false;
       const shouldAttemptAiFromChooseIntent =
         resetResult.decision === "continue_current_flow" &&
         resetResult.session.state === "choose_intent" &&
@@ -2099,12 +2788,13 @@ app.post("/webhooks/whatsapp", async (c) => {
         !isStructuredControlMessage(item.text) &&
         (resetResult.shouldRerouteCurrentMessage || shouldAttemptAiFromChooseIntent)
       ) {
-        const aiEnabledForTenant = openAiResponsesEnabled && isAiCanaryEnabledForTenant();
+        const aiEnabledForTenant = openAiResponsesEnabled && isAiCanaryEnabledForTenant(routeContext);
         if (!aiEnabledForTenant) {
           console.info("[bot] ai canary disabled for tenant", {
             messageId: item.messageId,
-            tenantSlug: botTenantSlug || null,
-            tenantId: botTenantId || null
+            tenantSlug: routeContext.tenantSlug ?? null,
+            tenantId: routeContext.tenantId ?? null,
+            salonId: routeContext.salonId ?? null
           });
         }
         console.info("[bot] ai route decision", {
@@ -2123,29 +2813,30 @@ app.post("/webhooks/whatsapp", async (c) => {
             openAiApiKey,
             globalModel: openAiModel,
             globalEnabled: aiEnabledForTenant,
-            tenantQuotaKey: botTenantSlug || botTenantId || "default",
+            tenantQuotaKey: getTenantQuotaKey(routeContext),
             aiMaxCallsPerSession: openAiMaxCallsPerSession,
             aiMaxCallsPerDay: openAiMaxCallsPerDay,
             aiFailureHandoffThreshold,
             unknownTurnHandoffThreshold
           },
           {
-            loadSession: loadWhatsAppSession,
-            saveSession: saveWhatsAppSession,
-            clearSession: clearWhatsAppSession,
+            loadSession: (phone) => loadWhatsAppSession(phone, routeContext),
+            saveSession: (phone, session) => saveWhatsAppSession(phone, session, routeContext),
+            clearSession: (phone) => clearWhatsAppSession(phone, routeContext),
             sendText: async (to, text) => {
-              await sendWhatsAppMessage({ to, text });
+              await sendWhatsAppMessage({ to, text, routeContext });
             },
             sendList: async (to, bodyText, buttonText, choices) => {
-              await sendWhatsAppList({ to, bodyText, buttonText, choices });
+              await sendWhatsAppList({ to, bodyText, buttonText, choices, routeContext });
             },
             sendButtons: async (to, bodyText, choices) => {
-              await sendWhatsAppButtons({ to, bodyText, choices });
+              await sendWhatsAppButtons({ to, bodyText, choices, routeContext });
             },
-            fetchServices: fetchServicesForConversation,
-            fetchMasters: fetchMastersForConversation,
-            fetchSlots: async (payload) => fetchSlotsFromApi(payload),
-            listBookingsByPhone: listBookingsByPhoneFromBot,
+            fetchServices: (locale) => fetchServicesForConversation(locale, routeContext),
+            fetchMasters: (locale, serviceId) =>
+              fetchMastersForConversation(locale, serviceId, routeContext),
+            fetchSlots: async (payload) => fetchSlotsFromApi({ ...payload, routeContext }),
+            listBookingsByPhone: (input) => listBookingsByPhoneFromBot({ ...input, routeContext }),
             createBooking: async (payload) =>
               createBookingFromBot({
                 serviceId: payload.serviceId,
@@ -2154,17 +2845,19 @@ app.post("/webhooks/whatsapp", async (c) => {
                 locale: payload.locale,
                 source: "whatsapp",
                 masterId: payload.masterId,
-                clientName: payload.clientName
+                clientName: payload.clientName,
+                routeContext
               }),
-            cancelBooking: cancelBookingFromBot,
-            rescheduleBooking: rescheduleBookingFromBot,
-            getTenantConfig: getTenantBotConfig,
-            notifyAdminHandoff: notifyAdminWhatsAppHandoff,
+            cancelBooking: (input) => cancelBookingFromBot({ ...input, routeContext }),
+            rescheduleBooking: (input) => rescheduleBookingFromBot({ ...input, routeContext }),
+            getTenantConfig: () => getTenantBotConfig(routeContext),
+            notifyAdminHandoff: (input) => notifyAdminWhatsAppHandoff({ ...input, routeContext }),
             emitOpsAlert,
             consumeAiDailyQuota
           }
         );
         flowResult = aiResult;
+        aiHandledThisMessage = aiResult.handled;
       }
 
       if (!flowResult.handled) {
@@ -2192,21 +2885,78 @@ app.post("/webhooks/whatsapp", async (c) => {
         from: maskPhone(item.from),
         handled: flowResult.handled
       });
+      if (flowResult.handled) {
+        if (aiHandledThisMessage) {
+          await recordEnterpriseUsageEvent({
+            routeContext,
+            metric: "ai_calls",
+            dedupeKey: `${item.messageId}:ai`,
+            context: { source: "whatsapp_webhook" }
+          });
+          bumpRuntimeCounter("aiHandled");
+          try {
+            const aiSession = await loadWhatsAppSession(item.from, routeContext);
+            if (
+              aiSession?.complaintDetectedAt &&
+              aiSession.lastUserMessageAt &&
+              aiSession.complaintDetectedAt === aiSession.lastUserMessageAt
+            ) {
+              bumpRuntimeCounter("complaintSignalsDetected");
+            }
+            if (aiSession?.lastResolvedIntent === "unknown") {
+              bumpRuntimeCounter("unknownIntentHandled");
+            }
+            if (
+              aiSession?.currentMode === "human_handoff" ||
+              aiSession?.handoffStatus === "active" ||
+              aiSession?.handoffStatus === "pending"
+            ) {
+              bumpRuntimeCounter("handoffEscalations");
+            }
+            if (
+              aiSession?.handoffReason === "complaint" &&
+              aiSession.handoffAt &&
+              aiSession.complaintDetectedAt &&
+              aiSession.complaintLatencyRecordedAt !== aiSession.handoffAt
+            ) {
+              const detectedAtTs = Date.parse(aiSession.complaintDetectedAt);
+              const handoffAtTs = Date.parse(aiSession.handoffAt);
+              if (Number.isFinite(detectedAtTs) && Number.isFinite(handoffAtTs)) {
+                bumpRuntimeCounter("complaintHandoffs");
+                recordComplaintToHandoffLatency(handoffAtTs - detectedAtTs);
+                aiSession.complaintLatencyRecordedAt = aiSession.handoffAt;
+                await saveWhatsAppSession(item.from, aiSession, routeContext);
+              }
+            }
+          } catch (error) {
+            console.warn("[bot] runtime ai stats probe failed", {
+              messageId: item.messageId,
+              from: maskPhone(item.from),
+              error: toLogError(error)
+            });
+          }
+        } else {
+          bumpRuntimeCounter("deterministicHandled");
+        }
+      }
 
         if (!flowResult.handled && item.text) {
           const replyText = await processIncomingText({
             text: item.text,
             locale: effectiveLocale,
             source: "whatsapp",
-            senderPhoneE164: item.from
+            senderPhoneE164: item.from,
+            routeContext
           });
-          await sendWhatsAppMessage({ to: item.from, text: replyText });
+          await sendWhatsAppMessage({ to: item.from, text: replyText, routeContext });
           console.info("[bot] whatsapp fallback reply sent", {
             messageId: item.messageId,
             from: maskPhone(item.from)
           });
+          bumpRuntimeCounter("fallbackTextHandled");
         }
       } catch (error) {
+        bumpRuntimeCounter("processingErrors");
         console.error("[bot] whatsapp message processing failed", {
           messageId: item.messageId,
           from: maskPhone(item.from),
@@ -2232,7 +2982,8 @@ app.post("/webhooks/whatsapp", async (c) => {
             text:
               item.locale === "it"
                 ? "Servizio temporaneamente non disponibile. Riprova tra pochi secondi."
-                : "Service is temporarily unavailable. Please retry in a few seconds."
+                : "Service is temporarily unavailable. Please retry in a few seconds.",
+            routeContext
           });
         } catch (fallbackError) {
           console.error("[bot] fallback whatsapp send failed", {
