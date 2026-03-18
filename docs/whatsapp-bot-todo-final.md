@@ -1,6 +1,6 @@
 # WhatsApp Bot — Актуальный TODO (после последнего цикла фиксов)
 
-Дата обновления: 2026-03-16  
+Дата обновления: 2026-03-18  
 Проект: `genius_clients` / `apps/bot`  
 Назначение: **только актуальные доработки** для текущего состояния кода и деплоя.
 
@@ -72,6 +72,8 @@
 - `apps/bot/src/conversation-reset-policy.ts`
 - `apps/bot/src/whatsapp-conversation.ts`
 
+Статус: **реализовано**.
+
 ---
 
 ### Важные (второй приоритет)
@@ -84,6 +86,8 @@
 - `apps/bot/src/index.ts`
 - `apps/bot/src/ai-orchestrator.ts`
 - `apps/bot/src/whatsapp-conversation.ts`
+
+Статус: **реализовано** (`fetchWithApiRetry` + дружелюбные fallback-сообщения).
 
 ---
 
@@ -104,6 +108,8 @@
 - `apps/bot/src/conversation-locale.ts`
 - `apps/bot/src/index.ts`
 
+Статус: **реализовано** (stability для нейтральных коротких ответов + session-first policy).
+
 ---
 
 ### B4. Негатив/жалоба -> empathetic ответ + handoff policy
@@ -113,6 +119,8 @@
 Файлы:
 - `apps/bot/src/ai-orchestrator.ts`
 - `apps/bot/src/index.ts`
+
+Статус: **реализовано** (empathetic path + predictable handoff/non-handoff behavior).
 
 ---
 
@@ -136,6 +144,8 @@
 
 ### C4. Доп. языки (`ru`, `uk`)
 После стабилизации EN/IT.
+
+Статус: **вынесено в отдельный этап** (требует расширения `@genius/i18n` за пределами `apps/bot`).
 
 ---
 
@@ -186,6 +196,8 @@
 - [ ] Логи не содержат raw phone/client name.
 - [ ] В логах видны `traceId`, intent, reset reason, fallback reason.
 
+Примечание: по коду пункты checklist покрыты; остаются живые ручные прогоны в production/staging.
+
 ---
 
 ## 5. Definition of Done для этой дорожной карты
@@ -198,5 +210,6 @@
 
 ---
 
-Статус: документ синхронизирован с текущим состоянием после последних фиксов и деплоя.  
+Статус: реализация по текущему bot roadmap в `apps/bot` доведена до code-complete.  
+Остался операционный слой: ручной UAT, мониторинг и post-release tuning phrasing.  
 При следующем изменении логики reset/locale/booking-confirm файл нужно обновлять в этой же папке.
