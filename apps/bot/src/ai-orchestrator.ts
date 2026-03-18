@@ -16,6 +16,7 @@ import {
 } from "./openai-prompts";
 import { OpenAIResponsesClient, OpenAIResponsesError } from "./openai-responses-client";
 import { resolveConversationLocale } from "./conversation-locale";
+import { maskPhone, sanitizeHandoffSummary } from "./log-safety";
 
 type ServiceItem = {
   id: string;
@@ -2576,15 +2577,6 @@ function isLowValueReplyText(normalizedText: string) {
   return false;
 }
 
-function sanitizeHandoffSummary(value: string) {
-  return value
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
-    .replace(/\+?\d[\d\s().-]{6,}\d/g, "[phone]")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 200);
-}
-
 function selectReplyPrompt(defaultPrompt: string, replyText: string | undefined) {
   const sanitized = sanitizeReplyTextOverride(replyText) ?? "";
   if (!sanitized) {
@@ -2625,12 +2617,4 @@ function isOpenAiQuotaError(error: unknown) {
   }
   const message = String(error.message || "").toLowerCase();
   return message.includes("insufficient_quota") || message.includes("exceeded your current quota");
-}
-
-function maskPhone(value: string): string {
-  const normalized = value.replace(/\s+/g, "");
-  if (normalized.length <= 4) {
-    return "***";
-  }
-  return `${normalized.slice(0, 3)}***${normalized.slice(-2)}`;
 }
