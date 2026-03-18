@@ -79,6 +79,7 @@ export type WhatsAppConversationSession = {
   lastCheckpoint?: ConversationCheckpoint;
   bookingIdToReschedule?: string;
   bookingIdInContext?: string;
+  bookingStartAtInContext?: string;
   collectedEntities?: {
     serviceNameCandidate?: string;
     masterNameCandidate?: string;
@@ -180,6 +181,7 @@ export type WhatsAppConversationDeps = {
     locale: SupportedLocale;
   }) => Promise<string>;
   getTenantTimezone: () => Promise<string>;
+  getLateCancelPolicy?: () => Promise<{ warnHours?: number; blockHours?: number }>;
 };
 
 const FLOW_VERSION = 1;
@@ -190,6 +192,14 @@ const RESUME_FLOW_TOKEN = "flow:resume";
 const KEEP_NAME_TOKEN = "name:keep";
 const BOOKING_SELECTION_BUTTONS_MAX_ITEMS = 2;
 const MAX_CLIENT_NAME_ATTEMPTS = 3;
+const DEFAULT_LATE_CANCEL_WARN_HOURS = Math.max(
+  0,
+  Number.parseInt(process.env.BOT_LATE_CANCEL_WARN_HOURS ?? "24", 10) || 24
+);
+const DEFAULT_LATE_CANCEL_BLOCK_HOURS = Math.max(
+  0,
+  Number.parseInt(process.env.BOT_LATE_CANCEL_BLOCK_HOURS ?? "0", 10) || 0
+);
 
 function truncateForChoice(input: string, maxLength: number): string {
   if (input.length <= maxLength) {
@@ -270,6 +280,32 @@ function isUuidLike(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     value.trim()
   );
+}
+
+async function resolveLateCancelPolicy(deps: WhatsAppConversationDeps) {
+  try {
+    const policy = await deps.getLateCancelPolicy?.();
+    return {
+      warnHours: Math.max(0, policy?.warnHours ?? DEFAULT_LATE_CANCEL_WARN_HOURS),
+      blockHours: Math.max(0, policy?.blockHours ?? DEFAULT_LATE_CANCEL_BLOCK_HOURS)
+    };
+  } catch {
+    return {
+      warnHours: DEFAULT_LATE_CANCEL_WARN_HOURS,
+      blockHours: DEFAULT_LATE_CANCEL_BLOCK_HOURS
+    };
+  }
+}
+
+function getHoursUntil(startAtIso: string | undefined) {
+  if (!startAtIso) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const startTs = Date.parse(startAtIso);
+  if (!Number.isFinite(startTs)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return (startTs - Date.now()) / (60 * 60 * 1000);
 }
 
 function normalizeToken(input: ConversationInput): string {
@@ -1129,10 +1165,21 @@ async function promptCancelConfirm(
   deps: WhatsAppConversationDeps
 ) {
   const when = session.slotDisplayTime ?? session.date ?? "-";
+  const lateCancel = await resolveLateCancelPolicy(deps);
+  const hoursUntilStart = getHoursUntil(session.bookingStartAtInContext);
+  const showWarnLine =
+    Number.isFinite(hoursUntilStart) &&
+    lateCancel.warnHours > 0 &&
+    hoursUntilStart <= lateCancel.warnHours;
+  const warnLine = showWarnLine
+    ? session.locale === "it"
+      ? `Nota: cancellazione entro ${lateCancel.warnHours}h dall'appuntamento.`
+      : `Note: cancellation is within ${lateCancel.warnHours}h of the appointment.`
+    : "";
   const summary =
     session.locale === "it"
-      ? `Stai per annullare la prenotazione:\nQuando: ${when}\nSei sicuro?`
-      : `You are about to cancel the booking:\nWhen: ${when}\nAre you sure?`;
+      ? `Stai per annullare la prenotazione:\nQuando: ${when}${warnLine ? `\n${warnLine}` : ""}\nSei sicuro?`
+      : `You are about to cancel the booking:\nWhen: ${when}${warnLine ? `\n${warnLine}` : ""}\nAre you sure?`;
 
   const confirmCancelCta = session.bookingIdInContext
     ? deps.createFlowCtaAction?.({
@@ -1340,6 +1387,22 @@ async function runCancelWithConfirm(
     await deps.sendText(
       input.from,
       session.locale === "it" ? "Sessione non valida, riprova." : "Invalid session, please try again."
+    );
+    await deps.clearSession(input.from);
+    return;
+  }
+  const lateCancel = await resolveLateCancelPolicy(deps);
+  const hoursUntilStart = getHoursUntil(session.bookingStartAtInContext);
+  if (
+    Number.isFinite(hoursUntilStart) &&
+    lateCancel.blockHours > 0 &&
+    hoursUntilStart <= lateCancel.blockHours
+  ) {
+    await deps.sendText(
+      input.from,
+      session.locale === "it"
+        ? `Questa prenotazione non puo essere annullata online entro ${lateCancel.blockHours}h dall'appuntamento. Contatta l'amministratore.`
+        : `This booking cannot be cancelled online within ${lateCancel.blockHours}h of the appointment. Please contact the administrator.`
     );
     await deps.clearSession(input.from);
     return;
@@ -1661,6 +1724,7 @@ export async function processWhatsAppConversation(
         return { handled: true };
       }
       session.bookingIdToReschedule = bookingId;
+      session.bookingStartAtInContext = matchedBooking.startAt;
       session.clientName = matchedBooking?.clientName ?? session.clientName;
       session.state = "choose_service";
       session.servicePage = 0;
@@ -1727,6 +1791,7 @@ export async function processWhatsAppConversation(
         return { handled: true };
       }
       session.bookingIdInContext = bookingId;
+      session.bookingStartAtInContext = matchedBooking.startAt;
       session.intent = "cancel_booking";
       session.state = "confirm";
       try {

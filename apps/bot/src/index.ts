@@ -56,6 +56,8 @@ const unknownTurnHandoffThreshold = Math.max(1, Number.parseInt(process.env.UNKN
 const rateLimitWindowSeconds = Math.max(10, Number.parseInt(process.env.RATE_LIMIT_WINDOW_SECONDS ?? "60", 10) || 60);
 const rateLimitMaxMessages = Math.max(1, Number.parseInt(process.env.RATE_LIMIT_MAX_MESSAGES ?? "20", 10) || 20);
 const sessionIdleResetMinutes = Math.max(1, Number.parseInt(process.env.SESSION_IDLE_RESET_MINUTES ?? "45", 10) || 45);
+const botLateCancelWarnHours = Math.max(0, Number.parseInt(process.env.BOT_LATE_CANCEL_WARN_HOURS ?? "24", 10) || 24);
+const botLateCancelBlockHours = Math.max(0, Number.parseInt(process.env.BOT_LATE_CANCEL_BLOCK_HOURS ?? "0", 10) || 0);
 const opsAlertWebhookUrl = process.env.OPS_ALERT_WEBHOOK_URL ?? "";
 const opsAlertWebhookToken = process.env.OPS_ALERT_WEBHOOK_TOKEN ?? "";
 const apiUrl = process.env.API_URL ?? "";
@@ -246,6 +248,19 @@ function parseWhatsAppAccessTokenMap(raw: string) {
     });
     return new Map<string, string>();
   }
+}
+
+function parseNonNegativeNumber(value: unknown, fallback: number) {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number.parseFloat(value.trim());
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+  return fallback;
 }
 
 async function emitOpsAlert(input: {
@@ -1184,6 +1199,14 @@ async function getTenantBotConfig(routeContext: BotRoutingContext | null = getLe
               ? payload.data.botConfig.promptVariant
               : null,
           humanHandoffEnabled: payload.data.botConfig?.humanHandoffEnabled !== false,
+          lateCancelWarnHours: parseNonNegativeNumber(
+            payload.data.botConfig?.lateCancelWarnHours,
+            botLateCancelWarnHours
+          ),
+          lateCancelBlockHours: parseNonNegativeNumber(
+            payload.data.botConfig?.lateCancelBlockHours,
+            botLateCancelBlockHours
+          ),
           adminNotificationWhatsappE164:
             typeof payload.data.botConfig?.adminNotificationWhatsappE164 === "string"
               ? payload.data.botConfig.adminNotificationWhatsappE164
@@ -1206,6 +1229,8 @@ async function getTenantBotConfig(routeContext: BotRoutingContext | null = getLe
     openaiModel: openAiModel,
     promptVariant: null as string | null,
     humanHandoffEnabled: true,
+    lateCancelWarnHours: botLateCancelWarnHours,
+    lateCancelBlockHours: botLateCancelBlockHours,
     adminNotificationWhatsappE164: null as string | null,
     faqContent: normalizeTenantFaqContent(undefined)
   };
@@ -2713,7 +2738,14 @@ app.post("/webhooks/whatsapp", async (c) => {
           startAtIso: string;
           locale: SupportedLocale;
         }) => rescheduleBookingFromBot({ ...input, routeContext }),
-        getTenantTimezone: () => getTenantTimezoneForConversation(routeContext)
+        getTenantTimezone: () => getTenantTimezoneForConversation(routeContext),
+        getLateCancelPolicy: async () => {
+          const config = await getTenantBotConfig(routeContext);
+          return {
+            warnHours: parseNonNegativeNumber(config.lateCancelWarnHours, botLateCancelWarnHours),
+            blockHours: parseNonNegativeNumber(config.lateCancelBlockHours, botLateCancelBlockHours)
+          };
+        }
       };
 
       let flowResult = { handled: false };

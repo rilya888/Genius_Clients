@@ -127,6 +127,9 @@
 ### C3. Политика поздней отмены (tenant policy)
 `lateCancelWarnHours` / `lateCancelBlockHours`.
 
+Статус: **базовая версия реализована** для deterministic cancel-flow (warn/block перед отменой).  
+Параметры: `BOT_LATE_CANCEL_WARN_HOURS`, `BOT_LATE_CANCEL_BLOCK_HOURS`, tenant override через `botConfig`.
+
 ### C4. Доп. языки (`ru`, `uk`)
 После стабилизации EN/IT.
 
