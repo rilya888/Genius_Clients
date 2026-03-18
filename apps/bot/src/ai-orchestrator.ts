@@ -691,7 +691,7 @@ async function parseUserMessage(input: {
     throw new Error("ai_parse_invalid_json");
   }
 
-  return normalizeAiParseResult(payload, input.locale);
+  return normalizeAiParseResult(payload);
 }
 
 async function resolveAiPlan(
@@ -790,10 +790,12 @@ async function resolveAiPlan(
       return {
         artifact: {
           kind: "booking_list",
-          prompt:
+          prompt: selectReplyPrompt(
             input.locale === "it"
               ? "Scegli la prenotazione da annullare."
               : "Choose the booking to cancel.",
+            input.parsed.replyText
+          ),
           action: "cancel",
           items
         }
@@ -810,10 +812,12 @@ async function resolveAiPlan(
       return {
         artifact: {
           kind: "booking_list",
-          prompt:
+          prompt: selectReplyPrompt(
             input.locale === "it"
               ? "Scegli la prenotazione da spostare."
               : "Choose the booking to reschedule.",
+            input.parsed.replyText
+          ),
           action: "reschedule",
           items
         }
@@ -1003,7 +1007,7 @@ async function resolveBookingLikeIntent(
     return {
       artifact: {
         kind: "service_list",
-        prompt:
+        prompt: selectReplyPrompt(
           input.parsed.masterQuery && input.parsed.masterQuery.trim()
             ? input.locale === "it"
               ? `Perfetto, per ${input.parsed.masterQuery.trim()} seleziona prima il servizio.`
@@ -1011,6 +1015,8 @@ async function resolveBookingLikeIntent(
             : input.locale === "it"
               ? "Seleziona il servizio."
               : "Select a service.",
+          input.parsed.replyText
+        ),
         items: services.slice(0, 8),
         intent: "new_booking"
       }
@@ -1025,10 +1031,12 @@ async function resolveBookingLikeIntent(
     return {
       artifact: {
         kind: "service_list",
-        prompt:
+        prompt: selectReplyPrompt(
           input.locale === "it"
             ? "Ho trovato piu servizi. Scegline uno."
             : "I found multiple services. Please choose one.",
+          input.parsed.replyText
+        ),
         items: (serviceResolution.matches.length > 0 ? serviceResolution.matches : services).slice(0, 8),
         intent: "new_booking"
       }
@@ -1065,7 +1073,10 @@ async function resolveBookingLikeIntent(
       return {
         artifact: {
           kind: "master_list",
-          prompt: input.locale === "it" ? "Scegli il master." : "Choose a master.",
+          prompt: selectReplyPrompt(
+            input.locale === "it" ? "Scegli il master." : "Choose a master.",
+            input.parsed.replyText
+          ),
           serviceId: service.id,
           serviceName: service.displayName,
           items: masters.slice(0, 8),
@@ -1082,10 +1093,12 @@ async function resolveBookingLikeIntent(
     return {
       artifact: {
         kind: "master_list",
-        prompt:
+        prompt: selectReplyPrompt(
           input.locale === "it"
             ? "Ho trovato piu master. Scegline uno."
             : "I found multiple masters. Please choose one.",
+          input.parsed.replyText
+        ),
         serviceId: service.id,
         serviceName: service.displayName,
         items: (masterResolution.matches.length > 0 ? masterResolution.matches : masters).slice(0, 8),
@@ -1122,7 +1135,10 @@ async function resolveBookingLikeIntent(
     return {
       artifact: {
         kind: "date_list",
-        prompt: input.locale === "it" ? "Scegli una data." : "Choose a date.",
+        prompt: selectReplyPrompt(
+          input.locale === "it" ? "Scegli una data." : "Choose a date.",
+          input.parsed.replyText
+        ),
         serviceId: service.id,
         serviceName: service.displayName,
         masterId: input.session.masterId,
@@ -1166,10 +1182,12 @@ async function resolveBookingLikeIntent(
     return {
       artifact: {
         kind: "date_list",
-        prompt:
+        prompt: selectReplyPrompt(
           input.locale === "it"
             ? "Per questa data non ci sono slot. Scegli un'altra data."
             : "There are no slots for this date. Please choose another date.",
+          input.parsed.replyText
+        ),
         serviceId: service.id,
         serviceName: service.displayName,
         masterId: input.session.masterId,
@@ -1190,7 +1208,10 @@ async function resolveBookingLikeIntent(
     return {
       artifact: {
         kind: "slot_list",
-        prompt: input.locale === "it" ? "Scegli un orario." : "Choose a time.",
+        prompt: selectReplyPrompt(
+          input.locale === "it" ? "Scegli un orario." : "Choose a time.",
+          input.parsed.replyText
+        ),
         serviceId: service.id,
         serviceName: service.displayName,
         masterId: input.session.masterId,
@@ -1703,10 +1724,11 @@ function safeJsonParse(value: string): Record<string, unknown> | null {
   }
 }
 
-function normalizeAiParseResult(payload: Record<string, unknown>, locale: SupportedLocale): AiParseResult {
+function normalizeAiParseResult(payload: Record<string, unknown>): AiParseResult {
   const rawIntent = asOptionalString(payload.intent) ?? "unknown";
   const rawConfidence = asOptionalString(payload.confidence) ?? "low";
   const schemaVersion = asOptionalString(payload.schema_version);
+  const rawReplyText = asOptionalString(payload.reply_text);
   return {
     schemaVersion,
     intent: isParsedIntent(rawIntent) ? rawIntent : "unknown",
@@ -1716,9 +1738,7 @@ function normalizeAiParseResult(payload: Record<string, unknown>, locale: Suppor
     dateText: asOptionalString(payload.date_text),
     timeText: asOptionalString(payload.time_text),
     bookingReference: asOptionalString(payload.booking_reference),
-    replyText:
-      asOptionalString(payload.reply_text) ||
-      (locale === "it" ? "Posso aiutarti con prenotazioni, annullamenti e spostamenti." : "I can help with bookings, cancellations, and rescheduling."),
+    replyText: sanitizeReplyTextOverride(rawReplyText),
     handoffSummary: asOptionalString(payload.handoff_summary)
   };
 }
@@ -2452,6 +2472,38 @@ function sanitizeUserText(value: string) {
     .slice(0, 280);
 }
 
+function sanitizeReplyTextOverride(replyText: string | undefined) {
+  const sanitized = sanitizeUserText(replyText ?? "");
+  if (!sanitized) {
+    return undefined;
+  }
+  const normalized = normalizeSearch(sanitized);
+  if (isLowValueReplyText(normalized)) {
+    return undefined;
+  }
+  return sanitized;
+}
+
+function isLowValueReplyText(normalizedText: string) {
+  const genericReplies = [
+    "posso aiutarti con prenotazioni annullamenti e spostamenti",
+    "ti posso aiutare con prenotazioni annullamenti e spostamenti",
+    "scegli un azione",
+    "seleziona un azione",
+    "i can help with bookings cancellations and rescheduling",
+    "i can help with booking cancellation and rescheduling",
+    "please choose an action",
+    "choose an action"
+  ];
+  if (genericReplies.includes(normalizedText)) {
+    return true;
+  }
+  if (normalizedText.length < 6) {
+    return true;
+  }
+  return false;
+}
+
 function sanitizeHandoffSummary(value: string) {
   return value
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
@@ -2459,6 +2511,22 @@ function sanitizeHandoffSummary(value: string) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 200);
+}
+
+function selectReplyPrompt(defaultPrompt: string, replyText: string | undefined) {
+  const sanitized = sanitizeReplyTextOverride(replyText) ?? "";
+  if (!sanitized) {
+    return defaultPrompt;
+  }
+  const normalized = sanitized.toLowerCase();
+  if (
+    normalized.includes("choose") ||
+    normalized.includes("select") ||
+    normalized.includes("scegli")
+  ) {
+    return sanitized;
+  }
+  return `${sanitized}\n${defaultPrompt}`.slice(0, 280);
 }
 
 function normalizeInboundUserText(value: string) {
