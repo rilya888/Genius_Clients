@@ -559,4 +559,30 @@ export class AdminService {
       humanHandoffEnabled: tenant.humanHandoffEnabled
     };
   }
+
+  async getScope(tenantId: string) {
+    const tenant = await this.tenantRepository.findById(tenantId);
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND");
+    }
+
+    return {
+      account: {
+        id: tenant.id,
+        slug: tenant.slug,
+        name: tenant.name
+      },
+      salons: [
+        {
+          id: "default",
+          accountId: tenant.id,
+          name: tenant.name,
+          isPrimary: true
+        }
+      ],
+      capabilities: {
+        multiSalon: false
+      }
+    };
+  }
 }

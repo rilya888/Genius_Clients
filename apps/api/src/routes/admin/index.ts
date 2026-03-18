@@ -47,6 +47,10 @@ export const adminRoutes = new Hono<ApiAppEnv>()
     const data = await adminService.getNotificationDeliverySummary(tenantId);
     return c.json({ data });
   })
+  .get("/scope", async (c) => {
+    const tenantId = c.get("tenantId");
+    return c.json({ data: await adminService.getScope(tenantId) });
+  })
   .post("/notification-deliveries/retry-failed", async (c) => {
     const tenantId = c.get("tenantId");
     const actorRole = c.get("userRole");

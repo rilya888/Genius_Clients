@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from "react";
 import { me } from "../api/authApi";
+import { getAdminScope } from "../api/adminApi";
 import { clearSession, ensureAccessToken } from "../auth/session";
 
 export const roles = ["owner", "admin", "operator", "account_admin", "salon_admin", "manager"] as const;
@@ -9,6 +10,9 @@ type Role = (typeof roles)[number];
 type ScopeContextValue = {
   accountId: string;
   salonId: string;
+  accounts: Array<{ id: string; name: string; slug?: string }>;
+  salons: Array<{ id: string; accountId: string; name: string; isPrimary?: boolean }>;
+  capabilities: { multiSalon: boolean };
   tenantId: string | null;
   userEmail: string | null;
   hydrated: boolean;
@@ -23,6 +27,11 @@ const ScopeContext = createContext<ScopeContextValue | null>(null);
 export function ScopeProvider({ children }: PropsWithChildren) {
   const [accountId, setAccountId] = useState("current");
   const [salonId, setSalonId] = useState("default");
+  const [accounts, setAccounts] = useState<Array<{ id: string; name: string; slug?: string }>>([]);
+  const [salons, setSalons] = useState<Array<{ id: string; accountId: string; name: string; isPrimary?: boolean }>>(
+    []
+  );
+  const [capabilities, setCapabilities] = useState<{ multiSalon: boolean }>({ multiSalon: false });
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -39,13 +48,23 @@ export function ScopeProvider({ children }: PropsWithChildren) {
           }
           return;
         }
-        const profile = await me(accessToken);
+        const [profile, scope] = await Promise.all([me(accessToken), getAdminScope()]);
         if (cancelled) {
           return;
         }
         setTenantId(profile.tenantId);
         setUserEmail(profile.email);
-        setAccountId(profile.tenantId);
+        setAccounts([
+          {
+            id: scope.account.id,
+            name: scope.account.name,
+            slug: scope.account.slug
+          }
+        ]);
+        setSalons(scope.salons);
+        setCapabilities(scope.capabilities);
+        setAccountId(scope.account.id);
+        setSalonId(scope.salons[0]?.id ?? "default");
         const normalizedRole = roles.includes(profile.role as Role) ? (profile.role as Role) : "owner";
         setRole(normalizedRole);
       } catch {
@@ -65,6 +84,9 @@ export function ScopeProvider({ children }: PropsWithChildren) {
     () => ({
       accountId,
       salonId,
+      accounts,
+      salons,
+      capabilities,
       tenantId,
       userEmail,
       hydrated,
@@ -73,7 +95,7 @@ export function ScopeProvider({ children }: PropsWithChildren) {
       setSalonId,
       setRole
     }),
-    [accountId, salonId, tenantId, userEmail, hydrated, role]
+    [accountId, salonId, accounts, salons, capabilities, tenantId, userEmail, hydrated, role]
   );
 
   return <ScopeContext.Provider value={value}>{children}</ScopeContext.Provider>;

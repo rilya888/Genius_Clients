@@ -116,6 +116,25 @@ type AnonymizeEnvelope = {
   };
 };
 
+type ScopeEnvelope = {
+  data: {
+    account: {
+      id: string;
+      slug: string;
+      name: string;
+    };
+    salons: Array<{
+      id: string;
+      accountId: string;
+      name: string;
+      isPrimary: boolean;
+    }>;
+    capabilities: {
+      multiSalon: boolean;
+    };
+  };
+};
+
 async function authHeaders(existing?: HeadersInit) {
   const headers = new Headers(existing);
   const accessToken = await ensureAccessToken();
@@ -233,6 +252,13 @@ export async function anonymizeBookings(input: { phoneE164: string; beforeDate?:
 
 export async function getTenantSettings() {
   const payload = await adminJson<TenantSettingsEnvelope>("/api/v1/admin/tenant-settings", {
+    method: "GET"
+  });
+  return payload.data;
+}
+
+export async function getAdminScope() {
+  const payload = await adminJson<ScopeEnvelope>("/api/v1/admin/scope", {
     method: "GET"
   });
   return payload.data;

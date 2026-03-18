@@ -8,16 +8,8 @@ import { clearSession, getRefreshToken } from "../shared/auth/session";
 export function AppLayout() {
   const navigate = useNavigate();
   const { t } = useI18n();
-  const { accountId, salonId, tenantId, userEmail, role } = useScopeContext();
-
-  const accounts = useMemo(
-    () => [{ id: accountId, name: userEmail ?? tenantId ?? t("app.scope.notSelected") }],
-    [accountId, tenantId, userEmail, t]
-  );
-  const salons = useMemo(
-    () => [{ id: salonId, accountId, name: t("app.scope.singleSalon") }],
-    [salonId, accountId, t]
-  );
+  const { accountId, salonId, accounts, salons, capabilities, role, setAccountId, setSalonId } =
+    useScopeContext();
 
   const availableSalons = useMemo(() => salons.filter((item) => item.accountId === accountId), [salons, accountId]);
   const selectedAccount = useMemo(() => accounts.find((item) => item.id === accountId), [accounts, accountId]);
@@ -39,7 +31,16 @@ export function AppLayout() {
         <div className="scope-panel">
           <label>
             {t("app.scope.account")}
-            <select value={accountId} disabled>
+            <select
+              value={accountId}
+              disabled={accounts.length <= 1}
+              onChange={(event) => {
+                const nextAccountId = event.target.value;
+                setAccountId(nextAccountId);
+                const nextSalon = salons.find((item) => item.accountId === nextAccountId);
+                setSalonId(nextSalon?.id ?? "");
+              }}
+            >
               {accounts.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
@@ -50,7 +51,7 @@ export function AppLayout() {
 
           <label>
             {t("app.scope.salon")}
-            <select value={salonId} disabled>
+            <select value={salonId} disabled={!capabilities.multiSalon || availableSalons.length <= 1} onChange={(event) => setSalonId(event.target.value)}>
               {availableSalons.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
