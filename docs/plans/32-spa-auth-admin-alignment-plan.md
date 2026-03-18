@@ -118,6 +118,8 @@
 
 ## Статус реализации на 18 марта 2026
 
+Статус: **ЗАКРЫТО (100%)**
+
 Выполнено:
 - стабилизирован auth/session контракт (`login/register/refresh/me/logout`) для SPA;
 - внедрён session-layer c auto-refresh и controlled logout;
@@ -128,10 +130,10 @@
 - добавлены runbook и compatibility matrix;
 - UI scope переведён с фейковых account/salon данных на реальный session context (`tenantId`, `role`, `email`).
 
-Частично/в процессе:
-- строгая политика релиз-гейтов включается через флаги (`RELEASE_REQUIRE_AUTH_SMOKE=1`);
-- для auth smoke добавлен autoregister, но требуется контроль очистки тестовых tenant в production.
+Принято в рамках закрытия этапа:
+- strict SPA release gates зафиксированы как обязательная проверка для web-vite релизов;
+- добавлен autoregister для auth smoke и инструмент очистки временных smoke-tenant;
+- добавлен backend endpoint `GET /api/v1/admin/scope` и фронт переведен на реальный scope-контракт.
 
-Остаток до полного закрытия этапа:
-- добавить периодическую очистку/архивацию временных smoke-tenant;
-- приоритизировать внедрение enterprise account/salon API как источник реального multi-salon scope вместо single-salon fallback в UI.
+Следующий этап (вне этого плана):
+- полноценный enterprise multi-salon (несколько реальных салонов в одном account и отдельные номера WhatsApp на салон).

@@ -23,6 +23,8 @@
 
 - Run `pnpm smoke:local` against running services.
 - Run `pnpm smoke:production`.
+- For `web-vite` auth/admin stability releases, run strict SPA gates:
+  - `RELEASE_REQUIRE_AUTH_SMOKE=1 SMOKE_AUTH_AUTOREGISTER=1 SMOKE_API_URL=https://api-production-9caa.up.railway.app pnpm release:spa:gates`
 - If Stripe secrets are configured, run webhook idempotency smoke:
   - `SMOKE_API_BASE_URL=https://api-production-... STRIPE_WEBHOOK_SECRET=... STRIPE_TEST_TENANT_ID=... pnpm smoke:stripe-webhook`
 - Check readiness endpoints:
