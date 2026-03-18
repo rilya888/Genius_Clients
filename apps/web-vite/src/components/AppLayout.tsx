@@ -1,29 +1,27 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useMemo } from "react";
 import { useI18n } from "../shared/i18n/I18nProvider";
-import { roles, useScopeContext } from "../shared/hooks/useScopeContext";
+import { useScopeContext } from "../shared/hooks/useScopeContext";
 import { logout } from "../shared/api/authApi";
 import { clearSession, getRefreshToken } from "../shared/auth/session";
-
-const accounts = [
-  { id: "acc_1", name: "Genius Group" },
-  { id: "acc_2", name: "Studio Holding" }
-];
-
-const salons = [
-  { id: "sal_1", accountId: "acc_1", name: "Milano Downtown" },
-  { id: "sal_2", accountId: "acc_1", name: "Roma Centro" },
-  { id: "sal_3", accountId: "acc_2", name: "Torino Aura" }
-];
 
 export function AppLayout() {
   const navigate = useNavigate();
   const { t } = useI18n();
-  const { accountId, salonId, role, setAccountId, setSalonId, setRole } = useScopeContext();
+  const { accountId, salonId, tenantId, userEmail, role } = useScopeContext();
 
-  const availableSalons = useMemo(() => salons.filter((item) => item.accountId === accountId), [accountId]);
-  const selectedAccount = useMemo(() => accounts.find((item) => item.id === accountId), [accountId]);
-  const selectedSalon = useMemo(() => salons.find((item) => item.id === salonId), [salonId]);
+  const accounts = useMemo(
+    () => [{ id: accountId, name: userEmail ?? tenantId ?? t("app.scope.notSelected") }],
+    [accountId, tenantId, userEmail, t]
+  );
+  const salons = useMemo(
+    () => [{ id: salonId, accountId, name: t("app.scope.singleSalon") }],
+    [salonId, accountId, t]
+  );
+
+  const availableSalons = useMemo(() => salons.filter((item) => item.accountId === accountId), [salons, accountId]);
+  const selectedAccount = useMemo(() => accounts.find((item) => item.id === accountId), [accounts, accountId]);
+  const selectedSalon = useMemo(() => salons.find((item) => item.id === salonId), [salons, salonId]);
 
   async function handleLogout() {
     try {
@@ -41,15 +39,7 @@ export function AppLayout() {
         <div className="scope-panel">
           <label>
             {t("app.scope.account")}
-            <select
-              value={accountId}
-              onChange={(event) => {
-                const nextAccountId = event.target.value;
-                setAccountId(nextAccountId);
-                const firstSalon = salons.find((item) => item.accountId === nextAccountId);
-                setSalonId(firstSalon?.id ?? "");
-              }}
-            >
+            <select value={accountId} disabled>
               {accounts.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
@@ -60,7 +50,7 @@ export function AppLayout() {
 
           <label>
             {t("app.scope.salon")}
-            <select value={salonId} onChange={(event) => setSalonId(event.target.value)}>
+            <select value={salonId} disabled>
               {availableSalons.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
@@ -71,13 +61,7 @@ export function AppLayout() {
 
           <label>
             {t("app.scope.role")}
-            <select value={role} onChange={(event) => setRole(event.target.value as (typeof roles)[number])}>
-              {roles.map((item) => (
-                <option key={item} value={item}>
-                  {t(`app.role.${item}`)}
-                </option>
-              ))}
-            </select>
+            <input value={t(`app.role.${role}`)} disabled readOnly />
           </label>
         </div>
         <nav>
