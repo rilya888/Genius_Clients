@@ -782,44 +782,66 @@ async function resolveAiPlan(
 
     case "cancel_booking": {
       const items = await deps.listBookingsByPhone({ phone: input.phone, limit: 10 });
+      const { ranked: rankedItems, matchedByDate } = rankBookingsForAction(items, {
+        dateText: input.parsed.dateText,
+        locale: input.locale,
+        timezone: input.tenantConfig.timezone
+      });
       logBookingFunnelStep(input.traceId, {
-        step: items.length > 0 ? "cancel_selection_shown" : "no_active_bookings",
+        step: rankedItems.length > 0 ? "cancel_selection_shown" : "no_active_bookings",
         locale: input.locale,
         intent: input.parsed.intent
       });
+      const defaultPrompt = matchedByDate
+        ? input.locale === "it"
+          ? "Ho trovato queste prenotazioni per la data indicata. Scegli quale annullare."
+          : "I found these bookings for the requested date. Choose one to cancel."
+        : input.parsed.dateText
+          ? input.locale === "it"
+            ? "Non trovo prenotazioni in quella data. Scegli dalla lista delle prenotazioni attive."
+            : "I cannot find bookings on that date. Choose from your active bookings."
+          : input.locale === "it"
+            ? "Scegli la prenotazione da annullare."
+            : "Choose the booking to cancel.";
       return {
         artifact: {
           kind: "booking_list",
-          prompt: selectReplyPrompt(
-            input.locale === "it"
-              ? "Scegli la prenotazione da annullare."
-              : "Choose the booking to cancel.",
-            input.parsed.replyText
-          ),
+          prompt: selectReplyPrompt(defaultPrompt, input.parsed.replyText),
           action: "cancel",
-          items
+          items: rankedItems
         }
       };
     }
 
     case "reschedule_booking": {
       const items = await deps.listBookingsByPhone({ phone: input.phone, limit: 10 });
+      const { ranked: rankedItems, matchedByDate } = rankBookingsForAction(items, {
+        dateText: input.parsed.dateText,
+        locale: input.locale,
+        timezone: input.tenantConfig.timezone
+      });
       logBookingFunnelStep(input.traceId, {
-        step: items.length > 0 ? "reschedule_selection_shown" : "no_active_bookings",
+        step: rankedItems.length > 0 ? "reschedule_selection_shown" : "no_active_bookings",
         locale: input.locale,
         intent: input.parsed.intent
       });
+      const defaultPrompt = matchedByDate
+        ? input.locale === "it"
+          ? "Ho trovato queste prenotazioni per la data indicata. Scegli quale spostare."
+          : "I found these bookings for the requested date. Choose one to reschedule."
+        : input.parsed.dateText
+          ? input.locale === "it"
+            ? "Non trovo prenotazioni in quella data. Scegli dalla lista delle prenotazioni attive."
+            : "I cannot find bookings on that date. Choose from your active bookings."
+          : input.locale === "it"
+            ? "Scegli la prenotazione da spostare."
+            : "Choose the booking to reschedule.";
       return {
         artifact: {
           kind: "booking_list",
-          prompt: selectReplyPrompt(
-            input.locale === "it"
-              ? "Scegli la prenotazione da spostare."
-              : "Choose the booking to reschedule.",
-            input.parsed.replyText
-          ),
+          prompt: selectReplyPrompt(defaultPrompt, input.parsed.replyText),
           action: "reschedule",
-          items
+          items: rankedItems
         }
       };
     }
@@ -1567,6 +1589,56 @@ function formatBookingChoice(startAtIso: string, locale: SupportedLocale) {
     minute: "2-digit",
     hour12: false
   }).format(new Date(startAtIso));
+}
+
+function rankBookingsForAction(
+  items: BookingItem[],
+  input: {
+    dateText?: string;
+    locale: SupportedLocale;
+    timezone: string;
+  }
+) {
+  const activeItems = items.filter((item) => item.status === "pending" || item.status === "confirmed");
+  if (!input.dateText?.trim()) {
+    return { ranked: activeItems, matchedByDate: false };
+  }
+  const dateIso = normalizeDateCandidate(input.dateText, input.locale, input.timezone);
+  if (!dateIso) {
+    return { ranked: activeItems, matchedByDate: false };
+  }
+  const sameDate: BookingItem[] = [];
+  const otherDates: BookingItem[] = [];
+  for (const item of activeItems) {
+    const itemDate = toDateInTimezone(item.startAt, input.timezone);
+    if (itemDate === dateIso) {
+      sameDate.push(item);
+      continue;
+    }
+    otherDates.push(item);
+  }
+  const ranked = sameDate.concat(otherDates);
+  return { ranked, matchedByDate: sameDate.length > 0 };
+}
+
+function toDateInTimezone(iso: string, timezone: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const year = parts.find((item) => item.type === "year")?.value;
+  const month = parts.find((item) => item.type === "month")?.value;
+  const day = parts.find((item) => item.type === "day")?.value;
+  if (!year || !month || !day) {
+    return "";
+  }
+  return `${year}-${month}-${day}`;
 }
 
 function resolveNamedChoice<T>(items: T[], query: string | undefined, readLabel: (item: T) => string) {

@@ -19,6 +19,8 @@
 - Реализован базовый anti-stale reset policy + idle timeout (`SESSION_IDLE_RESET_MINUTES`).
 - Реализован entity carry-over для master/date/time при сценариях с неполным первым запросом.
 - Подключены runtime counters и structured logs.
+- Добавлен smarter `reply_text` policy (анти-шаблонные ответы, только контекстные override).
+- Для cancel/reschedule добавлен date-aware ranking списка записей (релевантные даты первыми).
 
 ---
 
@@ -90,9 +92,8 @@
 **Проблема:** часть ответов остается шаблонно-механической.  
 **Нужно:** использовать `reply_text` как override там, где нужен человеческий ответ (ambiguous, emotional, unexpected mid-flow), но без разрушения FSM шага.
 
-Файлы:
-- `apps/bot/src/openai-prompts.ts`
-- `apps/bot/src/ai-orchestrator.ts`
+Статус: **базовая версия реализована** (prompt-contract + фильтр low-value reply_text + контекстный override в prompt selection).  
+Осталось: точечная тонкая настройка phrasing по UAT логам.
 
 ---
 
