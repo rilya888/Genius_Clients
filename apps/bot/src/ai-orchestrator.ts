@@ -2065,11 +2065,11 @@ function normalizeParsedIntentWithHeuristics(parsed: AiParseResult, text: string
     };
   }
 
-  if (hasBookingList && !bookingSignal) {
+  if (hasBookingList && !hasCancel && !hasReschedule) {
     return {
       ...parsed,
       intent: "booking_list",
-      confidence: parsed.confidence === "low" ? "medium" : parsed.confidence,
+      confidence: parsed.confidence === "low" ? "medium" : "high",
       replyText:
         locale === "it"
           ? "Ecco le tue prenotazioni attive."
@@ -2102,11 +2102,11 @@ function normalizeParsedIntentWithHeuristics(parsed: AiParseResult, text: string
   }
 
   if (parsed.intent === "unknown") {
-    if (hasBookingList && !bookingSignal) {
+    if (hasBookingList && !hasCancel && !hasReschedule) {
       return {
         ...parsed,
         intent: "booking_list",
-        confidence: "medium",
+        confidence: "high",
         replyText:
           locale === "it"
             ? "Ecco le tue prenotazioni attive."
