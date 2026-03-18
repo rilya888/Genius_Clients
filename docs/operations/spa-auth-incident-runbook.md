@@ -33,6 +33,10 @@ Alternative (auto-create temporary tenant for smoke):
 - `SMOKE_AUTH_AUTOREGISTER=1`
 - `SMOKE_API_URL`
 
+Cleanup of old auto-created smoke tenants:
+- dry-run: `DATABASE_URL=... pnpm ops:cleanup-smoke-tenants`
+- apply deactivation: `DATABASE_URL=... APPLY=1 pnpm ops:cleanup-smoke-tenants`
+
 ## API checks
 
 Run these calls with the affected tenant slug:

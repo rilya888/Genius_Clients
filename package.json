@@ -37,6 +37,7 @@
     "smoke:web-vite:api-target": "node scripts/smoke/web-vite-api-target-smoke.mjs",
     "smoke:spa:auth-admin": "node scripts/smoke/spa-auth-admin-contract-smoke.mjs",
     "smoke:spa:public": "node scripts/smoke/spa-public-contract-smoke.mjs",
+    "ops:cleanup-smoke-tenants": "bash scripts/ops/cleanup-smoke-tenants.sh",
     "release:spa:gates": "node scripts/release/spa-release-gates.mjs",
     "railway:audit-env": "bash scripts/release/audit-railway-env.sh production",
     "railway:audit-env:staging": "bash scripts/release/audit-railway-env.sh staging",
