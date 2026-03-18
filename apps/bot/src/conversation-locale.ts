@@ -30,6 +30,9 @@ export function resolveConversationLocale(input: {
   }
 
   const words = tokenize(normalized);
+  if (input.sessionLocale && isNeutralShortFollowup(words, normalized)) {
+    return { resolvedLocale: input.sessionLocale, localeReason: "session_locale" };
+  }
 
   const italianMarkerScore = countMatches(normalized, words, ITALIAN_MARKERS, ITALIAN_PHRASES);
   const englishMarkerScore = countMatches(normalized, words, ENGLISH_MARKERS, ENGLISH_PHRASES);
@@ -222,3 +225,29 @@ const ENGLISH_MARKERS = [
 
 const ITALIAN_PHRASES = ["per favore", "mie prenotazioni", "i miei appuntamenti", "le mie prenotazioni"];
 const ENGLISH_PHRASES = ["thank you", "my bookings", "my booking", "can you", "i want", "i need"];
+
+function isNeutralShortFollowup(words: string[], normalized: string) {
+  if (!normalized) {
+    return true;
+  }
+  if (words.length > 2) {
+    return false;
+  }
+  const neutralSet = new Set([
+    "ok",
+    "okay",
+    "yes",
+    "no",
+    "si",
+    "sì",
+    "va",
+    "bene",
+    "domani",
+    "oggi",
+    "tomorrow",
+    "today",
+    "thanks",
+    "grazie"
+  ]);
+  return words.every((word) => neutralSet.has(word));
+}

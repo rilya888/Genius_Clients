@@ -844,6 +844,35 @@ function isChangeTimeRequest(value: string) {
   );
 }
 
+function detectBookingFlowAdjustment(value: string): "to_master" | "to_date" | "to_slot" | null {
+  const text = value.trim().toLowerCase();
+  if (!text) {
+    return null;
+  }
+  if (
+    /\b(change master|different master|another master|switch master|cambia master|altro master|cambiare master|другой мастер|сменить мастера)\b/.test(
+      text
+    )
+  ) {
+    return "to_master";
+  }
+  if (
+    /\b(change date|different date|another date|change day|different day|cambia data|altra data|cambiare data|другая дата|сменить дату|другой день)\b/.test(
+      text
+    )
+  ) {
+    return "to_date";
+  }
+  if (
+    /\b(change time|another time|different time|change slot|cambia orario|altro orario|cambiare orario|другое время|сменить время)\b/.test(
+      text
+    )
+  ) {
+    return "to_slot";
+  }
+  return null;
+}
+
 function parseClientName(value: string | undefined) {
   if (!value) {
     return undefined;
@@ -1488,6 +1517,41 @@ export async function processWhatsAppConversation(
 
   if (!session.intent && session.state !== "choose_intent") {
     session = createInitialSession(input.locale);
+  }
+
+  if (!input.replyId && input.text && session.intent === "new_booking") {
+    const adjustment = detectBookingFlowAdjustment(input.text);
+    if (adjustment === "to_master" && (session.state === "choose_date" || session.state === "choose_slot" || session.state === "confirm")) {
+      session.state = "choose_master";
+      session.masterPage = 0;
+      session.masterId = undefined;
+      session.masterName = undefined;
+      session.date = undefined;
+      session.slotStartAt = undefined;
+      session.slotDisplayTime = undefined;
+      await deps.saveSession(input.from, session);
+      await promptMaster(input, session, deps);
+      return { handled: true };
+    }
+    if (adjustment === "to_date" && (session.state === "choose_slot" || session.state === "confirm")) {
+      session.state = "choose_date";
+      session.datePage = 0;
+      session.date = undefined;
+      session.slotStartAt = undefined;
+      session.slotDisplayTime = undefined;
+      await deps.saveSession(input.from, session);
+      await promptDate(input, session, deps);
+      return { handled: true };
+    }
+    if (adjustment === "to_slot" && session.state === "confirm" && session.date) {
+      session.state = "choose_slot";
+      session.slotPage = 0;
+      session.slotStartAt = undefined;
+      session.slotDisplayTime = undefined;
+      await deps.saveSession(input.from, session);
+      await promptSlot(input, session, deps);
+      return { handled: true };
+    }
   }
 
   switch (session.state) {

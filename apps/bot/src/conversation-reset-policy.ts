@@ -1,5 +1,6 @@
 import type { SupportedLocale } from "@genius/i18n";
 import {
+  createCheckpointFromSession,
   createInitialSession,
   resetSessionForNewConversation,
   type ConversationIntent,
@@ -81,12 +82,17 @@ export async function applyConversationResetPolicy(
   }
 
   if (idleMinutes !== undefined && idleMinutes > input.idleResetMinutes && !input.replyId) {
+    const checkpoint = createCheckpointFromSession(session, "idle_timeout", nowIso);
+    const resetSession = resetSessionForNewConversation({
+      locale: input.locale,
+      nowIso,
+      reason: "idle_timeout"
+    });
+    if (checkpoint) {
+      resetSession.lastCheckpoint = checkpoint;
+    }
     return {
-      session: resetSessionForNewConversation({
-        locale: input.locale,
-        nowIso,
-        reason: "idle_timeout"
-      }),
+      session: resetSession,
       decision: "reset_due_to_timeout",
       reason: "idle_timeout",
       detectedIntent,
@@ -124,12 +130,17 @@ export async function applyConversationResetPolicy(
     }
 
     if (!input.replyId && normalizedText) {
+      const checkpoint = createCheckpointFromSession(session, "handoff_restart", nowIso);
+      const resetSession = resetSessionForNewConversation({
+        locale: input.locale,
+        nowIso,
+        reason: "handoff_restart"
+      });
+      if (checkpoint) {
+        resetSession.lastCheckpoint = checkpoint;
+      }
       return {
-        session: resetSessionForNewConversation({
-          locale: input.locale,
-          nowIso,
-          reason: "handoff_restart"
-        }),
+        session: resetSession,
         decision: "hard_reset_to_menu",
         reason: "handoff_restart",
         detectedIntent,
@@ -162,12 +173,17 @@ export async function applyConversationResetPolicy(
   }
 
   if (detectedIntent !== "unknown" && isIntentConflict(session, detectedIntent)) {
+    const checkpoint = createCheckpointFromSession(session, "intent_conflict", nowIso);
+    const resetSession = resetSessionForNewConversation({
+      locale: input.locale,
+      nowIso,
+      reason: "intent_conflict"
+    });
+    if (checkpoint) {
+      resetSession.lastCheckpoint = checkpoint;
+    }
     return {
-      session: resetSessionForNewConversation({
-        locale: input.locale,
-        nowIso,
-        reason: "intent_conflict"
-      }),
+      session: resetSession,
       decision: "hard_reset_to_new_intent",
       reason: "intent_conflict",
       detectedIntent,
@@ -255,12 +271,17 @@ export async function applyConversationResetPolicy(
   }
 
   if (normalizedText) {
+    const checkpoint = createCheckpointFromSession(session, "non_continuation_message", nowIso);
+    const resetSession = resetSessionForNewConversation({
+      locale: input.locale,
+      nowIso,
+      reason: "non_continuation_message"
+    });
+    if (checkpoint) {
+      resetSession.lastCheckpoint = checkpoint;
+    }
     return {
-      session: resetSessionForNewConversation({
-        locale: input.locale,
-        nowIso,
-        reason: "non_continuation_message"
-      }),
+      session: resetSession,
       decision: "hard_reset_to_menu",
       reason: "non_continuation_message",
       detectedIntent,
@@ -377,6 +398,20 @@ async function classifyContinuation(
 ) {
   if (!text) {
     return { matched: false, classifier: "none" as const, count: 0, type: null };
+  }
+
+  // Preserve booking context for in-flow adjustments (change master/date/time).
+  if (
+    session.intent === "new_booking" &&
+    (session.state === "choose_date" || session.state === "choose_slot" || session.state === "confirm") &&
+    isBookingFlowAdjustmentText(text)
+  ) {
+    return {
+      matched: true,
+      classifier: "semantic" as const,
+      count: 1,
+      type: "confirm" as const
+    };
   }
 
   const tokenType = classifyTokenType(text);
@@ -522,11 +557,23 @@ function isStandaloneIntentMessage(text: string) {
 }
 
 function isDateLike(text: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) || /^\d{1,2}[/. -]\d{1,2}(?:[/. -]\d{2,4})?$/.test(text);
+  return (
+    /^\d{4}-\d{2}-\d{2}$/.test(text) ||
+    /^\d{1,2}[/. -]\d{1,2}(?:[/. -]\d{2,4})?$/.test(text) ||
+    /\b(today|tomorrow|oggi|domani|monday|tuesday|wednesday|thursday|friday|saturday|sunday|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)\b/.test(
+      text
+    )
+  );
 }
 
 function isTimeLike(text: string) {
   return /^\d{1,2}:\d{2}$/.test(text) || /\b\d{1,2}\s?(am|pm)\b/.test(text);
+}
+
+function isBookingFlowAdjustmentText(text: string) {
+  return /\b(change master|different master|another master|switch master|cambia master|altro master|cambiare master|change date|different date|another date|change day|different day|cambia data|altra data|cambiare data|change time|another time|different time|change slot|cambia orario|altro orario|cambiare orario)\b/.test(
+    text
+  );
 }
 
 function isUuidLike(value: string) {

@@ -714,6 +714,18 @@ async function resolveAiPlan(
 
   switch (input.parsed.intent) {
     case "human_handoff": {
+      if (!input.tenantConfig.humanHandoffEnabled) {
+        return {
+          artifact: {
+            kind: "quick_actions",
+            prompt:
+              input.locale === "it"
+                ? "Capisco il problema. Posso aiutarti subito con prenotazioni, annullamenti o spostamenti."
+                : "I understand the issue. I can help right now with booking, cancellation, or rescheduling.",
+            items: buildIntentQuickActions(input.locale)
+          }
+        };
+      }
       const summary = sanitizeHandoffSummary(
         input.parsed.handoffSummary?.trim() ||
           input.parsed.replyText?.trim() ||
