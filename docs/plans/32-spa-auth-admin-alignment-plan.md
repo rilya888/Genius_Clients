@@ -115,3 +115,23 @@
   - несколько салонов в одной организации;
   - отдельный WhatsApp номер и бот-конфиг на салон;
   - централизованное управление доступами и лимитами по тарифу.
+
+## Статус реализации на 18 марта 2026
+
+Выполнено:
+- стабилизирован auth/session контракт (`login/register/refresh/me/logout`) для SPA;
+- внедрён session-layer c auto-refresh и controlled logout;
+- добавлен runtime API resolver для production;
+- закрыты проблемы с `Authorization`/CSRF заголовками;
+- выровнены admin API вызовы с retry на `401`;
+- добавлены smoke-гейты (`spa:auth-admin`, `spa:public`, `web-vite:api-target`);
+- добавлены runbook и compatibility matrix;
+- UI scope переведён с фейковых account/salon данных на реальный session context (`tenantId`, `role`, `email`).
+
+Частично/в процессе:
+- строгая политика релиз-гейтов включается через флаги (`RELEASE_REQUIRE_AUTH_SMOKE=1`);
+- для auth smoke добавлен autoregister, но требуется контроль очистки тестовых tenant в production.
+
+Остаток до полного закрытия этапа:
+- добавить периодическую очистку/архивацию временных smoke-tenant;
+- приоритизировать внедрение enterprise account/salon API как источник реального multi-salon scope вместо single-salon fallback в UI.

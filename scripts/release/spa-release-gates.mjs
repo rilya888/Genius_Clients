@@ -10,16 +10,19 @@ const steps = [
 ];
 
 const hasAuthSmokeCreds = Boolean(process.env.SMOKE_AUTH_EMAIL && process.env.SMOKE_AUTH_PASSWORD);
+const hasAuthAutoregister = process.env.SMOKE_AUTH_AUTOREGISTER === "1";
 const requireAuthSmoke = process.env.RELEASE_REQUIRE_AUTH_SMOKE === "1";
-if (hasAuthSmokeCreds) {
+if (hasAuthSmokeCreds || hasAuthAutoregister) {
   steps.push(["pnpm", ["smoke:spa:auth-admin"]]);
 } else if (requireAuthSmoke) {
   console.error(
-    "[spa-release-gates] auth-admin smoke is required, but SMOKE_AUTH_EMAIL/SMOKE_AUTH_PASSWORD are missing"
+    "[spa-release-gates] auth-admin smoke is required, but SMOKE_AUTH_EMAIL/SMOKE_AUTH_PASSWORD are missing and SMOKE_AUTH_AUTOREGISTER is not enabled"
   );
   process.exit(1);
 } else {
-  console.log("[spa-release-gates] skipping auth-admin smoke (missing SMOKE_AUTH_EMAIL/SMOKE_AUTH_PASSWORD)");
+  console.log(
+    "[spa-release-gates] skipping auth-admin smoke (missing SMOKE_AUTH_EMAIL/SMOKE_AUTH_PASSWORD and SMOKE_AUTH_AUTOREGISTER!=1)"
+  );
 }
 
 if (process.env.SMOKE_TENANT_SLUG || process.env.VITE_TENANT_SLUG) {

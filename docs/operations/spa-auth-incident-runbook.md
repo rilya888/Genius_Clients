@@ -29,6 +29,10 @@ Required env for `smoke:spa:auth-admin`:
 - `SMOKE_AUTH_PASSWORD`
 - `SMOKE_TENANT_SLUG`
 
+Alternative (auto-create temporary tenant for smoke):
+- `SMOKE_AUTH_AUTOREGISTER=1`
+- `SMOKE_API_URL`
+
 ## API checks
 
 Run these calls with the affected tenant slug:
