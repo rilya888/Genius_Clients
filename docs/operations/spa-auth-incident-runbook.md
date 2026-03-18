@@ -44,6 +44,10 @@ Run these calls with the affected tenant slug:
 
 If step 2 works and step 3 fails with `401`, verify Authorization header propagation in SPA client.
 
+If auth/public routes return intermittent `500` with reason `rate_limit_store_unavailable`:
+- verify Redis health/connectivity;
+- keep `RATE_LIMIT_FAIL_CLOSED=false` to allow in-memory fallback during Redis incidents.
+
 ## Frontend checks
 
 1. Confirm `localStorage` has:

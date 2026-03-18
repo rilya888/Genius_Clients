@@ -8,6 +8,8 @@ const REDIS_RATE_LIMIT_PREFIX = process.env.RATE_LIMIT_REDIS_PREFIX ?? "rl:v1";
 const REDIS_REQUIRED =
   process.env.RATE_LIMIT_REDIS_REQUIRED === "true" ||
   (process.env.NODE_ENV === "production" && process.env.RATE_LIMIT_REDIS_REQUIRED !== "false");
+const RATE_LIMIT_FAIL_CLOSED = process.env.RATE_LIMIT_FAIL_CLOSED === "true";
+let lastDegradedLogAt = 0;
 
 function getClientIp(c: Context<ApiAppEnv>): string {
   const forwarded = c.req.header("x-forwarded-for");
@@ -105,10 +107,16 @@ export async function rateLimitMiddleware(c: Context<ApiAppEnv>, next: Next) {
     windowMs: policy.windowMs,
     now
   });
-  // Webhook providers require fast, deterministic responses for verification/retries.
-  // If Redis is temporarily unavailable, webhook paths should fall back to in-memory counters.
-  if (!redisCounter && REDIS_REQUIRED && !isWebhookPath) {
+  // Degraded mode: avoid full auth/public/admin outage when Redis is transiently unavailable.
+  // Use fail-closed only when explicitly requested by env.
+  if (!redisCounter && REDIS_REQUIRED && RATE_LIMIT_FAIL_CLOSED && !isWebhookPath) {
     throw appError("INTERNAL_ERROR", { reason: "rate_limit_store_unavailable" });
+  }
+  if (!redisCounter && REDIS_REQUIRED && !isWebhookPath) {
+    if (now - lastDegradedLogAt > 60_000) {
+      lastDegradedLogAt = now;
+      console.warn("[api] rate-limit degraded mode: using in-memory fallback because redis is unavailable");
+    }
   }
   const counter =
     redisCounter ??
