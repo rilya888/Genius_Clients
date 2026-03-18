@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listAdminServices } from "../shared/api/adminApi";
+import { formatApiError } from "../shared/api/formatApiError";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/AsyncState";
 import { useI18n } from "../shared/i18n/I18nProvider";
 
@@ -39,9 +40,9 @@ export function ServicesPage() {
           });
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) {
-          setState({ pending: false, error: t("services.loadFailed"), data: [] });
+          setState({ pending: false, error: formatApiError(error, t("services.loadFailed")), data: [] });
         }
       });
 

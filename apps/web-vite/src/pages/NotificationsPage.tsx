@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getNotificationSummary, listNotificationDeliveries, retryFailedNotifications } from "../shared/api/adminApi";
+import { formatApiError } from "../shared/api/formatApiError";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { useScopeContext } from "../shared/hooks/useScopeContext";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/AsyncState";
@@ -29,9 +30,9 @@ export function NotificationsPage() {
           setSummary({ pending: false, error: null, data: { total: data.total, failed: data.failed, deadLetter: data.deadLetter } });
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) {
-          setSummary({ pending: false, error: t("admin.notifications.loadSummaryFailed"), data: null });
+          setSummary({ pending: false, error: formatApiError(error, t("admin.notifications.loadSummaryFailed")), data: null });
         }
       });
 
@@ -51,9 +52,9 @@ export function NotificationsPage() {
           });
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) {
-          setRows({ pending: false, error: t("admin.notifications.loadRowsFailed"), data: [] });
+          setRows({ pending: false, error: formatApiError(error, t("admin.notifications.loadRowsFailed")), data: [] });
         }
       });
 
@@ -72,8 +73,8 @@ export function NotificationsPage() {
     try {
       const result = await retryFailedNotifications();
       setMessage(`${t("admin.notifications.retryCta")}: ${result.queued}`);
-    } catch {
-      setMessage(t("admin.notifications.retryFailed"));
+    } catch (error) {
+      setMessage(formatApiError(error, t("admin.notifications.retryFailed")));
     } finally {
       setRetryPending(false);
     }

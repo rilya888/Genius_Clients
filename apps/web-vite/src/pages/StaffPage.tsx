@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listAdminMasters } from "../shared/api/adminApi";
+import { formatApiError } from "../shared/api/formatApiError";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/AsyncState";
 import { useI18n } from "../shared/i18n/I18nProvider";
 
@@ -25,9 +26,9 @@ export function StaffPage() {
           setState({ pending: false, error: null, data: items });
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) {
-          setState({ pending: false, error: t("admin.staff.loadFailed"), data: [] });
+          setState({ pending: false, error: formatApiError(error, t("admin.staff.loadFailed")), data: [] });
         }
       });
 

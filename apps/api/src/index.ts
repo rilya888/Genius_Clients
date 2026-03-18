@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { requestContextMiddleware } from "./middleware/request-context";
 import { errorHandlerMiddleware } from "./middleware/error-handler";
 import { createApiV1Routes } from "./routes";
@@ -7,8 +8,45 @@ import type { ApiAppEnv } from "./lib/hono-env";
 
 const app = new Hono<ApiAppEnv>();
 
+const configuredCorsOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((item) => item.trim())
+  .filter(Boolean);
+const implicitCorsOrigins = [process.env.APP_URL, process.env.WEB_URL]
+  .map((item) => item?.trim())
+  .filter((item): item is string => Boolean(item));
+const allowedCorsOrigins = new Set([...configuredCorsOrigins, ...implicitCorsOrigins]);
+
+function isAllowedRailwayWebOrigin(origin: string) {
+  return /^https:\/\/web-[a-z0-9-]+\.up\.railway\.app$/i.test(origin);
+}
+
 app.use("*", requestContextMiddleware);
 app.use("*", errorHandlerMiddleware);
+app.use(
+  "/api/v1/*",
+  cors({
+    origin: (origin) => {
+      if (!origin) {
+        return undefined;
+      }
+      if (allowedCorsOrigins.has(origin) || isAllowedRailwayWebOrigin(origin)) {
+        return origin;
+      }
+      return undefined;
+    },
+    allowHeaders: [
+      "authorization",
+      "content-type",
+      "x-csrf-token",
+      "x-internal-tenant-id",
+      "x-internal-tenant-slug",
+      "x-request-id"
+    ],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    exposeHeaders: ["x-request-id"]
+  })
+);
 
 app.route("/api/v1", createApiV1Routes());
 

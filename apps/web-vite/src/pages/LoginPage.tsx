@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { login } from "../shared/api/authApi";
+import { formatApiError } from "../shared/api/formatApiError";
 import { useI18n } from "../shared/i18n/I18nProvider";
+import { saveSession } from "../shared/auth/session";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -24,13 +26,12 @@ export function LoginPage() {
           setError(null);
           login({ email, password })
             .then((data) => {
-              localStorage.setItem("access_token", data.accessToken);
-              localStorage.setItem("refresh_token", data.refreshToken);
+              saveSession(data);
               setMessage(t("auth.loginSuccess"));
               setTimeout(() => navigate("/app"), 150);
             })
-            .catch(() => {
-              setError(t("auth.loginFailed"));
+            .catch((apiError) => {
+              setError(formatApiError(apiError, t("auth.loginFailed")));
             })
             .finally(() => setPending(false));
         }}

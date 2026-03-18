@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listScheduleExceptions, listWorkingHours } from "../shared/api/adminApi";
+import { formatApiError } from "../shared/api/formatApiError";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/AsyncState";
 import { useI18n } from "../shared/i18n/I18nProvider";
 
@@ -50,9 +51,9 @@ export function SchedulePage() {
           setHours({ pending: false, error: null, data: items });
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) {
-          setHours({ pending: false, error: t("admin.schedule.loadHoursFailed"), data: [] });
+          setHours({ pending: false, error: formatApiError(error, t("admin.schedule.loadHoursFailed")), data: [] });
         }
       });
 
@@ -72,9 +73,13 @@ export function SchedulePage() {
           });
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) {
-          setExceptions({ pending: false, error: t("admin.schedule.loadExceptionsFailed"), data: [] });
+          setExceptions({
+            pending: false,
+            error: formatApiError(error, t("admin.schedule.loadExceptionsFailed")),
+            data: []
+          });
         }
       });
 

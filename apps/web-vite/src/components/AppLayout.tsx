@@ -1,7 +1,9 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useMemo } from "react";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { roles, useScopeContext } from "../shared/hooks/useScopeContext";
+import { logout } from "../shared/api/authApi";
+import { clearSession, getRefreshToken } from "../shared/auth/session";
 
 const accounts = [
   { id: "acc_1", name: "Genius Group" },
@@ -15,12 +17,22 @@ const salons = [
 ];
 
 export function AppLayout() {
+  const navigate = useNavigate();
   const { t } = useI18n();
   const { accountId, salonId, role, setAccountId, setSalonId, setRole } = useScopeContext();
 
   const availableSalons = useMemo(() => salons.filter((item) => item.accountId === accountId), [accountId]);
   const selectedAccount = useMemo(() => accounts.find((item) => item.id === accountId), [accountId]);
   const selectedSalon = useMemo(() => salons.find((item) => item.id === salonId), [salonId]);
+
+  async function handleLogout() {
+    try {
+      await logout(getRefreshToken());
+    } finally {
+      clearSession();
+      navigate("/login", { replace: true });
+    }
+  }
 
   return (
     <div className="admin-shell">
@@ -79,6 +91,9 @@ export function AppLayout() {
           <NavLink to="/app/settings/privacy">{t("app.privacy")}</NavLink>
           <NavLink to="/app/settings/notifications">{t("app.notifications")}</NavLink>
         </nav>
+        <button className="btn btn-secondary" type="button" onClick={handleLogout}>
+          {t("app.logout")}
+        </button>
       </aside>
       <main className="admin-main">
         <div className="scope-indicator">

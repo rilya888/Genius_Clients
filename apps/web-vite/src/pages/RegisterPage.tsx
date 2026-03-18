@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { register } from "../shared/api/authApi";
+import { formatApiError } from "../shared/api/formatApiError";
 import { useI18n } from "../shared/i18n/I18nProvider";
+import { saveSession } from "../shared/auth/session";
 
 export function RegisterPage() {
   const navigate = useNavigate();
@@ -26,13 +28,12 @@ export function RegisterPage() {
 
           register({ businessName, email, password })
             .then((data) => {
-              localStorage.setItem("access_token", data.accessToken);
-              localStorage.setItem("refresh_token", data.refreshToken);
+              saveSession(data);
               setMessage(t("auth.registerSuccess"));
               setTimeout(() => navigate("/app"), 150);
             })
-            .catch(() => {
-              setError(t("auth.registerFailed"));
+            .catch((apiError) => {
+              setError(formatApiError(apiError, t("auth.registerFailed")));
             })
             .finally(() => setPending(false));
         }}

@@ -3,7 +3,6 @@ import { authRoutes } from "./auth";
 import { publicRoutes } from "./public";
 import { adminRoutes } from "./admin";
 import { webhookRoutes } from "./webhooks";
-import { internalAuthMiddleware } from "../middleware/internal-auth";
 import { tenantContextMiddleware } from "../middleware/tenant-context";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { csrfMiddleware } from "../middleware/csrf";
@@ -56,18 +55,15 @@ export function createApiV1Routes() {
   });
 
   apiV1.use("/auth/*", rateLimitMiddleware);
-  apiV1.use("/auth/*", internalAuthMiddleware);
   apiV1.use("/auth/*", csrfMiddleware);
   apiV1.route("/auth", authRoutes);
 
   apiV1.use("/public/*", rateLimitMiddleware);
-  apiV1.use("/public/*", internalAuthMiddleware);
   apiV1.use("/public/*", tenantContextMiddleware);
   apiV1.use("/public/*", csrfMiddleware);
   apiV1.route("/public", publicRoutes);
 
   apiV1.use("/admin/*", rateLimitMiddleware);
-  apiV1.use("/admin/*", internalAuthMiddleware);
   apiV1.use("/admin/*", sessionAuthMiddleware);
   apiV1.use("/admin/*", tenantContextMiddleware);
   apiV1.use("/admin/*", csrfMiddleware);
