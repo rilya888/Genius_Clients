@@ -121,8 +121,12 @@
 ### C1. Prompt variant per tenant
 Переключать вариант промта через tenant config, без общего деплоя.
 
+Статус: **реализовано** (`promptVariant` читается из `botConfig`, fallback на default prompt).
+
 ### C2. Фильтрация booking list по дате в cancel/reschedule
 Если пользователь указал дату в тексте, поднимать релевантные записи вверх.
+
+Статус: **реализовано** (date-aware ranking в AI `cancel/reschedule` flow).
 
 ### C3. Политика поздней отмены (tenant policy)
 `lateCancelWarnHours` / `lateCancelBlockHours`.
