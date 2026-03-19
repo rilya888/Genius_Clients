@@ -19,6 +19,17 @@ const tenantSubscriptionRepository = new SuperAdminTenantSubscriptionRepository(
 const auditRepository = new SuperAdminAuditRepository();
 const versionRepository = new SuperAdminVersionRepository();
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+function buildSuperAdminCookie(input: {
+  cookieName: string;
+  token: string;
+  maxAgeSeconds: number;
+}) {
+  const sameSite = IS_PRODUCTION ? "None" : "Strict";
+  const secure = IS_PRODUCTION ? "; Secure" : "";
+  return `${input.cookieName}=${input.token}; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=${input.maxAgeSeconds}${secure}`;
+}
 
 function secureCompare(left: string, right: string): boolean {
   const leftBuf = Buffer.from(left, "utf8");
@@ -209,10 +220,7 @@ export const superAdminRoutes = new Hono()
       ttlSeconds: maxAgeSeconds
     });
 
-    c.header(
-      "set-cookie",
-      `${env.cookieName}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSeconds}`
-    );
+    c.header("set-cookie", buildSuperAdminCookie({ cookieName: env.cookieName, token, maxAgeSeconds }));
 
     return c.json({ data: { ok: true } });
   })
@@ -221,10 +229,7 @@ export const superAdminRoutes = new Hono()
   .post("/auth/logout", async (c) => {
     const env = getSuperAdminEnv();
 
-    c.header(
-      "set-cookie",
-      `${env.cookieName}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`
-    );
+    c.header("set-cookie", buildSuperAdminCookie({ cookieName: env.cookieName, token: "", maxAgeSeconds: 0 }));
 
     return c.json({ data: { ok: true } });
   })
