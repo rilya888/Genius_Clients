@@ -4,50 +4,74 @@ import { captureException } from "@genius/shared";
 import { AppError } from "../lib/http";
 import type { ApiAppEnv } from "../lib/hono-env";
 
-export async function errorHandlerMiddleware(c: Context<ApiAppEnv>, next: Next) {
-  try {
-    await next();
-  } catch (error) {
-    const requestId = c.get("requestId") as string | undefined;
+function isAppErrorLike(error: unknown): error is {
+  code: string;
+  message: string;
+  status: number;
+  details?: unknown;
+} {
+  if (error instanceof AppError) {
+    return true;
+  }
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const candidate = error as Record<string, unknown>;
+  return (
+    typeof candidate.code === "string" &&
+    typeof candidate.message === "string" &&
+    typeof candidate.status === "number"
+  );
+}
 
-    if (error instanceof AppError) {
-      const status = error.status as ContentfulStatusCode;
-      return c.json(
-        {
-          error: {
-            code: error.code,
-            message: error.message,
-            details: error.details
-          },
-          meta: {
-            requestId
-          }
-        },
-        status
-      );
-    }
+export async function handleApiError(error: unknown, c: Context<ApiAppEnv>) {
+  const requestId = c.get("requestId") as string | undefined;
 
-    await captureException({
-      service: "api",
-      error,
-      context: {
-        requestId,
-        path: c.req.path,
-        method: c.req.method
-      }
-    });
-
+  if (isAppErrorLike(error)) {
+    const status = error.status as ContentfulStatusCode;
     return c.json(
       {
         error: {
-          code: "INTERNAL_ERROR",
-          message: "Internal error"
+          code: error.code,
+          message: error.message,
+          details: error.details
         },
         meta: {
           requestId
         }
       },
-      500
+      status
     );
+  }
+
+  await captureException({
+    service: "api",
+    error,
+    context: {
+      requestId,
+      path: c.req.path,
+      method: c.req.method
+    }
+  });
+
+  return c.json(
+    {
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "Internal error"
+      },
+      meta: {
+        requestId
+      }
+    },
+    500
+  );
+}
+
+export async function errorHandlerMiddleware(c: Context<ApiAppEnv>, next: Next) {
+  try {
+    await next();
+  } catch (error) {
+    return handleApiError(error, c);
   }
 }
