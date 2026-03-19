@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "tsc -p tsconfig.json --noEmit",
-    "start": "next start"
+    "dev": "pnpm --filter @genius/web-vite run dev",
+    "build": "pnpm --filter @genius/web-vite run build:prerender",
+    "typecheck": "pnpm --filter @genius/web-vite run typecheck",
+    "lint": "pnpm --filter @genius/web-vite run lint",
+    "start": "pnpm --filter @genius/web-vite run start"
   },
   "dependencies": {
     "@genius/i18n": "workspace:*",
