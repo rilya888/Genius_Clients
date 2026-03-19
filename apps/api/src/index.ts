@@ -57,7 +57,8 @@ app.use(
       "x-request-id"
     ],
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    exposeHeaders: ["x-request-id"]
+    exposeHeaders: ["x-request-id"],
+    credentials: true
   })
 );
 
