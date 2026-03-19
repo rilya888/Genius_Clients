@@ -1,4 +1,5 @@
 const DEFAULT_LOCAL_API_URL = "http://localhost:8787";
+const DEFAULT_PRODUCTION_API_URL = "https://api-production-9caa.up.railway.app";
 const TENANT_SLUG = import.meta.env.VITE_TENANT_SLUG ?? "demo";
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -22,7 +23,9 @@ function resolveApiBaseUrl() {
     return `${protocol}//${hostname.replace(/^web-/, "api-")}`;
   }
 
-  return origin;
+  // Custom domains cannot be transformed from web->api host reliably.
+  // Use explicit production API fallback when build-time VITE_API_URL is not injected.
+  return DEFAULT_PRODUCTION_API_URL;
 }
 
 const API_BASE_URL = resolveApiBaseUrl();
