@@ -29,6 +29,14 @@ export async function handleApiError(error: unknown, c: Context<ApiAppEnv>) {
 
   if (isAppErrorLike(error)) {
     const status = error.status as ContentfulStatusCode;
+    console.error("[api] app error", {
+      requestId,
+      method: c.req.method,
+      path: c.req.path,
+      status: error.status,
+      code: error.code,
+      details: error.details
+    });
     return c.json(
       {
         error: {
