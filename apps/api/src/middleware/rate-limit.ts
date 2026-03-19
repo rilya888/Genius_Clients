@@ -20,6 +20,9 @@ function getClientIp(c: Context<ApiAppEnv>): string {
 }
 
 function getPolicy(path: string): { limit: number; windowMs: number; bucket: string } {
+  if (path.includes("/super-admin/auth/login")) {
+    return { limit: 20, windowMs: 60_000, bucket: "super-admin-login" };
+  }
   if (path.includes("/auth/")) {
     return { limit: 60, windowMs: 60_000, bucket: "auth" };
   }

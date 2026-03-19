@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test src/lib/super-admin/token.test.ts",
     "start": "node dist/index.js",
     "start:runtime": "tsx src/index.ts"
   },

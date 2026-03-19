@@ -2,10 +2,12 @@ import { appError } from "../lib/http";
 import {
   AuditRepository,
   AdminRepository,
+  BookingRepository,
   NotificationRepository,
   StripeRepository,
   TenantRepository
 } from "../repositories";
+import { SubscriptionGovernanceService } from "./subscription-governance-service";
 
 export class AdminService {
   private readonly adminRepository = new AdminRepository();
@@ -13,6 +15,8 @@ export class AdminService {
   private readonly auditRepository = new AuditRepository();
   private readonly notificationRepository = new NotificationRepository();
   private readonly stripeRepository = new StripeRepository();
+  private readonly bookingRepository = new BookingRepository();
+  private readonly subscriptionGovernanceService = new SubscriptionGovernanceService();
 
   private assertMinuteRange(startMinute: number, endMinute: number) {
     if (
@@ -80,6 +84,16 @@ export class AdminService {
       throw appError("VALIDATION_ERROR", { reason: "display_name_required" });
     }
 
+    const existing = await this.adminRepository.findMasterByDisplayName({
+      tenantId: input.tenantId,
+      displayName
+    });
+    if (existing) {
+      throw appError("CONFLICT", { reason: "master_display_name_already_exists" });
+    }
+
+    await this.subscriptionGovernanceService.enforceCanCreateMaster(input.tenantId);
+
     const created = await this.adminRepository.createMaster({
       tenantId: input.tenantId,
       displayName,
@@ -98,10 +112,34 @@ export class AdminService {
     masterId: string;
     displayName: string;
     isActive: boolean;
+    forceDeactivate?: boolean;
   }) {
     const displayName = input.displayName.trim();
     if (!displayName) {
       throw appError("VALIDATION_ERROR", { reason: "display_name_required" });
+    }
+
+    const existing = await this.adminRepository.findMasterByDisplayName({
+      tenantId: input.tenantId,
+      displayName,
+      excludeMasterId: input.masterId
+    });
+    if (existing) {
+      throw appError("CONFLICT", { reason: "master_display_name_already_exists" });
+    }
+
+    if (!input.isActive) {
+      const impact = await this.getMasterDeactivationImpact({
+        tenantId: input.tenantId,
+        masterId: input.masterId
+      });
+      if (impact.upcomingConfirmedCount > 0 && !input.forceDeactivate) {
+        throw appError("VALIDATION_ERROR", {
+          reason: "master_has_confirmed_bookings",
+          upcomingConfirmedCount: impact.upcomingConfirmedCount,
+          earliestStartAt: impact.earliestStartAt
+        });
+      }
     }
 
     const updated = await this.adminRepository.updateMaster({
@@ -118,7 +156,27 @@ export class AdminService {
     return updated;
   }
 
+  async getMasterDeactivationImpact(input: { tenantId: string; masterId: string }) {
+    return this.bookingRepository.getUpcomingConfirmedImpactByMaster({
+      tenantId: input.tenantId,
+      masterId: input.masterId,
+      now: new Date()
+    });
+  }
+
   async deleteMaster(input: { tenantId: string; masterId: string }) {
+    const impact = await this.getMasterDeactivationImpact({
+      tenantId: input.tenantId,
+      masterId: input.masterId
+    });
+    if (impact.upcomingConfirmedCount > 0) {
+      throw appError("VALIDATION_ERROR", {
+        reason: "master_has_confirmed_bookings",
+        upcomingConfirmedCount: impact.upcomingConfirmedCount,
+        earliestStartAt: impact.earliestStartAt
+      });
+    }
+
     const updated = await this.adminRepository.deactivateMaster(input);
     if (!updated) {
       throw appError("TENANT_NOT_FOUND", { reason: "master_not_found_in_tenant" });
@@ -566,6 +624,8 @@ export class AdminService {
       throw appError("TENANT_NOT_FOUND");
     }
 
+    const limits = await this.subscriptionGovernanceService.getActiveLimits(tenantId);
+
     return {
       account: {
         id: tenant.id,
@@ -581,7 +641,15 @@ export class AdminService {
         }
       ],
       capabilities: {
-        multiSalon: false
+        multiSalon: (limits.maxSalons ?? 1) > 1
+      },
+      subscription: {
+        planCode: limits.planCode,
+        limits: {
+          maxSalons: limits.maxSalons,
+          maxStaff: limits.maxStaff,
+          maxBookingsPerMonth: limits.maxBookingsPerMonth
+        }
       }
     };
   }

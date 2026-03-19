@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import {
   masterServices,
   masterTranslations,
@@ -92,6 +92,16 @@ export class AdminRepository {
       .orderBy(asc(masters.displayName));
   }
 
+  async countActiveMastersByTenant(tenantId: string): Promise<number> {
+    const db = getDb();
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(masters)
+      .where(and(eq(masters.tenantId, tenantId), eq(masters.isActive, true)));
+
+    return Number(row?.count ?? 0);
+  }
+
   async createMaster(input: { tenantId: string; displayName: string; isActive?: boolean }) {
     const db = getDb();
     const [record] = await db
@@ -102,6 +112,33 @@ export class AdminRepository {
         isActive: input.isActive ?? true
       })
       .returning();
+
+    return record ?? null;
+  }
+
+  async findMasterByDisplayName(input: {
+    tenantId: string;
+    displayName: string;
+    excludeMasterId?: string;
+  }) {
+    const db = getDb();
+    const filters = [
+      eq(masters.tenantId, input.tenantId),
+      sql`lower(${masters.displayName}) = lower(${input.displayName})`
+    ];
+
+    if (input.excludeMasterId) {
+      filters.push(ne(masters.id, input.excludeMasterId));
+    }
+
+    const [record] = await db
+      .select({
+        id: masters.id,
+        displayName: masters.displayName
+      })
+      .from(masters)
+      .where(and(...filters))
+      .limit(1);
 
     return record ?? null;
   }

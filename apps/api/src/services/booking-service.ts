@@ -9,6 +9,7 @@ import {
   NotificationRepository,
   TenantRepository
 } from "../repositories";
+import { SubscriptionGovernanceService } from "./subscription-governance-service";
 
 export type PublicBookingInput = {
   tenantId: string;
@@ -44,6 +45,7 @@ export class BookingService {
   private readonly auditRepository = new AuditRepository();
   private readonly tenantRepository = new TenantRepository();
   private readonly notificationRepository = new NotificationRepository();
+  private readonly subscriptionGovernanceService = new SubscriptionGovernanceService();
 
   private resolveClientChannel(source: string): "email" | "whatsapp" | "telegram" {
     if (source === "whatsapp") {
@@ -131,6 +133,8 @@ export class BookingService {
 
       return existing.responseBody as { bookingId: string; status: "pending" };
     }
+
+    await this.subscriptionGovernanceService.enforceCanCreateBooking(input.tenantId, startAt);
 
     const booking = await this.bookingRepository.create({
       tenantId: input.tenantId,

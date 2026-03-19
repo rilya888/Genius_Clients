@@ -1,5 +1,5 @@
-import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
-import { bookings } from "@genius/db";
+import { and, asc, desc, eq, gte, inArray, lt, lte, min, sql } from "drizzle-orm";
+import { bookings, masters, services } from "@genius/db";
 import { getDb } from "../lib/db";
 
 export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled";
@@ -64,7 +64,9 @@ export class BookingRepository {
       .select({
         id: bookings.id,
         serviceId: bookings.serviceId,
+        serviceDisplayName: services.displayName,
         masterId: bookings.masterId,
+        masterDisplayName: masters.displayName,
         status: bookings.status,
         source: bookings.source,
         clientName: bookings.clientName,
@@ -78,6 +80,8 @@ export class BookingRepository {
         updatedAt: bookings.updatedAt
       })
       .from(bookings)
+      .innerJoin(services, eq(services.id, bookings.serviceId))
+      .leftJoin(masters, eq(masters.id, bookings.masterId))
       .where(and(...filters))
       .orderBy(desc(bookings.startAt), asc(bookings.id))
       .limit(input.limit)
@@ -159,5 +163,49 @@ export class BookingRepository {
       )
       .orderBy(asc(bookings.startAt), asc(bookings.id))
       .limit(input.limit);
+  }
+
+  async getUpcomingConfirmedImpactByMaster(input: {
+    tenantId: string;
+    masterId: string;
+    now: Date;
+  }) {
+    const db = getDb();
+    const [row] = await db
+      .select({
+        upcomingConfirmedCount: sql<number>`count(*)::int`,
+        earliestStartAt: min(bookings.startAt)
+      })
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.tenantId, input.tenantId),
+          eq(bookings.masterId, input.masterId),
+          eq(bookings.status, "confirmed"),
+          gte(bookings.startAt, input.now)
+        )
+      );
+
+    return {
+      upcomingConfirmedCount: Number(row?.upcomingConfirmedCount ?? 0),
+      earliestStartAt: row?.earliestStartAt ?? null
+    };
+  }
+
+  async countTenantBookingsInRange(input: { tenantId: string; from: Date; toExclusive: Date }) {
+    const db = getDb();
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.tenantId, input.tenantId),
+          inArray(bookings.status, ["pending", "confirmed", "completed"]),
+          gte(bookings.startAt, input.from),
+          lt(bookings.startAt, input.toExclusive)
+        )
+      );
+
+    return Number(row?.count ?? 0);
   }
 }
