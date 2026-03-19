@@ -1,0 +1,37 @@
+name: Deploy Web Branch Sync
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/web-vite/**"
+      - "packages/shared/**"
+      - "packages/i18n/**"
+      - "scripts/release/sync-service-branch.sh"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/deploy-web-branch-sync.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-web-branch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync deploy/web from main
+        run: bash scripts/release/sync-service-branch.sh web deploy main

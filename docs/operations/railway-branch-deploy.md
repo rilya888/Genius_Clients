@@ -49,6 +49,7 @@ After setup, deploys happen natively in Railway from pushes to each `deploy/*` b
 To sync all service branches from `main` with branch-specific config:
 
 - `pnpm deploy:sync-branches`
+- `pnpm deploy:sync-web-branch` (web only)
 - `pnpm staging:sync-branches`
 - `pnpm deploy:wait-success` (wait until all 4 services are SUCCESS)
 - `pnpm deploy:sync-and-wait` (sync + wait)
@@ -61,6 +62,14 @@ This command:
 4. Force-pushes deploy branches with lease.
 
 `pnpm staging:sync-branches` uses prefix `staging`.
+
+## Web deploy policy (production)
+
+- Source of truth for `web` production deploy is `deploy/web` branch only.
+- `deploy/web` is synced from `main` by GitHub Actions workflow:
+  - `.github/workflows/deploy-web-branch-sync.yml`
+- Do not use manual CLI snapshot deploy (`railway up`) for `web` production.
+- If urgent hotfix is required, merge fix to `main`; workflow will publish `deploy/web` automatically.
 
 `deploy:wait-success` defaults:
 

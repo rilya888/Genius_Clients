@@ -45,3 +45,4 @@
 - No unresolved P1 defects.
 - No unresolved schema drift.
 - Rollback plan confirmed.
+- `web` production deploy path is GitHub -> `deploy/web` branch trigger in Railway (no CLI snapshot deploy).
