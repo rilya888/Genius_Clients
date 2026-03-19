@@ -21,6 +21,18 @@ function isAllowedRailwayWebOrigin(origin: string) {
   return /^https:\/\/web-[a-z0-9-]+\.up\.railway\.app$/i.test(origin);
 }
 
+function isAllowedCustomWebOrigin(origin: string) {
+  try {
+    const url = new URL(origin);
+    if (url.protocol === "https:") {
+      return true;
+    }
+    return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+  } catch {
+    return false;
+  }
+}
+
 app.use("*", requestContextMiddleware);
 app.use("*", errorHandlerMiddleware);
 app.use(
@@ -30,7 +42,7 @@ app.use(
       if (!origin) {
         return undefined;
       }
-      if (allowedCorsOrigins.has(origin) || isAllowedRailwayWebOrigin(origin)) {
+      if (allowedCorsOrigins.has(origin) || isAllowedRailwayWebOrigin(origin) || isAllowedCustomWebOrigin(origin)) {
         return origin;
       }
       return undefined;
