@@ -1,4 +1,5 @@
 import { appError } from "../lib/http";
+import { captureException } from "@genius/shared";
 import {
   AuditRepository,
   AdminRepository,
@@ -624,7 +625,22 @@ export class AdminService {
       throw appError("TENANT_NOT_FOUND");
     }
 
-    const limits = await this.subscriptionGovernanceService.getActiveLimits(tenantId);
+    const limits = await this.subscriptionGovernanceService.getActiveLimits(tenantId).catch(async (error) => {
+      await captureException({
+        service: "api",
+        error,
+        context: {
+          tenantId,
+          source: "admin_scope_limits_fallback"
+        }
+      });
+      return {
+        planCode: null,
+        maxSalons: null,
+        maxStaff: null,
+        maxBookingsPerMonth: null
+      };
+    });
 
     return {
       account: {
