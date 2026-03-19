@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from "react";
 import { me } from "../api/authApi";
 import { getAdminScope } from "../api/adminApi";
+import { ApiHttpError } from "../api/http";
 import { clearSession, ensureAccessToken } from "../auth/session";
 
 export const roles = ["owner", "admin", "operator", "account_admin", "salon_admin", "manager"] as const;
@@ -67,8 +68,10 @@ export function ScopeProvider({ children }: PropsWithChildren) {
         setSalonId(scope.salons[0]?.id ?? "default");
         const normalizedRole = roles.includes(profile.role as Role) ? (profile.role as Role) : "owner";
         setRole(normalizedRole);
-      } catch {
-        clearSession();
+      } catch (error) {
+        if (error instanceof ApiHttpError && error.status === 401) {
+          clearSession();
+        }
       } finally {
         if (!cancelled) {
           setHydrated(true);
