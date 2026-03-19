@@ -13,17 +13,12 @@ function resolveApiBaseUrl() {
     return DEFAULT_LOCAL_API_URL;
   }
 
-  const { hostname, origin, protocol } = window.location;
+  const { hostname } = window.location;
   if (hostname === "localhost" || hostname === "127.0.0.1") {
     return DEFAULT_LOCAL_API_URL;
   }
 
-  // Railway naming fallback: web-xxx -> api-xxx.
-  if (hostname.startsWith("web-") && hostname.endsWith(".up.railway.app")) {
-    return `${protocol}//${hostname.replace(/^web-/, "api-")}`;
-  }
-
-  // Custom domains cannot be transformed from web->api host reliably.
+  // Railway domains for web and api can have different suffixes.
   // Use explicit production API fallback when build-time VITE_API_URL is not injected.
   return DEFAULT_PRODUCTION_API_URL;
 }
