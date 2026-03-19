@@ -1,10 +1,11 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 
 type SessionTokenPayload = {
   sub: string;
   tenantId: string;
   tokenVersion: number;
   type: "access" | "refresh";
+  jti?: string;
   exp: number;
 };
 
@@ -26,6 +27,7 @@ export function signSessionToken(
 ): string {
   const tokenPayload: SessionTokenPayload = {
     ...payload,
+    jti: payload.jti ?? randomUUID(),
     exp: Math.floor(Date.now() / 1000) + payload.ttlSeconds
   };
   const payloadPart = encodeBase64Url(JSON.stringify(tokenPayload));
@@ -63,6 +65,7 @@ export function verifySessionToken(token: string, secret: string): SessionTokenP
     !payload?.tenantId ||
     !Number.isInteger(payload?.tokenVersion) ||
     (payload?.type !== "access" && payload?.type !== "refresh") ||
+    (payload?.jti !== undefined && typeof payload.jti !== "string") ||
     !Number.isInteger(payload?.exp)
   ) {
     return null;
@@ -75,4 +78,3 @@ export function verifySessionToken(token: string, secret: string): SessionTokenP
 
   return payload;
 }
-
