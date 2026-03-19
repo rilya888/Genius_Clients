@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { authRoutes } from "./auth";
 import { publicRoutes } from "./public";
 import { adminRoutes } from "./admin";
+import { superAdminRoutes } from "./super-admin";
 import { webhookRoutes } from "./webhooks";
 import { tenantContextMiddleware } from "../middleware/tenant-context";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
@@ -68,6 +69,9 @@ export function createApiV1Routes() {
   apiV1.use("/admin/*", tenantContextMiddleware);
   apiV1.use("/admin/*", csrfMiddleware);
   apiV1.route("/admin", adminRoutes);
+
+  apiV1.use("/super-admin/*", rateLimitMiddleware);
+  apiV1.route("/super-admin", superAdminRoutes);
 
   apiV1.use("/webhooks/*", rateLimitMiddleware);
   apiV1.route("/webhooks", webhookRoutes);
