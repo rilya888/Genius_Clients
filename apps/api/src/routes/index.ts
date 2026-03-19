@@ -56,12 +56,10 @@ export function createApiV1Routes() {
   });
 
   apiV1.use("/auth/*", rateLimitMiddleware);
-  apiV1.use("/auth/*", csrfMiddleware);
   apiV1.route("/auth", authRoutes);
 
   apiV1.use("/public/*", rateLimitMiddleware);
   apiV1.use("/public/*", tenantContextMiddleware);
-  apiV1.use("/public/*", csrfMiddleware);
   apiV1.route("/public", publicRoutes);
 
   apiV1.use("/admin/*", rateLimitMiddleware);
