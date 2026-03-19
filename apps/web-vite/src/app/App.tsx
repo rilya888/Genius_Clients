@@ -23,6 +23,8 @@ import { ResetPasswordPage } from "../pages/ResetPasswordPage";
 import { EmailVerificationPage } from "../pages/EmailVerificationPage";
 import { StaffPage } from "../pages/StaffPage";
 import { SchedulePage } from "../pages/SchedulePage";
+import { SuperAdminLoginPage } from "../pages/SuperAdminLoginPage";
+import { SuperAdminPage } from "../pages/SuperAdminPage";
 
 export function App() {
   return (
@@ -45,6 +47,8 @@ export function App() {
             <Route path="/auth/forgot-password" element={<Navigate to="/forgot-password" replace />} />
             <Route path="/auth/reset-password" element={<Navigate to="/reset-password" replace />} />
             <Route path="/auth/email-verification" element={<Navigate to="/email-verification" replace />} />
+            <Route path="/super-admin/login" element={<SuperAdminLoginPage />} />
+            <Route path="/super-admin" element={<SuperAdminPage />} />
           </Route>
 
           <Route element={<ProtectedAppRoute />}>
