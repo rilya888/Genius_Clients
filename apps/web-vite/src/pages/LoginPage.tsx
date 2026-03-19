@@ -16,6 +16,7 @@ export function LoginPage() {
     <section className="section auth-shell">
       <form
         className="auth-card"
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
           const formData = new FormData(event.currentTarget);
@@ -43,7 +44,7 @@ export function LoginPage() {
         </label>
         <label>
           {t("auth.password")}
-          <input name="password" type="password" required minLength={8} placeholder={t("auth.placeholder.password")} />
+          <input name="password" type="password" required placeholder={t("auth.placeholder.password")} />
         </label>
         <button className="btn btn-primary" type="submit" disabled={pending}>
           {pending ? t("auth.loading") : t("auth.submitLogin")}

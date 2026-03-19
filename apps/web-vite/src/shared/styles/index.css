@@ -820,6 +820,43 @@ h1 {
   color: var(--text-muted);
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 26, 24, 0.48);
+  backdrop-filter: blur(2px);
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+}
+
+.modal-sheet {
+  width: min(680px, 100%);
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 28px 64px rgba(8, 26, 24, 0.28);
+  padding: var(--space-5);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.modal-sheet .auth-card,
+.modal-sheet .settings-card {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
 .empty-state {
   background: linear-gradient(180deg, #ffffff, #f2fbf9);
   border: 1px dashed color-mix(in srgb, var(--primary-500), #dcecea 62%);
@@ -854,6 +891,7 @@ h1 {
 table {
   width: 100%;
   border-collapse: collapse;
+  font-size: 0.95rem;
 }
 
 th,
@@ -861,6 +899,7 @@ td {
   text-align: left;
   border-bottom: 1px solid var(--border);
   padding: var(--space-3) var(--space-4);
+  vertical-align: middle;
 }
 
 tbody tr {
@@ -873,9 +912,35 @@ tbody tr:hover {
 
 th {
   background: #f7fcfb;
-  font-size: 0.86rem;
+  font-size: 0.9rem;
   letter-spacing: 0.03em;
   color: var(--text-muted);
+}
+
+.settings-card select,
+.auth-card select,
+.table-shell select,
+.table-shell input[type="time"],
+.table-shell input[type="date"],
+.table-shell input[type="number"] {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-elevated);
+}
+
+.table-shell button,
+.table-shell input,
+.table-shell select {
+  font: inherit;
+}
+
+.table-shell label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .status-pill {

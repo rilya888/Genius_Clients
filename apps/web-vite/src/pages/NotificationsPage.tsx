@@ -127,7 +127,6 @@ export function NotificationsPage() {
           <table>
             <thead>
               <tr>
-                <th>{t("common.col.id")}</th>
                 <th>{t("notifications.colType")}</th>
                 <th>{t("common.col.status")}</th>
                 <th>{t("notifications.colChannel")}</th>
@@ -137,7 +136,6 @@ export function NotificationsPage() {
             <tbody>
               {rows.data.map((row) => (
                 <tr key={row.id}>
-                  <td>{row.id}</td>
                   <td>{row.notificationType}</td>
                   <td>
                     <span className={`status-pill notification-status-${row.status}`}>{notificationStatusLabel(row.status)}</span>

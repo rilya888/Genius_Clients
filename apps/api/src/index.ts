@@ -2,11 +2,12 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { requestContextMiddleware } from "./middleware/request-context";
-import { errorHandlerMiddleware } from "./middleware/error-handler";
+import { errorHandlerMiddleware, handleApiError } from "./middleware/error-handler";
 import { createApiV1Routes } from "./routes";
 import type { ApiAppEnv } from "./lib/hono-env";
 
 const app = new Hono<ApiAppEnv>();
+app.onError((error, c) => handleApiError(error, c));
 
 const configuredCorsOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "")
   .split(",")

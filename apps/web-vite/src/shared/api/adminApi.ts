@@ -8,6 +8,7 @@ type ServicesEnvelope = {
       displayName: string;
       durationMinutes: number;
       priceCents: number | null;
+      sortOrder: number;
       isActive: boolean;
     }>;
   };
@@ -18,7 +19,9 @@ type BookingsEnvelope = {
     items: Array<{
       id: string;
       serviceId: string;
+      serviceDisplayName: string;
       masterId: string | null;
+      masterDisplayName: string | null;
       clientName: string;
       status: "pending" | "confirmed" | "completed" | "cancelled";
       startAt: string;
@@ -182,6 +185,78 @@ export async function listAdminServices() {
   return payload.data.items;
 }
 
+export async function createAdminService(input: {
+  displayName: string;
+  durationMinutes: number;
+  priceCents?: number | null;
+  sortOrder?: number;
+  isActive?: boolean;
+}) {
+  const payload = await adminJson<{
+    data: {
+      id: string;
+      displayName: string;
+      durationMinutes: number;
+      priceCents: number | null;
+      isActive: boolean;
+    };
+  }>("/api/v1/admin/services", {
+    method: "POST",
+    body: JSON.stringify({
+      displayName: input.displayName,
+      durationMinutes: input.durationMinutes,
+      priceCents: input.priceCents ?? undefined,
+      sortOrder: input.sortOrder ?? 0,
+      isActive: input.isActive ?? true
+    })
+  });
+
+  return payload.data;
+}
+
+export async function updateAdminService(input: {
+  id: string;
+  displayName: string;
+  durationMinutes: number;
+  priceCents?: number | null;
+  sortOrder: number;
+  isActive: boolean;
+}) {
+  const payload = await adminJson<{
+    data: {
+      id: string;
+      displayName: string;
+      durationMinutes: number;
+      priceCents: number | null;
+      isActive: boolean;
+    };
+  }>(`/api/v1/admin/services/${input.id}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      displayName: input.displayName,
+      durationMinutes: input.durationMinutes,
+      priceCents: input.priceCents ?? null,
+      sortOrder: input.sortOrder,
+      isActive: input.isActive
+    })
+  });
+
+  return payload.data;
+}
+
+export async function deleteAdminService(serviceId: string) {
+  const payload = await adminJson<{
+    data: {
+      id: string;
+      isActive: boolean;
+    };
+  }>(`/api/v1/admin/services/${serviceId}`, {
+    method: "DELETE"
+  });
+
+  return payload.data;
+}
+
 export async function listAdminBookings(input?: {
   status?: "pending" | "confirmed" | "completed" | "cancelled";
   from?: string;
@@ -197,6 +272,21 @@ export async function listAdminBookings(input?: {
     }
   });
   return payload.data.items;
+}
+
+export async function confirmAdminBooking(bookingId: string) {
+  const payload = await adminJson<{
+    data: {
+      id: string;
+      status: "pending" | "confirmed" | "completed" | "cancelled";
+      updatedAt: string;
+    };
+  }>(`/api/v1/admin/bookings/${bookingId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "confirmed" })
+  });
+
+  return payload.data;
 }
 
 export async function getNotificationSummary() {
@@ -220,11 +310,140 @@ export async function listAdminMasters() {
   return payload.data.items;
 }
 
+export async function createAdminMaster(input: { displayName: string; isActive?: boolean }) {
+  const payload = await adminJson<{
+    data: {
+      id: string;
+      displayName: string;
+      isActive: boolean;
+    };
+  }>("/api/v1/admin/masters", {
+    method: "POST",
+    body: JSON.stringify({
+      displayName: input.displayName,
+      isActive: input.isActive ?? true
+    })
+  });
+
+  return payload.data;
+}
+
+export async function updateAdminMaster(input: {
+  id: string;
+  displayName: string;
+  isActive: boolean;
+  forceDeactivate?: boolean;
+}) {
+  const payload = await adminJson<{
+    data: {
+      id: string;
+      displayName: string;
+      isActive: boolean;
+    };
+  }>(`/api/v1/admin/masters/${input.id}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      displayName: input.displayName,
+      isActive: input.isActive,
+      forceDeactivate: input.forceDeactivate
+    })
+  });
+
+  return payload.data;
+}
+
+export async function getAdminMasterDeactivationCheck(masterId: string) {
+  const payload = await adminJson<{
+    data: {
+      upcomingConfirmedCount: number;
+      earliestStartAt: string | null;
+    };
+  }>(`/api/v1/admin/masters/${masterId}/deactivation-check`, {
+    method: "GET"
+  });
+
+  return payload.data;
+}
+
+export async function deleteAdminMaster(masterId: string) {
+  const payload = await adminJson<{
+    data: {
+      id: string;
+      isActive: boolean;
+    };
+  }>(`/api/v1/admin/masters/${masterId}`, {
+    method: "DELETE"
+  });
+
+  return payload.data;
+}
+
 export async function listWorkingHours() {
   const payload = await adminJson<WorkingHoursEnvelope>("/api/v1/admin/working-hours", {
     method: "GET"
   });
   return payload.data.items;
+}
+
+export async function createWorkingHoursEntry(input: {
+  masterId?: string;
+  dayOfWeek: number;
+  startMinute: number;
+  endMinute: number;
+  isActive?: boolean;
+}) {
+  const payload = await adminJson<{
+    data: {
+      id: string;
+      masterId: string | null;
+      dayOfWeek: number;
+      startMinute: number;
+      endMinute: number;
+      isActive: boolean;
+    };
+  }>("/api/v1/admin/working-hours", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+
+  return payload.data;
+}
+
+export async function updateWorkingHoursEntry(input: {
+  id: string;
+  masterId?: string | null;
+  dayOfWeek: number;
+  startMinute: number;
+  endMinute: number;
+  isActive: boolean;
+}) {
+  const payload = await adminJson<{
+    data: {
+      id: string;
+      masterId: string | null;
+      dayOfWeek: number;
+      startMinute: number;
+      endMinute: number;
+      isActive: boolean;
+    };
+  }>(`/api/v1/admin/working-hours/${input.id}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      masterId: input.masterId ?? null,
+      dayOfWeek: input.dayOfWeek,
+      startMinute: input.startMinute,
+      endMinute: input.endMinute,
+      isActive: input.isActive
+    })
+  });
+
+  return payload.data;
+}
+
+export async function deleteWorkingHoursEntry(id: string) {
+  await adminJson<{ data: { id: string } }>(`/api/v1/admin/working-hours/${id}`, {
+    method: "DELETE"
+  });
 }
 
 export async function listScheduleExceptions() {

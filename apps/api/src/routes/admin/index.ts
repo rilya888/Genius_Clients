@@ -103,7 +103,7 @@ export const adminRoutes = new Hono<ApiAppEnv>()
   .put("/masters/:id", async (c) => {
     const tenantId = c.get("tenantId");
     const masterId = c.req.param("id");
-    const body = await c.req.json<{ displayName?: string; isActive?: boolean }>();
+    const body = await c.req.json<{ displayName?: string; isActive?: boolean; forceDeactivate?: boolean }>();
     if (!body.displayName) {
       throw appError("VALIDATION_ERROR", { required: ["displayName"] });
     }
@@ -112,10 +112,16 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       tenantId,
       masterId,
       displayName: body.displayName,
-      isActive: body.isActive ?? true
+      isActive: body.isActive ?? true,
+      forceDeactivate: body.forceDeactivate
     });
 
     return c.json({ data: item });
+  })
+  .get("/masters/:id/deactivation-check", async (c) => {
+    const tenantId = c.get("tenantId");
+    const masterId = c.req.param("id");
+    return c.json({ data: await adminService.getMasterDeactivationImpact({ tenantId, masterId }) });
   })
   .delete("/masters/:id", async (c) => {
     const tenantId = c.get("tenantId");

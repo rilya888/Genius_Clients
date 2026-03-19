@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { listAdminBookings } from "../shared/api/adminApi";
+import { confirmAdminBooking, listAdminBookings } from "../shared/api/adminApi";
 import { formatApiError } from "../shared/api/formatApiError";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/AsyncState";
 import { useI18n } from "../shared/i18n/I18nProvider";
@@ -7,7 +7,7 @@ import { useI18n } from "../shared/i18n/I18nProvider";
 type BookingRow = {
   id: string;
   clientName: string;
-  serviceId: string;
+  serviceName: string;
   status: "pending" | "confirmed" | "completed" | "cancelled";
 };
 
@@ -16,6 +16,8 @@ export function BookingsPage() {
   const [status, setStatus] = useState<"" | "pending" | "confirmed" | "completed" | "cancelled">("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmingBookingId, setConfirmingBookingId] = useState<string | null>(null);
   const [state, setState] = useState<{
     pending: boolean;
     error: string | null;
@@ -29,6 +31,7 @@ export function BookingsPage() {
   useEffect(() => {
     let cancelled = false;
     setState((prev) => ({ ...prev, pending: true, error: null }));
+    setActionError(null);
     listAdminBookings({
       status: status || undefined,
       from: from || undefined,
@@ -42,7 +45,7 @@ export function BookingsPage() {
             data: items.map((item) => ({
               id: item.id,
               clientName: item.clientName,
-              serviceId: item.serviceId,
+              serviceName: item.serviceDisplayName,
               status: item.status
             }))
           });
@@ -58,6 +61,29 @@ export function BookingsPage() {
       cancelled = true;
     };
   }, [status, from, to]);
+
+  async function handleConfirmBooking(bookingId: string) {
+    setActionError(null);
+    setConfirmingBookingId(bookingId);
+
+    const previous = state.data;
+    setState((prev) => ({
+      ...prev,
+      data: prev.data.map((row) => (row.id === bookingId ? { ...row, status: "confirmed" } : row))
+    }));
+
+    try {
+      await confirmAdminBooking(bookingId);
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        data: previous
+      }));
+      setActionError(formatApiError(error, t("admin.bookings.confirmFailed")));
+    } finally {
+      setConfirmingBookingId(null);
+    }
+  }
 
   return (
     <section className="page-shell">
@@ -85,6 +111,7 @@ export function BookingsPage() {
       </div>
       {state.pending ? <LoadingState text={t("admin.bookings.loading")} /> : null}
       {state.error ? <ErrorState text={state.error} /> : null}
+      {actionError ? <ErrorState text={actionError} /> : null}
 
       {!state.pending && !state.error && state.data.length === 0 ? (
         <EmptyState title={t("admin.bookings.emptyTitle")} description={t("admin.bookings.emptyDescription")} />
@@ -95,20 +122,33 @@ export function BookingsPage() {
           <table>
             <thead>
               <tr>
-                <th>{t("common.col.id")}</th>
                 <th>{t("public.booking.clientSection")}</th>
                 <th>{t("booking.service")}</th>
                 <th>{t("common.col.status")}</th>
+                <th>{t("common.col.actions")}</th>
               </tr>
             </thead>
             <tbody>
               {state.data.map((row) => (
                 <tr key={row.id}>
-                  <td>{row.id}</td>
                   <td>{row.clientName}</td>
-                  <td>{row.serviceId}</td>
+                  <td>{row.serviceName}</td>
                   <td>
                     <span className={`status-pill status-${row.status}`}>{t(`common.bookingStatus.${row.status}`)}</span>
+                  </td>
+                  <td>
+                    {row.status === "pending" ? (
+                      <button
+                        className="btn btn-ghost"
+                        type="button"
+                        disabled={confirmingBookingId === row.id}
+                        onClick={() => handleConfirmBooking(row.id)}
+                      >
+                        {confirmingBookingId === row.id ? t("auth.loading") : t("admin.bookings.confirmAction")}
+                      </button>
+                    ) : (
+                      <span className="status-muted">-</span>
+                    )}
                   </td>
                 </tr>
               ))}

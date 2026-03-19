@@ -1,8 +1,9 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { useScopeContext } from "../shared/hooks/useScopeContext";
 import { logout } from "../shared/api/authApi";
+import { listAdminBookings } from "../shared/api/adminApi";
 import { clearSession, getRefreshToken } from "../shared/auth/session";
 
 export function AppLayout() {
@@ -14,6 +15,9 @@ export function AppLayout() {
   const availableSalons = useMemo(() => salons.filter((item) => item.accountId === accountId), [salons, accountId]);
   const selectedAccount = useMemo(() => accounts.find((item) => item.id === accountId), [accounts, accountId]);
   const selectedSalon = useMemo(() => salons.find((item) => item.id === salonId), [salons, salonId]);
+  const [newBookingToastCount, setNewBookingToastCount] = useState(0);
+  const knownPendingBookingIdsRef = useRef<Set<string>>(new Set());
+  const isPendingPollInitializedRef = useRef(false);
 
   async function handleLogout() {
     try {
@@ -23,6 +27,44 @@ export function AppLayout() {
       navigate("/login", { replace: true });
     }
   }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function pollPendingBookings() {
+      try {
+        const items = await listAdminBookings({ status: "pending" });
+        if (cancelled) {
+          return;
+        }
+
+        const currentIds = new Set(items.map((item) => item.id));
+        const previousIds = knownPendingBookingIdsRef.current;
+
+        if (isPendingPollInitializedRef.current) {
+          const freshCount = Array.from(currentIds).filter((id) => !previousIds.has(id)).length;
+          if (freshCount > 0) {
+            setNewBookingToastCount((prev) => prev + freshCount);
+          }
+        }
+
+        knownPendingBookingIdsRef.current = currentIds;
+        isPendingPollInitializedRef.current = true;
+      } catch {
+        // Ignore background polling failures to keep layout stable.
+      }
+    }
+
+    void pollPendingBookings();
+    const timer = window.setInterval(() => {
+      void pollPendingBookings();
+    }, 20_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   return (
     <div className="admin-shell">
@@ -81,6 +123,22 @@ export function AppLayout() {
         </button>
       </aside>
       <main className="admin-main">
+        {newBookingToastCount > 0 ? (
+          <div className="status-success" role="status" aria-live="polite">
+            {t("admin.notifications.newBookingsToastPrefix")} {newBookingToastCount}
+            {" · "}
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                setNewBookingToastCount(0);
+                navigate("/app/bookings");
+              }}
+            >
+              {t("admin.notifications.newBookingsToastAction")}
+            </button>
+          </div>
+        ) : null}
         <div className="scope-indicator">
           <span>
             {t("app.scope.account")}: {selectedAccount?.name ?? t("app.scope.notSelected")}
