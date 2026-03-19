@@ -8,6 +8,7 @@ import { tenantContextMiddleware } from "../middleware/tenant-context";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { csrfMiddleware } from "../middleware/csrf";
 import { sessionAuthMiddleware } from "../middleware/session-auth";
+import { handleApiError } from "../middleware/error-handler";
 import type { ApiAppEnv } from "../lib/hono-env";
 import { getDb } from "../lib/db";
 import { sql } from "drizzle-orm";
@@ -15,6 +16,7 @@ import { pingRedis } from "../lib/redis";
 
 export function createApiV1Routes() {
   const apiV1 = new Hono<ApiAppEnv>();
+  apiV1.onError((error, c) => handleApiError(error, c));
 
   apiV1.get("/health", (c) => {
     return c.json({ data: { status: "ok", service: "api" } });
