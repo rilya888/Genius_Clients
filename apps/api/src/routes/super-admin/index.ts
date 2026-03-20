@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { timingSafeEqual } from "node:crypto";
+import { assertValidSlug, normalizeSlug } from "@genius/shared";
 import { appError } from "../../lib/http";
 import { getSuperAdminEnv } from "../../lib/super-admin/env";
 import { signSuperAdminToken } from "../../lib/super-admin/token";
 import { superAdminSessionAuthMiddleware } from "../../middleware/super-admin/session-auth";
+import { TenantRepository } from "../../repositories";
 import {
   SuperAdminPlanRepository,
   type SuperAdminPlanFeatureInput,
@@ -18,6 +20,7 @@ const planRepository = new SuperAdminPlanRepository();
 const tenantSubscriptionRepository = new SuperAdminTenantSubscriptionRepository();
 const auditRepository = new SuperAdminAuditRepository();
 const versionRepository = new SuperAdminVersionRepository();
+const tenantRepository = new TenantRepository();
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
@@ -490,6 +493,73 @@ export const superAdminRoutes = new Hono()
     const limit = limitRaw ? Number(limitRaw) : 200;
     const items = await tenantSubscriptionRepository.listTenantsOverview(limit);
     return c.json({ data: { items } });
+  })
+  .put("/tenants/:tenantId/slug", async (c) => {
+    const tenantId = c.req.param("tenantId");
+    const body = await c.req.json<{ slug?: string; actor?: string }>();
+    const slugInput = body.slug?.trim();
+    if (!slugInput) {
+      throw appError("VALIDATION_ERROR", { required: ["slug"] });
+    }
+
+    const tenant = await tenantRepository.findById(tenantId);
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND", { reason: "tenant_not_found" });
+    }
+
+    const normalizedSlug = normalizeSlug(slugInput);
+    try {
+      assertValidSlug(normalizedSlug);
+    } catch (error) {
+      throw appError("VALIDATION_ERROR", {
+        reason: error instanceof Error ? error.message : "slug_invalid"
+      });
+    }
+
+    if (tenant.slug === normalizedSlug) {
+      return c.json({
+        data: {
+          tenantId: tenant.id,
+          slug: tenant.slug,
+          changed: false
+        }
+      });
+    }
+
+    let updated;
+    try {
+      updated = await tenantRepository.updateSlug({ tenantId, slug: normalizedSlug });
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error) {
+        const code = String((error as { code: unknown }).code);
+        if (code === "23505") {
+          throw appError("CONFLICT", { reason: "slug_already_exists" });
+        }
+      }
+      throw error;
+    }
+
+    if (!updated) {
+      throw appError("TENANT_NOT_FOUND", { reason: "tenant_not_found" });
+    }
+
+    await auditRepository.createLog({
+      actor: normalizeActor(body.actor),
+      action: "super_admin.tenant.update_slug",
+      entity: "tenant",
+      entityId: tenantId,
+      beforeJson: { slug: tenant.slug },
+      afterJson: { slug: updated.slug },
+      requestId: undefined
+    });
+
+    return c.json({
+      data: {
+        tenantId: updated.id,
+        slug: updated.slug,
+        changed: true
+      }
+    });
   })
   .put("/tenants/:tenantId/subscription", async (c) => {
     const tenantId = c.req.param("tenantId");

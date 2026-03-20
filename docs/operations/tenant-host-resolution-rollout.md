@@ -46,3 +46,12 @@ Web service:
 1. Set `TENANT_HOST_RESOLUTION_ENABLED=false`.
 2. Redeploy API.
 3. Keep header-based flow active while investigating host routing issue.
+
+## Super-admin slug change (restricted flow)
+Slug can be changed only via super-admin API:
+- `PUT /api/v1/super-admin/tenants/:tenantId/slug`
+- body: `{ "slug": "new-slug", "actor": "operator_name" }`
+
+Notes:
+- Uses shared slug validation and reserved-word filter.
+- Writes audit log entry `super_admin.tenant.update_slug`.

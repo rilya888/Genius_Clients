@@ -74,4 +74,17 @@ export class TenantRepository {
 
     return tenant ?? null;
   }
+
+  async updateSlug(input: { tenantId: string; slug: string }) {
+    const db = getDb();
+    const [tenant] = await db
+      .update(tenants)
+      .set({
+        slug: input.slug,
+        updatedAt: new Date()
+      })
+      .where(eq(tenants.id, input.tenantId))
+      .returning();
+    return tenant ?? null;
+  }
 }
