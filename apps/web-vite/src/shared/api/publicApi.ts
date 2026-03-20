@@ -68,7 +68,7 @@ export async function createPublicBooking(input: {
 }) {
   const payload = await httpJson<{
     data: {
-      id: string;
+      bookingId: string;
       status: string;
     };
   }>("/api/v1/public/bookings", {
@@ -79,7 +79,7 @@ export async function createPublicBooking(input: {
     body: JSON.stringify({
       serviceId: input.serviceId,
       masterId: input.masterId,
-      source: "web",
+      source: "web_public",
       clientName: input.clientName,
       clientPhoneE164: input.clientPhoneE164,
       clientEmail: input.clientEmail,
@@ -89,5 +89,8 @@ export async function createPublicBooking(input: {
       endAt: input.endAt
     })
   });
-  return payload.data;
+  return {
+    id: payload.data.bookingId,
+    status: payload.data.status
+  };
 }

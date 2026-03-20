@@ -11,6 +11,7 @@ export type ApiEnv = {
   tenantHostResolutionEnabled: boolean;
   tenantResolutionDebugHeadersEnabled: boolean;
   tenantBrowserHeaderFallbackEnabled: boolean;
+  tenantTrustForwardedHost: boolean;
 };
 
 function asBoolean(value: string | undefined, fallback: boolean) {
@@ -52,6 +53,7 @@ export function getApiEnv(): ApiEnv {
     tenantBrowserHeaderFallbackEnabled: asBoolean(
       process.env.TENANT_BROWSER_HEADER_FALLBACK_ENABLED,
       true
-    )
+    ),
+    tenantTrustForwardedHost: asBoolean(process.env.TENANT_TRUST_FORWARDED_HOST, false)
   };
 }

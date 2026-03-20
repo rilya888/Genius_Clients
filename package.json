@@ -37,6 +37,7 @@
     "smoke:web-vite:journey": "node scripts/smoke/web-vite-journey-smoke.mjs",
     "smoke:web-vite:api-target": "node scripts/smoke/web-vite-api-target-smoke.mjs",
     "smoke:tenant-host": "node scripts/smoke/tenant-host-resolution-smoke.mjs",
+    "smoke:tenant-host:security": "node scripts/smoke/tenant-host-security-smoke.mjs",
     "smoke:spa:auth-admin": "node scripts/smoke/spa-auth-admin-contract-smoke.mjs",
     "smoke:spa:public": "node scripts/smoke/spa-public-contract-smoke.mjs",
     "smoke:super-admin:flow": "node scripts/smoke/super-admin-flow-smoke.mjs",

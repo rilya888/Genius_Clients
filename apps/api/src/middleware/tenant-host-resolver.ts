@@ -19,7 +19,9 @@ export async function tenantHostResolverMiddleware(c: Context<ApiAppEnv>, next: 
   }
 
   const env = getApiEnv();
-  const requestHost = normalizeHost(c.req.header("x-forwarded-host")) ?? normalizeHost(c.req.header("host"));
+  const requestHost =
+    (env.tenantTrustForwardedHost ? normalizeHost(c.req.header("x-forwarded-host")) : null) ??
+    normalizeHost(c.req.header("host"));
   if (requestHost) {
     c.set("requestHost", requestHost);
   }

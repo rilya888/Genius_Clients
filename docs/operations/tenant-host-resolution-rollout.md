@@ -9,6 +9,7 @@ API service:
 - `TENANT_HOST_RESOLUTION_ENABLED=true`
 - `TENANT_RESOLUTION_DEBUG_HEADERS_ENABLED=false` (set `true` only for diagnostics window)
 - `TENANT_BROWSER_HEADER_FALLBACK_ENABLED=true` during Railway test phase, then `false` on real wildcard domain.
+- `TENANT_TRUST_FORWARDED_HOST=false` (keep disabled unless trusted proxy chain is explicitly configured)
 
 Web service:
 - `VITE_TENANT_BASE_DOMAIN=geniusclients.info` (optional, defaults to this value in code)
@@ -24,7 +25,9 @@ Web service:
 5. Run tenant-host smoke from browser:
    - open `https://<slug>.geniusclients.info/`
    - confirm booking/public API responses.
-6. Disable debug headers after verification.
+6. Run security smoke:
+   - `pnpm smoke:tenant-host:security`
+7. Disable debug headers after verification.
 
 ## Expected behavior
 - Tenant is resolved by host when possible.

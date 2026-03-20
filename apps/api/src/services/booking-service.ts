@@ -77,7 +77,12 @@ export class BookingService {
       throw appError("VALIDATION_ERROR", { reason: "client_locale_invalid" });
     }
 
-    if (input.source !== "web" && input.source !== "whatsapp" && input.source !== "telegram") {
+    if (
+      input.source !== "web" &&
+      input.source !== "web_public" &&
+      input.source !== "whatsapp" &&
+      input.source !== "telegram"
+    ) {
       throw appError("VALIDATION_ERROR", { reason: "booking_source_invalid" });
     }
 
