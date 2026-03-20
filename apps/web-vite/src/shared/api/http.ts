@@ -1,10 +1,22 @@
-import { extractTenantSlugFromHost } from "@genius/shared";
-
 const DEFAULT_LOCAL_API_URL = "http://localhost:8787";
 const DEFAULT_PRODUCTION_API_URL = "https://api-production-9caa.up.railway.app";
 const DEFAULT_TENANT_SLUG = import.meta.env.VITE_TENANT_SLUG ?? "demo";
 const TENANT_BASE_DOMAIN = (import.meta.env.VITE_TENANT_BASE_DOMAIN ?? "geniusclients.info").trim().toLowerCase();
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const RESERVED_SUBDOMAINS = new Set([
+  "www",
+  "app",
+  "api",
+  "admin",
+  "super-admin",
+  "mail",
+  "support",
+  "help",
+  "billing",
+  "status",
+  "blog",
+  "docs"
+]);
 
 function resolveApiBaseUrl() {
   const envUrl = import.meta.env.VITE_API_URL?.trim();
@@ -31,6 +43,32 @@ const API_BASE_URL = resolveApiBaseUrl();
 type HttpInit = RequestInit & {
   query?: Record<string, string | number | undefined | null>;
 };
+
+function normalizeHost(value: string): string {
+  return value.trim().toLowerCase().replace(/:\d+$/, "");
+}
+
+function extractTenantSlugFromHost(hostname: string, baseDomain: string): string | null {
+  const host = normalizeHost(hostname);
+  const domain = normalizeHost(baseDomain);
+  if (!host || !domain || host === domain) {
+    return null;
+  }
+
+  const suffix = `.${domain}`;
+  if (!host.endsWith(suffix)) {
+    return null;
+  }
+
+  const subdomain = host.slice(0, -suffix.length);
+  if (!subdomain || subdomain.includes(".") || RESERVED_SUBDOMAINS.has(subdomain)) {
+    return null;
+  }
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(subdomain)) {
+    return null;
+  }
+  return subdomain;
+}
 
 function resolveTenantSlug() {
   if (typeof window === "undefined") {
