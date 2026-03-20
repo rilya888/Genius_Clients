@@ -8,6 +8,7 @@ API service:
 - `TENANT_BASE_DOMAIN=geniusclients.info`
 - `TENANT_HOST_RESOLUTION_ENABLED=true`
 - `TENANT_RESOLUTION_DEBUG_HEADERS_ENABLED=false` (set `true` only for diagnostics window)
+- `TENANT_BROWSER_HEADER_FALLBACK_ENABLED=true` during Railway test phase, then `false` on real wildcard domain.
 
 Web service:
 - `VITE_TENANT_BASE_DOMAIN=geniusclients.info` (optional, defaults to this value in code)
@@ -27,7 +28,8 @@ Web service:
 
 ## Expected behavior
 - Tenant is resolved by host when possible.
-- Fallback to internal tenant headers remains available.
+- Internal services can resolve tenant via internal headers with `x-internal-secret`.
+- Browser header fallback is controlled by `TENANT_BROWSER_HEADER_FALLBACK_ENABLED`.
 - No downtime during rollout.
 
 ## Troubleshooting
@@ -37,6 +39,7 @@ Web service:
 2. API works only with header:
    - Verify `TENANT_HOST_RESOLUTION_ENABLED=true`.
    - Verify request host is under `*.geniusclients.info`.
+   - During Railway temporary host tests, keep `TENANT_BROWSER_HEADER_FALLBACK_ENABLED=true`.
 3. Inconsistent tenant behavior:
    - Temporarily enable debug headers and inspect:
      - `x-tenant-resolver-source`
@@ -46,6 +49,11 @@ Web service:
 1. Set `TENANT_HOST_RESOLUTION_ENABLED=false`.
 2. Redeploy API.
 3. Keep header-based flow active while investigating host routing issue.
+
+## Hardening when real domain is connected
+1. Keep `TENANT_HOST_RESOLUTION_ENABLED=true`.
+2. Set `TENANT_BROWSER_HEADER_FALLBACK_ENABLED=false`.
+3. Confirm browser requests still resolve tenant only by host.
 
 ## Super-admin slug change (restricted flow)
 Slug can be changed only via super-admin API:

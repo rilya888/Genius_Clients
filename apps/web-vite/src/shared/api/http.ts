@@ -72,13 +72,17 @@ function extractTenantSlugFromHost(hostname: string, baseDomain: string): string
 
 function resolveTenantSlug() {
   if (typeof window === "undefined") {
-    return DEFAULT_TENANT_SLUG;
+    return { slug: DEFAULT_TENANT_SLUG, needsTenantHeader: true };
   }
   const host = window.location.hostname;
   if (host === "localhost" || host === "127.0.0.1") {
-    return DEFAULT_TENANT_SLUG;
+    return { slug: DEFAULT_TENANT_SLUG, needsTenantHeader: true };
   }
-  return extractTenantSlugFromHost(host, TENANT_BASE_DOMAIN) ?? DEFAULT_TENANT_SLUG;
+  const hostTenantSlug = extractTenantSlugFromHost(host, TENANT_BASE_DOMAIN);
+  if (hostTenantSlug) {
+    return { slug: hostTenantSlug, needsTenantHeader: false };
+  }
+  return { slug: DEFAULT_TENANT_SLUG, needsTenantHeader: true };
 }
 
 export class ApiHttpError extends Error {
@@ -111,12 +115,14 @@ function buildUrl(path: string, query?: HttpInit["query"]) {
 }
 
 export async function httpJson<T>(path: string, init?: HttpInit): Promise<T> {
-  const tenantSlug = resolveTenantSlug();
+  const tenantContext = resolveTenantSlug();
   const headers = new Headers(init?.headers);
   if (!headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
-  headers.set("x-internal-tenant-slug", tenantSlug);
+  if (tenantContext.needsTenantHeader) {
+    headers.set("x-internal-tenant-slug", tenantContext.slug);
+  }
   const method = (init?.method ?? "GET").toUpperCase();
   if (STATE_CHANGING_METHODS.has(method) && !headers.has("x-csrf-token")) {
     headers.set("x-csrf-token", "spa-csrf");

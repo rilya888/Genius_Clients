@@ -1,10 +1,12 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { normalizeHost } from "@genius/shared";
 import { requestContextMiddleware } from "./middleware/request-context";
 import { errorHandlerMiddleware, handleApiError } from "./middleware/error-handler";
 import { createApiV1Routes } from "./routes";
 import type { ApiAppEnv } from "./lib/hono-env";
+import { getApiEnv } from "./lib/env";
 
 const app = new Hono<ApiAppEnv>();
 app.onError((error, c) => handleApiError(error, c));
@@ -17,6 +19,7 @@ const implicitCorsOrigins = [process.env.APP_URL, process.env.WEB_URL]
   .map((item) => item?.trim())
   .filter((item): item is string => Boolean(item));
 const allowedCorsOrigins = new Set([...configuredCorsOrigins, ...implicitCorsOrigins]);
+const tenantBaseDomain = normalizeHost(getApiEnv().tenantBaseDomain);
 
 function isAllowedRailwayWebOrigin(origin: string) {
   return /^https:\/\/web-[a-z0-9-]+\.up\.railway\.app$/i.test(origin);
@@ -25,10 +28,26 @@ function isAllowedRailwayWebOrigin(origin: string) {
 function isAllowedCustomWebOrigin(origin: string) {
   try {
     const url = new URL(origin);
-    if (url.protocol === "https:") {
-      return true;
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      (url.hostname === "localhost" || url.hostname === "127.0.0.1")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedTenantOrigin(origin: string) {
+  if (!tenantBaseDomain) {
+    return false;
+  }
+  try {
+    const url = new URL(origin);
+    const hostname = normalizeHost(url.hostname);
+    if (!hostname || url.protocol !== "https:") {
+      return false;
     }
-    return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+    return hostname === tenantBaseDomain || hostname.endsWith(`.${tenantBaseDomain}`);
   } catch {
     return false;
   }
@@ -43,7 +62,12 @@ app.use(
       if (!origin) {
         return undefined;
       }
-      if (allowedCorsOrigins.has(origin) || isAllowedRailwayWebOrigin(origin) || isAllowedCustomWebOrigin(origin)) {
+      if (
+        allowedCorsOrigins.has(origin) ||
+        isAllowedRailwayWebOrigin(origin) ||
+        isAllowedCustomWebOrigin(origin) ||
+        isAllowedTenantOrigin(origin)
+      ) {
         return origin;
       }
       return undefined;
