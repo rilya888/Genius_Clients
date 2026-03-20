@@ -9,6 +9,7 @@ export type ApiEnv = {
   emailVerificationTokenTtlMinutes: number;
   tenantBaseDomain: string;
   tenantHostResolutionEnabled: boolean;
+  tenantResolutionDebugHeadersEnabled: boolean;
 };
 
 function asBoolean(value: string | undefined, fallback: boolean) {
@@ -45,6 +46,7 @@ export function getApiEnv(): ApiEnv {
       ? emailVerificationTokenTtlMinutes
       : 1440,
     tenantBaseDomain: (process.env.TENANT_BASE_DOMAIN ?? "geniusclients.info").trim().toLowerCase(),
-    tenantHostResolutionEnabled: asBoolean(process.env.TENANT_HOST_RESOLUTION_ENABLED, false)
+    tenantHostResolutionEnabled: asBoolean(process.env.TENANT_HOST_RESOLUTION_ENABLED, false),
+    tenantResolutionDebugHeadersEnabled: asBoolean(process.env.TENANT_RESOLUTION_DEBUG_HEADERS_ENABLED, false)
   };
 }
