@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, Outlet } from "react-router-dom";
 import { me } from "../shared/api/authApi";
 import { clearSession, ensureAccessToken } from "../shared/auth/session";
+import { buildTenantAppUrl, resolveCurrentTenantSlug } from "../shared/routing/tenant-host";
 
 export function ProtectedAppRoute() {
   const [state, setState] = useState<"checking" | "authorized" | "unauthorized">("checking");
@@ -17,7 +18,12 @@ export function ProtectedAppRoute() {
         return;
       }
       try {
-        await me(accessToken);
+        const profile = await me(accessToken);
+        const currentSlug = resolveCurrentTenantSlug();
+        if (profile.slug && currentSlug !== profile.slug) {
+          window.location.assign(buildTenantAppUrl(profile.slug));
+          return;
+        }
         if (!cancelled) {
           setState("authorized");
         }

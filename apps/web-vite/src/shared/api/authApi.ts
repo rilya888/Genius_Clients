@@ -22,6 +22,7 @@ type MeEnvelope = {
     userId: string;
     email: string;
     tenantId: string;
+    slug?: string;
     role: string;
     isEmailVerified: boolean;
   };

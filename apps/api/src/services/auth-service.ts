@@ -238,10 +238,12 @@ export class AuthService {
     if (user.tokenVersion !== payload.tokenVersion) {
       throw appError("AUTH_UNAUTHORIZED", { reason: "access_token_version_mismatch" });
     }
+    const tenant = await this.tenantRepository.findById(user.tenantId);
 
     return {
       userId: user.id,
       tenantId: user.tenantId,
+      slug: tenant?.slug,
       email: user.email,
       role: user.role,
       isEmailVerified: user.isEmailVerified
