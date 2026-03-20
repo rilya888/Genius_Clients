@@ -15,5 +15,6 @@ test("assertValidSlug accepts valid values", () => {
 test("assertValidSlug rejects invalid values", () => {
   assert.throws(() => assertValidSlug("ab"), /length/i);
   assert.throws(() => assertValidSlug("admin"), /reserved/i);
+  assert.throws(() => assertValidSlug("billing"), /reserved/i);
   assert.throws(() => assertValidSlug("hello_world"), /contain only/i);
 });

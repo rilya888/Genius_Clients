@@ -46,6 +46,7 @@ export async function sessionAuthMiddleware(c: Context<ApiAppEnv>, next: Next) {
   }
 
   c.set("tenantId", user.tenantId);
+  c.set("tenantResolverSource", "session");
   c.set("userId", user.id);
   c.set("userRole", user.role);
   await next();

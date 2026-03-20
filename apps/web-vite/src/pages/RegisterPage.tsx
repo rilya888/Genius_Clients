@@ -4,6 +4,7 @@ import { register } from "../shared/api/authApi";
 import { formatApiError } from "../shared/api/formatApiError";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { saveSession } from "../shared/auth/session";
+import { buildTenantAppUrl } from "../shared/routing/tenant-host";
 
 export function RegisterPage() {
   const navigate = useNavigate();
@@ -30,7 +31,14 @@ export function RegisterPage() {
             .then((data) => {
               saveSession(data);
               setMessage(t("auth.registerSuccess"));
-              setTimeout(() => navigate("/app"), 150);
+              const targetUrl = typeof data.slug === "string" ? buildTenantAppUrl(data.slug) : "/app";
+              setTimeout(() => {
+                if (targetUrl.startsWith("http://") || targetUrl.startsWith("https://")) {
+                  window.location.assign(targetUrl);
+                  return;
+                }
+                navigate(targetUrl);
+              }, 150);
             })
             .catch((apiError) => {
               setError(formatApiError(apiError, t("auth.registerFailed")));

@@ -7,7 +7,23 @@ export type ApiEnv = {
   refreshTokenTtlDays: number;
   passwordResetTokenTtlMinutes: number;
   emailVerificationTokenTtlMinutes: number;
+  tenantBaseDomain: string;
+  tenantHostResolutionEnabled: boolean;
 };
+
+function asBoolean(value: string | undefined, fallback: boolean) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "0" || normalized === "no" || normalized === "off") {
+    return false;
+  }
+  return fallback;
+}
 
 export function getApiEnv(): ApiEnv {
   const accessTokenTtlSeconds = Number(process.env.ACCESS_TOKEN_TTL_SECONDS ?? "900");
@@ -27,6 +43,8 @@ export function getApiEnv(): ApiEnv {
       : 30,
     emailVerificationTokenTtlMinutes: Number.isFinite(emailVerificationTokenTtlMinutes)
       ? emailVerificationTokenTtlMinutes
-      : 1440
+      : 1440,
+    tenantBaseDomain: (process.env.TENANT_BASE_DOMAIN ?? "geniusclients.info").trim().toLowerCase(),
+    tenantHostResolutionEnabled: asBoolean(process.env.TENANT_HOST_RESOLUTION_ENABLED, false)
   };
 }

@@ -3,6 +3,7 @@ export * from "./slug";
 export * from "./validation";
 export * from "./monitoring";
 export * from "./action-token";
+export * from "./tenant-host";
 
 export function getRequiredEnv(name: string): string {
   const value = process.env[name];

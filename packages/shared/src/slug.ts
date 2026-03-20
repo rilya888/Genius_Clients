@@ -1,4 +1,18 @@
-const RESERVED_SLUGS = new Set(["admin", "api", "app", "www", "static", "status"]);
+const RESERVED_SLUGS = new Set([
+  "admin",
+  "api",
+  "app",
+  "www",
+  "static",
+  "status",
+  "super-admin",
+  "mail",
+  "support",
+  "help",
+  "billing",
+  "blog",
+  "docs"
+]);
 
 export function normalizeSlug(value: string): string {
   return value

@@ -26,13 +26,21 @@ function isAppErrorLike(error: unknown): error is {
 
 export async function handleApiError(error: unknown, c: Context<ApiAppEnv>) {
   const requestId = c.get("requestId") as string | undefined;
+  const requestHost = c.get("requestHost") as string | undefined;
+  const tenantId = c.get("tenantId") as string | undefined;
+  const resolvedTenantSlug = c.get("resolvedTenantSlug") as string | undefined;
+  const tenantResolverSource = c.get("tenantResolverSource") as string | undefined;
 
   if (isAppErrorLike(error)) {
     const status = error.status as ContentfulStatusCode;
     console.error("[api] app error", {
       requestId,
+      requestHost,
       method: c.req.method,
       path: c.req.path,
+      tenantId,
+      resolvedTenantSlug,
+      tenantResolverSource,
       status: error.status,
       code: error.code,
       details: error.details
@@ -57,6 +65,10 @@ export async function handleApiError(error: unknown, c: Context<ApiAppEnv>) {
     error,
     context: {
       requestId,
+      requestHost,
+      tenantId,
+      resolvedTenantSlug,
+      tenantResolverSource,
       path: c.req.path,
       method: c.req.method
     }

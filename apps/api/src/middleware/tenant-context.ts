@@ -10,6 +10,9 @@ const UUID_V4_OR_V7_REGEX =
 export async function tenantContextMiddleware(c: Context<ApiAppEnv>, next: Next) {
   const existingTenantId = c.get("tenantId");
   if (existingTenantId && UUID_V4_OR_V7_REGEX.test(existingTenantId)) {
+    if (!c.get("tenantResolverSource")) {
+      c.set("tenantResolverSource", "existing");
+    }
     await next();
     return;
   }
@@ -19,6 +22,7 @@ export async function tenantContextMiddleware(c: Context<ApiAppEnv>, next: Next)
 
   if (tenantId && UUID_V4_OR_V7_REGEX.test(tenantId)) {
     c.set("tenantId", tenantId);
+    c.set("tenantResolverSource", "header_id");
     await next();
     return;
   }
@@ -30,6 +34,8 @@ export async function tenantContextMiddleware(c: Context<ApiAppEnv>, next: Next)
     }
 
     c.set("tenantId", tenant.id);
+    c.set("resolvedTenantSlug", tenant.slug);
+    c.set("tenantResolverSource", "header_slug");
     await next();
     return;
   }

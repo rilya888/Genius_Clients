@@ -5,6 +5,7 @@ import { adminRoutes } from "./admin";
 import { superAdminRoutes } from "./super-admin";
 import { webhookRoutes } from "./webhooks";
 import { tenantContextMiddleware } from "../middleware/tenant-context";
+import { tenantHostResolverMiddleware } from "../middleware/tenant-host-resolver";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { csrfMiddleware } from "../middleware/csrf";
 import { sessionAuthMiddleware } from "../middleware/session-auth";
@@ -61,11 +62,13 @@ export function createApiV1Routes() {
   apiV1.route("/auth", authRoutes);
 
   apiV1.use("/public/*", rateLimitMiddleware);
+  apiV1.use("/public/*", tenantHostResolverMiddleware);
   apiV1.use("/public/*", tenantContextMiddleware);
   apiV1.route("/public", publicRoutes);
 
   apiV1.use("/admin/*", rateLimitMiddleware);
   apiV1.use("/admin/*", sessionAuthMiddleware);
+  apiV1.use("/admin/*", tenantHostResolverMiddleware);
   apiV1.use("/admin/*", tenantContextMiddleware);
   apiV1.use("/admin/*", csrfMiddleware);
   apiV1.route("/admin", adminRoutes);

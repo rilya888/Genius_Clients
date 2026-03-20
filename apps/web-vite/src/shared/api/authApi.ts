@@ -13,6 +13,7 @@ type AuthEnvelope = {
     refreshToken?: string;
     expiresAt?: string;
     session?: SessionPayload;
+    slug?: string;
   };
 };
 
@@ -41,7 +42,7 @@ function normalizeSession(data: AuthEnvelope["data"]) {
       ? new Date(Date.now() + session.accessTokenExpiresInSeconds * 1000).toISOString()
       : new Date(Date.now() + 15 * 60 * 1000).toISOString());
 
-  return { accessToken, refreshToken, expiresAt };
+  return { accessToken, refreshToken, expiresAt, slug: data.slug };
 }
 
 export async function login(input: { email: string; password: string }) {

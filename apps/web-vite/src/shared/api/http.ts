@@ -1,6 +1,9 @@
+import { extractTenantSlugFromHost } from "@genius/shared";
+
 const DEFAULT_LOCAL_API_URL = "http://localhost:8787";
 const DEFAULT_PRODUCTION_API_URL = "https://api-production-9caa.up.railway.app";
-const TENANT_SLUG = import.meta.env.VITE_TENANT_SLUG ?? "demo";
+const DEFAULT_TENANT_SLUG = import.meta.env.VITE_TENANT_SLUG ?? "demo";
+const TENANT_BASE_DOMAIN = (import.meta.env.VITE_TENANT_BASE_DOMAIN ?? "geniusclients.info").trim().toLowerCase();
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 function resolveApiBaseUrl() {
@@ -28,6 +31,17 @@ const API_BASE_URL = resolveApiBaseUrl();
 type HttpInit = RequestInit & {
   query?: Record<string, string | number | undefined | null>;
 };
+
+function resolveTenantSlug() {
+  if (typeof window === "undefined") {
+    return DEFAULT_TENANT_SLUG;
+  }
+  const host = window.location.hostname;
+  if (host === "localhost" || host === "127.0.0.1") {
+    return DEFAULT_TENANT_SLUG;
+  }
+  return extractTenantSlugFromHost(host, TENANT_BASE_DOMAIN) ?? DEFAULT_TENANT_SLUG;
+}
 
 export class ApiHttpError extends Error {
   readonly status: number;
@@ -59,11 +73,12 @@ function buildUrl(path: string, query?: HttpInit["query"]) {
 }
 
 export async function httpJson<T>(path: string, init?: HttpInit): Promise<T> {
+  const tenantSlug = resolveTenantSlug();
   const headers = new Headers(init?.headers);
   if (!headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
-  headers.set("x-internal-tenant-slug", TENANT_SLUG);
+  headers.set("x-internal-tenant-slug", tenantSlug);
   const method = (init?.method ?? "GET").toUpperCase();
   if (STATE_CHANGING_METHODS.has(method) && !headers.has("x-csrf-token")) {
     headers.set("x-csrf-token", "spa-csrf");
