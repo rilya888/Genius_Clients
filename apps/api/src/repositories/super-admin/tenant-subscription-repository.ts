@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { getDb } from "../../lib/db";
 
 export type SuperAdminTenantOverviewRow = {
@@ -40,9 +40,28 @@ export class SuperAdminTenantSubscriptionRepository {
     return Boolean(result.rows[0]?.ok);
   }
 
-  async listTenantsOverview(limit = 200): Promise<SuperAdminTenantOverviewRow[]> {
+  async listTenantsOverview(input?: {
+    limit?: number;
+    query?: string | null;
+    planCode?: string | null;
+  }): Promise<SuperAdminTenantOverviewRow[]> {
     const db = getDb();
-    const normalizedLimit = Math.min(Math.max(Math.trunc(limit), 1), 500);
+    const normalizedLimit = Math.min(Math.max(Math.trunc(input?.limit ?? 200), 1), 500);
+    const query = input?.query?.trim();
+    const planCode = input?.planCode?.trim().toLowerCase();
+    const filters: SQL[] = [];
+
+    if (query) {
+      const likeTerm = `%${query}%`;
+      filters.push(sql`(t.slug ILIKE ${likeTerm} OR t.name ILIKE ${likeTerm} OR t.id::text ILIKE ${likeTerm})`);
+    }
+
+    if (planCode === "none") {
+      filters.push(sql`ts.plan_code IS NULL`);
+    } else if (planCode) {
+      filters.push(sql`ts.plan_code = ${planCode}`);
+    }
+    const whereClause = filters.length > 0 ? sql`WHERE ${sql.join(filters, sql` AND `)}` : sql``;
 
     const result = await db.execute(sql<SuperAdminTenantOverviewRow>`
       SELECT
@@ -65,6 +84,7 @@ export class SuperAdminTenantSubscriptionRepository {
         ORDER BY updated_at DESC
         LIMIT 1
       ) ts ON TRUE
+      ${whereClause}
       ORDER BY t.created_at DESC
       LIMIT ${normalizedLimit}
     `);

@@ -491,7 +491,13 @@ export const superAdminRoutes = new Hono()
   .get("/tenants", async (c) => {
     const limitRaw = c.req.query("limit");
     const limit = limitRaw ? Number(limitRaw) : 200;
-    const items = await tenantSubscriptionRepository.listTenantsOverview(limit);
+    const query = c.req.query("q")?.trim() ?? null;
+    const planCode = c.req.query("planCode")?.trim().toLowerCase() ?? null;
+    const items = await tenantSubscriptionRepository.listTenantsOverview({
+      limit,
+      query,
+      planCode
+    });
     return c.json({ data: { items } });
   })
   .put("/tenants/:tenantId/slug", async (c) => {
