@@ -25,6 +25,15 @@ import { StaffPage } from "../pages/StaffPage";
 import { SchedulePage } from "../pages/SchedulePage";
 import { SuperAdminLoginPage } from "../pages/SuperAdminLoginPage";
 import { SuperAdminPage } from "../pages/SuperAdminPage";
+import { resolveCurrentTenantSlug } from "../shared/routing/tenant-host";
+
+function RootEntryPage() {
+  const tenantSlug = resolveCurrentTenantSlug();
+  if (tenantSlug) {
+    return <PublicBookingPage />;
+  }
+  return <LandingPage />;
+}
 
 export function App() {
   return (
@@ -32,7 +41,7 @@ export function App() {
       <ScopeProvider>
         <Routes>
           <Route element={<MainLayout />}>
-            <Route path="/" element={<LandingPage />} />
+            <Route path="/" element={<RootEntryPage />} />
             <Route path="/pricing" element={<PricingPage />} />
             <Route path="/faq" element={<FaqPage />} />
             <Route path="/book" element={<PublicBookingPage />} />
