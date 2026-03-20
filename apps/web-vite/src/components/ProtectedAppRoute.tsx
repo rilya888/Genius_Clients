@@ -20,9 +20,13 @@ export function ProtectedAppRoute() {
       try {
         const profile = await me(accessToken);
         const currentSlug = resolveCurrentTenantSlug();
-        if (profile.slug && currentSlug !== profile.slug) {
-          window.location.assign(buildTenantAppUrl(profile.slug));
-          return;
+        if (profile.slug) {
+          const targetUrl = buildTenantAppUrl(profile.slug);
+          const isAbsoluteTarget = targetUrl.startsWith("http://") || targetUrl.startsWith("https://");
+          if (isAbsoluteTarget && currentSlug !== profile.slug) {
+            window.location.assign(targetUrl);
+            return;
+          }
         }
         if (!cancelled) {
           setState("authorized");

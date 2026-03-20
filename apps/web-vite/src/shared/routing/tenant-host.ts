@@ -18,6 +18,13 @@ function normalizeHost(value: string): string {
   return value.trim().toLowerCase().replace(/:\d+$/, "");
 }
 
+function isManagedDomainHost(host: string): boolean {
+  if (!host || !TENANT_BASE_DOMAIN) {
+    return false;
+  }
+  return host === TENANT_BASE_DOMAIN || host.endsWith(`.${TENANT_BASE_DOMAIN}`);
+}
+
 export function extractTenantSlugFromBrowserHost(hostname: string): string | null {
   const host = normalizeHost(hostname);
   if (!host || !TENANT_BASE_DOMAIN || host === TENANT_BASE_DOMAIN) {
@@ -57,7 +64,11 @@ export function buildTenantAppUrl(slug: string): string {
   }
 
   const { hostname, protocol } = window.location;
+  const normalizedHost = normalizeHost(hostname);
   if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return `/app`;
+  }
+  if (!isManagedDomainHost(normalizedHost)) {
     return `/app`;
   }
 
