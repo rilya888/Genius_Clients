@@ -2,6 +2,7 @@ import { assertEmail, assertPassword, assertValidSlug, normalizeSlug } from "@ge
 import { randomBytes, randomUUID } from "node:crypto";
 import { users, tenants } from "@genius/db";
 import { AuthTokenRepository, UserRepository } from "../repositories";
+import { TenantRepository } from "../repositories";
 import { hashPassword, verifyPassword } from "../lib/security";
 import { appError } from "../lib/http";
 import { getDb } from "../lib/db";
@@ -19,6 +20,7 @@ export type RegisterInput = {
 export class AuthService {
   private readonly userRepository = new UserRepository();
   private readonly authTokenRepository = new AuthTokenRepository();
+  private readonly tenantRepository = new TenantRepository();
 
   private issueAccessToken(input: { userId: string; tenantId: string; tokenVersion: number }) {
     const env = getApiEnv();
@@ -208,10 +210,12 @@ export class AuthService {
       tenantId: user.tenantId,
       tokenVersion: user.tokenVersion
     });
+    const tenant = await this.tenantRepository.findById(user.tenantId);
 
     return {
       userId: user.id,
       tenantId: user.tenantId,
+      slug: tenant?.slug,
       session
     };
   }
