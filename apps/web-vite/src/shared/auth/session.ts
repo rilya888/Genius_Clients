@@ -3,6 +3,7 @@ import { refreshSession } from "../api/authApi";
 const ACCESS_TOKEN_KEY = "access_token";
 const REFRESH_TOKEN_KEY = "refresh_token";
 const ACCESS_EXPIRES_AT_KEY = "access_expires_at";
+const EMAIL_VERIFIED_KEY = "auth_email_verified";
 const REFRESH_SKEW_MS = 20_000;
 
 let refreshInFlight: Promise<string | null> | null = null;
@@ -17,6 +18,15 @@ export function clearSession() {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(ACCESS_EXPIRES_AT_KEY);
+  localStorage.removeItem(EMAIL_VERIFIED_KEY);
+}
+
+export function setEmailVerifiedFlag(value: boolean) {
+  localStorage.setItem(EMAIL_VERIFIED_KEY, value ? "1" : "0");
+}
+
+export function isEmailVerifiedFlagSet() {
+  return localStorage.getItem(EMAIL_VERIFIED_KEY) === "1";
 }
 
 function getAccessToken() {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate, Outlet } from "react-router-dom";
 import { me } from "../shared/api/authApi";
-import { clearSession, ensureAccessToken } from "../shared/auth/session";
+import { clearSession, ensureAccessToken, setEmailVerifiedFlag } from "../shared/auth/session";
 import { buildTenantAppUrl, resolveCurrentTenantSlug } from "../shared/routing/tenant-host";
 
 export function ProtectedAppRoute() {
@@ -19,6 +19,7 @@ export function ProtectedAppRoute() {
       }
       try {
         const profile = await me(accessToken);
+        setEmailVerifiedFlag(profile.isEmailVerified === true);
         const currentSlug = resolveCurrentTenantSlug();
         if (profile.slug) {
           const targetUrl = buildTenantAppUrl(profile.slug);

@@ -68,7 +68,9 @@ if ((!EMAIL || !PASSWORD) && process.env.SMOKE_AUTH_AUTOREGISTER === "1") {
       email: EMAIL,
       password: PASSWORD,
       businessName,
-      slug
+      slug,
+      privacyAccepted: true,
+      privacyVersion: process.env.PRIVACY_POLICY_VERSION ?? "v1"
     })
   });
   const generatedSlug = registerPayload?.data?.slug;

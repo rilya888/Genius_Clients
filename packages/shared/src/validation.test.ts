@@ -8,9 +8,10 @@ test("assertEmail validates email format", () => {
   assert.throws(() => assertEmail("invalid-email"), /invalid email/i);
 });
 
-test("assertPassword enforces minimum length", () => {
-  assert.doesNotThrow(() => assertPassword("password123"));
-  assert.throws(() => assertPassword("short"), /at least 8/i);
+test("assertPassword enforces minimum length and special char", () => {
+  assert.doesNotThrow(() => assertPassword("secret!"));
+  assert.throws(() => assertPassword("short"), /at least 6/i);
+  assert.throws(() => assertPassword("password"), /special character/i);
 });
 
 test("assertE164 validates E.164 phone format", () => {

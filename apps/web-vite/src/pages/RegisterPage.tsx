@@ -11,7 +11,9 @@ export function RegisterPage() {
   const { t } = useI18n();
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const privacyPolicyVersion = "v1";
 
   return (
     <section className="section auth-shell">
@@ -23,14 +25,17 @@ export function RegisterPage() {
           const businessName = String(formData.get("businessName") ?? "");
           const email = String(formData.get("email") ?? "");
           const password = String(formData.get("password") ?? "");
+          const privacyAccepted = formData.get("privacyAccepted") === "on";
           setPending(true);
           setMessage(null);
+          setNotice(null);
           setError(null);
 
-          register({ businessName, email, password })
+          register({ businessName, email, password, privacyAccepted, privacyVersion: privacyPolicyVersion })
             .then((data) => {
               saveSession(data);
               setMessage(t("auth.registerSuccess"));
+              setNotice(data.whatsappSetupNotice);
               const targetUrl = typeof data.slug === "string" ? buildTenantAppUrl(data.slug) : "/app";
               setTimeout(() => {
                 if (targetUrl.startsWith("http://") || targetUrl.startsWith("https://")) {
@@ -57,12 +62,18 @@ export function RegisterPage() {
         </label>
         <label>
           {t("auth.password")}
-          <input name="password" type="password" required minLength={8} placeholder={t("auth.placeholder.password")} />
+          <input name="password" type="password" required minLength={6} placeholder={t("auth.placeholder.password")} />
+        </label>
+        <label>
+          <input name="privacyAccepted" type="checkbox" required />
+          {" "}
+          {t("auth.privacyConsent")}
         </label>
         <button className="btn btn-primary" type="submit" disabled={pending}>
           {pending ? t("auth.loading") : t("auth.submitRegister")}
         </button>
         {message ? <p>{message}</p> : null}
+        {notice ? <p className="status-muted">{notice}</p> : null}
         {error ? <p className="status-error">{error}</p> : null}
       </form>
     </section>

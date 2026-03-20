@@ -9,6 +9,7 @@ import { tenantHostResolverMiddleware } from "../middleware/tenant-host-resolver
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { csrfMiddleware } from "../middleware/csrf";
 import { sessionAuthMiddleware } from "../middleware/session-auth";
+import { emailVerificationWriteGuardMiddleware } from "../middleware/email-verification-write-guard";
 import { handleApiError } from "../middleware/error-handler";
 import type { ApiAppEnv } from "../lib/hono-env";
 import { getDb } from "../lib/db";
@@ -70,6 +71,7 @@ export function createApiV1Routes() {
   apiV1.use("/admin/*", sessionAuthMiddleware);
   apiV1.use("/admin/*", tenantHostResolverMiddleware);
   apiV1.use("/admin/*", tenantContextMiddleware);
+  apiV1.use("/admin/*", emailVerificationWriteGuardMiddleware);
   apiV1.use("/admin/*", csrfMiddleware);
   apiV1.route("/admin", adminRoutes);
 

@@ -16,6 +16,7 @@ export type ApiVariables = {
     | "session";
   userId?: string;
   userRole?: "owner" | "admin";
+  userEmailVerified?: boolean;
 };
 
 export type ApiAppEnv = {

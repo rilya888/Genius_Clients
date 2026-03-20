@@ -14,6 +14,10 @@ type AuthEnvelope = {
     expiresAt?: string;
     session?: SessionPayload;
     slug?: string;
+    requiresEmailVerification?: boolean;
+    isEmailVerified?: boolean;
+    trialEndsAt?: string | null;
+    whatsappSetupNotice?: string;
   };
 };
 
@@ -25,6 +29,9 @@ type MeEnvelope = {
     slug?: string;
     role: string;
     isEmailVerified: boolean;
+    planCode?: string | null;
+    trialEndsAt?: string | null;
+    trialDaysLeft?: number;
   };
 };
 
@@ -58,12 +65,21 @@ export async function register(input: {
   email: string;
   password: string;
   businessName: string;
+  privacyAccepted: boolean;
+  privacyVersion: string;
+  turnstileToken?: string;
 }) {
   const payload = await httpJson<AuthEnvelope>("/api/v1/auth/register", {
     method: "POST",
     body: JSON.stringify(input)
   });
-  return normalizeSession(payload.data);
+  return {
+    ...normalizeSession(payload.data),
+    requiresEmailVerification: payload.data.requiresEmailVerification === true,
+    isEmailVerified: payload.data.isEmailVerified === true,
+    trialEndsAt: payload.data.trialEndsAt ?? null,
+    whatsappSetupNotice: payload.data.whatsappSetupNotice ?? null
+  };
 }
 
 export async function forgotPassword(input: { email: string }) {

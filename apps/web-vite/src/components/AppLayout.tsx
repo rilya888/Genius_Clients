@@ -4,7 +4,7 @@ import { useI18n } from "../shared/i18n/I18nProvider";
 import { useScopeContext } from "../shared/hooks/useScopeContext";
 import { logout } from "../shared/api/authApi";
 import { listAdminBookings } from "../shared/api/adminApi";
-import { clearSession, getRefreshToken } from "../shared/auth/session";
+import { clearSession, getRefreshToken, isEmailVerifiedFlagSet } from "../shared/auth/session";
 
 export function AppLayout() {
   const navigate = useNavigate();
@@ -16,6 +16,7 @@ export function AppLayout() {
   const selectedAccount = useMemo(() => accounts.find((item) => item.id === accountId), [accounts, accountId]);
   const selectedSalon = useMemo(() => salons.find((item) => item.id === salonId), [salons, salonId]);
   const [newBookingToastCount, setNewBookingToastCount] = useState(0);
+  const [isEmailVerified, setIsEmailVerified] = useState(true);
   const knownPendingBookingIdsRef = useRef<Set<string>>(new Set());
   const isPendingPollInitializedRef = useRef(false);
 
@@ -27,6 +28,10 @@ export function AppLayout() {
       navigate("/login", { replace: true });
     }
   }
+
+  useEffect(() => {
+    setIsEmailVerified(isEmailVerifiedFlagSet());
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,6 +128,11 @@ export function AppLayout() {
         </button>
       </aside>
       <main className="admin-main">
+        {!isEmailVerified ? (
+          <div className="status-muted" role="status" aria-live="polite">
+            {t("auth.emailVerificationReadOnlyNotice")}
+          </div>
+        ) : null}
         {newBookingToastCount > 0 ? (
           <div className="status-success" role="status" aria-live="polite">
             {t("admin.notifications.newBookingsToastPrefix")} {newBookingToastCount}

@@ -20,6 +20,18 @@ function getClientIp(c: Context<ApiAppEnv>): string {
 }
 
 function getPolicy(path: string): { limit: number; windowMs: number; bucket: string } {
+  if (path.includes("/auth/register")) {
+    return { limit: 20, windowMs: 60_000, bucket: "auth-register" };
+  }
+  if (path.includes("/auth/request-email-verification") || path.includes("/auth/verify-email/resend")) {
+    return { limit: 15, windowMs: 60_000, bucket: "auth-verify-resend" };
+  }
+  if (path.includes("/auth/forgot-password")) {
+    return { limit: 15, windowMs: 60_000, bucket: "auth-forgot-password" };
+  }
+  if (path.includes("/auth/reset-password")) {
+    return { limit: 25, windowMs: 60_000, bucket: "auth-reset-password" };
+  }
   if (path.includes("/super-admin/auth/login")) {
     return { limit: 20, windowMs: 60_000, bucket: "super-admin-login" };
   }

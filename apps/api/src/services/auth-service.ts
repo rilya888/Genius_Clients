@@ -1,10 +1,11 @@
 import { assertEmail, assertPassword, assertValidSlug, normalizeSlug } from "@genius/shared";
 import { randomBytes, randomUUID } from "node:crypto";
-import { users, tenants } from "@genius/db";
+import { tenantConsents, tenants, users } from "@genius/db";
+import { sql } from "drizzle-orm";
 import { AuthTokenRepository, UserRepository } from "../repositories";
 import { TenantRepository } from "../repositories";
 import { hashPassword, verifyPassword } from "../lib/security";
-import { appError } from "../lib/http";
+import { AppError, appError } from "../lib/http";
 import { getDb } from "../lib/db";
 import { getApiEnv } from "../lib/env";
 import { signSessionToken, verifySessionToken } from "../lib/token";
@@ -15,6 +16,11 @@ export type RegisterInput = {
   password: string;
   businessName: string;
   slug?: string;
+  privacyAccepted: boolean;
+  privacyVersion: string;
+  turnstileToken?: string;
+  ip?: string;
+  userAgent?: string;
 };
 
 export class AuthService {
@@ -106,9 +112,98 @@ export class AuthService {
     return rawToken;
   }
 
+  private buildAppUrl(pathWithQuery: string): string | null {
+    const baseUrl = getApiEnv().appBaseUrl.trim();
+    if (!baseUrl) {
+      return null;
+    }
+    try {
+      const url = new URL(pathWithQuery, baseUrl);
+      return url.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  private async verifyTurnstileToken(token: string): Promise<boolean> {
+    const env = getApiEnv();
+    if (!env.authTurnstileEnabled) {
+      return true;
+    }
+    if (!env.turnstileSecretKey || !token) {
+      return false;
+    }
+
+    try {
+      const body = new URLSearchParams({
+        secret: env.turnstileSecretKey,
+        response: token
+      });
+      const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded"
+        },
+        body
+      });
+      if (!response.ok) {
+        return false;
+      }
+      const payload = (await response.json().catch(() => null)) as { success?: boolean } | null;
+      return payload?.success === true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async sendResendEmail(input: {
+    to: string;
+    subject: string;
+    html: string;
+    text: string;
+  }): Promise<boolean> {
+    const env = getApiEnv();
+    if (!env.resendApiKey || !env.resendFromEmail) {
+      return false;
+    }
+
+    try {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${env.resendApiKey}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          from: env.resendFromEmail,
+          to: [input.to],
+          subject: input.subject,
+          html: input.html,
+          text: input.text
+        })
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
   async register(input: RegisterInput) {
     assertEmail(input.email);
     assertPassword(input.password);
+
+    const env = getApiEnv();
+    if (!input.privacyAccepted) {
+      throw appError("VALIDATION_ERROR", { reason: "privacy_consent_required" });
+    }
+    if (input.privacyVersion.trim() !== env.privacyPolicyVersion) {
+      throw appError("VALIDATION_ERROR", { reason: "privacy_version_mismatch" });
+    }
+
+    const turnstileOk = await this.verifyTurnstileToken(input.turnstileToken?.trim() ?? "");
+    if (!turnstileOk) {
+      throw appError("AUTH_FORBIDDEN", { reason: "invalid_turnstile_token" });
+    }
 
     const slugSource = input.slug ?? input.businessName;
     const slug = normalizeSlug(slugSource);
@@ -117,11 +212,20 @@ export class AuthService {
     const normalizedEmail = input.email.trim().toLowerCase();
     const existing = await this.userRepository.findByEmail(normalizedEmail);
     if (existing) {
-      throw appError("CONFLICT", { reason: "email_already_exists" });
+      throw new AppError({
+        code: "CONFLICT",
+        status: 409,
+        message: "Account with this email already exists",
+        details: { reason: "email_already_exists" }
+      });
     }
 
     const db = getDb();
-    let transactionResult: { tenant: { id: string }; user: { id: string; tokenVersion: number } };
+    let transactionResult: {
+      tenant: { id: string };
+      user: { id: string; tokenVersion: number };
+      trialEndsAt: string;
+    };
     try {
       transactionResult = await db.transaction(async (tx) => {
         const [createdTenant] = await tx
@@ -150,7 +254,44 @@ export class AuthService {
           throw appError("INTERNAL_ERROR", { reason: "user_create_failed" });
         }
 
-        return { tenant: createdTenant, user: createdUser };
+        const now = new Date();
+        const trialEndsAt = new Date(now.getTime() + env.trialDurationDays * 24 * 60 * 60 * 1000);
+
+        await tx.execute(sql`
+          INSERT INTO tenant_subscriptions (
+            tenant_id,
+            plan_code,
+            effective_from,
+            effective_to,
+            status,
+            billing_cycle_anchor,
+            change_mode,
+            created_at,
+            updated_at
+          ) VALUES (
+            ${createdTenant.id},
+            ${env.trialDefaultPlanCode},
+            ${now},
+            ${trialEndsAt},
+            'active',
+            ${now},
+            'next_cycle',
+            NOW(),
+            NOW()
+          )
+        `);
+
+        await tx.insert(tenantConsents).values({
+          tenantId: createdTenant.id,
+          userId: createdUser.id,
+          consentType: "privacy_policy",
+          consentVersion: env.privacyPolicyVersion,
+          acceptedAt: now,
+          ip: input.ip?.slice(0, 64),
+          userAgent: input.userAgent?.slice(0, 512)
+        });
+
+        return { tenant: createdTenant, user: createdUser, trialEndsAt: trialEndsAt.toISOString() };
       });
     } catch (error) {
       if (typeof error === "object" && error !== null && "code" in error) {
@@ -168,18 +309,27 @@ export class AuthService {
     }
 
     const { tenant, user } = transactionResult;
+    const verificationToken = await this.issueEmailVerificationToken({
+      tenantId: tenant.id,
+      userId: user.id
+    });
+    const verificationUrl = this.buildAppUrl(`/email-verification?token=${encodeURIComponent(verificationToken)}`);
+    const verificationSent = await this.sendResendEmail({
+      to: normalizedEmail,
+      subject: "Verify your email",
+      html: `<p>Welcome to Genius Clients.</p><p>Verify your email: <a href="${verificationUrl ?? "#"}">${verificationUrl ?? "open verification page"}</a></p>`,
+      text: verificationUrl
+        ? `Welcome to Genius Clients. Verify your email: ${verificationUrl}`
+        : "Welcome to Genius Clients. Open Email Verification page and use your latest verification token."
+    });
+
     const session = await this.issueSession({
       userId: user.id,
       tenantId: tenant.id,
       tokenVersion: user.tokenVersion
     });
     const verificationTokenPreview =
-      process.env.NODE_ENV !== "production"
-        ? await this.issueEmailVerificationToken({
-            tenantId: tenant.id,
-            userId: user.id
-          })
-        : undefined;
+      process.env.NODE_ENV !== "production" ? verificationToken : undefined;
 
     return {
       userId: user.id ?? randomUUID(),
@@ -187,6 +337,12 @@ export class AuthService {
       email: normalizedEmail,
       businessName: input.businessName,
       slug,
+      requiresEmailVerification: true,
+      isEmailVerified: false,
+      trialEndsAt: transactionResult.trialEndsAt,
+      whatsappSetupNotice:
+        "To connect your WhatsApp booking bot, contact administration. Use a new number: one number cannot be used both as bot and as regular operator chat.",
+      verificationEmailDispatched: verificationSent,
       session,
       ...(verificationTokenPreview ? { verificationTokenPreview } : {})
     };
@@ -216,6 +372,7 @@ export class AuthService {
       userId: user.id,
       tenantId: user.tenantId,
       slug: tenant?.slug,
+      isEmailVerified: user.isEmailVerified,
       session
     };
   }
@@ -239,6 +396,29 @@ export class AuthService {
       throw appError("AUTH_UNAUTHORIZED", { reason: "access_token_version_mismatch" });
     }
     const tenant = await this.tenantRepository.findById(user.tenantId);
+    const now = new Date();
+    const subscriptionSummary = await getDb().execute<{
+      planCode: string | null;
+      effectiveTo: Date | null;
+    }>(sql`
+      SELECT
+        ts.plan_code AS "planCode",
+        ts.effective_to AS "effectiveTo"
+      FROM tenant_subscriptions ts
+      WHERE
+        ts.tenant_id = ${user.tenantId}
+        AND ts.status = 'active'
+        AND ts.effective_from <= ${now}
+        AND (ts.effective_to IS NULL OR ts.effective_to > ${now})
+      ORDER BY ts.effective_from DESC, ts.updated_at DESC
+      LIMIT 1
+    `);
+    const activeSubscription = subscriptionSummary.rows[0];
+    const trialEndsAt = activeSubscription?.effectiveTo?.toISOString() ?? null;
+    const trialDaysLeft =
+      activeSubscription?.effectiveTo instanceof Date
+        ? Math.max(0, Math.ceil((activeSubscription.effectiveTo.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
+        : 0;
 
     return {
       userId: user.id,
@@ -246,7 +426,10 @@ export class AuthService {
       slug: tenant?.slug,
       email: user.email,
       role: user.role,
-      isEmailVerified: user.isEmailVerified
+      isEmailVerified: user.isEmailVerified,
+      planCode: activeSubscription?.planCode ?? null,
+      trialEndsAt,
+      trialDaysLeft
     };
   }
 
@@ -348,6 +531,15 @@ export class AuthService {
       tokenHash,
       expiresAt
     });
+    const resetUrl = this.buildAppUrl(`/reset-password?token=${encodeURIComponent(rawToken)}`);
+    await this.sendResendEmail({
+      to: user.email,
+      subject: "Reset your password",
+      html: `<p>We received a password reset request.</p><p>Reset password: <a href="${resetUrl ?? "#"}">${resetUrl ?? "open reset page"}</a></p>`,
+      text: resetUrl
+        ? `Reset your password: ${resetUrl}`
+        : "Reset your password from the Reset Password page using your latest token."
+    });
 
     return {
       accepted: true,
@@ -400,6 +592,15 @@ export class AuthService {
     const token = await this.issueEmailVerificationToken({
       tenantId: user.tenantId,
       userId: user.id
+    });
+    const verifyUrl = this.buildAppUrl(`/email-verification?token=${encodeURIComponent(token)}`);
+    await this.sendResendEmail({
+      to: user.email,
+      subject: "Verify your email",
+      html: `<p>Please verify your email to unlock all admin actions.</p><p>Verify email: <a href="${verifyUrl ?? "#"}">${verifyUrl ?? "open verification page"}</a></p>`,
+      text: verifyUrl
+        ? `Verify your email: ${verifyUrl}`
+        : "Open Email Verification page and use your latest verification token."
     });
 
     return {

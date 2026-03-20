@@ -20,11 +20,14 @@ export const authRoutes = new Hono<ApiAppEnv>()
       password?: string;
       businessName?: string;
       slug?: string;
+      privacyAccepted?: boolean;
+      privacyVersion?: string;
+      turnstileToken?: string;
     }>();
 
-    if (!body.email || !body.password || !body.businessName) {
+    if (!body.email || !body.password || !body.businessName || body.privacyAccepted !== true || !body.privacyVersion) {
       throw appError("VALIDATION_ERROR", {
-        required: ["email", "password", "businessName"]
+        required: ["email", "password", "businessName", "privacyAccepted", "privacyVersion"]
       });
     }
 
@@ -34,7 +37,12 @@ export const authRoutes = new Hono<ApiAppEnv>()
         email: body.email,
         password: body.password,
         businessName: body.businessName,
-        slug: body.slug
+        slug: body.slug,
+        privacyAccepted: body.privacyAccepted,
+        privacyVersion: body.privacyVersion,
+        turnstileToken: body.turnstileToken,
+        ip: c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? undefined,
+        userAgent: c.req.header("user-agent") ?? undefined
       });
     } catch (error) {
       if (error instanceof AppError) {
@@ -72,6 +80,10 @@ export const authRoutes = new Hono<ApiAppEnv>()
     return c.json({ data: await authService.resetPassword(body) });
   })
   .post("/request-email-verification", async (c) => {
+    const body = await c.req.json<{ email?: string }>().catch(() => ({}));
+    return c.json({ data: await authService.requestEmailVerification(body) });
+  })
+  .post("/verify-email/resend", async (c) => {
     const body = await c.req.json<{ email?: string }>().catch(() => ({}));
     return c.json({ data: await authService.requestEmailVerification(body) });
   })

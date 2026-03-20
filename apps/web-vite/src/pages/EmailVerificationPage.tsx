@@ -1,13 +1,17 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { requestEmailVerification, verifyEmail } from "../shared/api/authApi";
 
 export function EmailVerificationPage() {
   const { t } = useI18n();
+  const [searchParams] = useSearchParams();
   const [pendingRequest, setPendingRequest] = useState(false);
   const [pendingVerify, setPendingVerify] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
+  const tokenFromUrl = searchParams.get("token") ?? "";
+  const emailFromUrl = searchParams.get("email") ?? "";
 
   return (
     <section className="section auth-shell">
@@ -37,7 +41,7 @@ export function EmailVerificationPage() {
         >
           <label>
             {t("auth.email")}
-            <input name="email" type="email" required placeholder={t("auth.placeholder.email")} />
+            <input name="email" type="email" required defaultValue={emailFromUrl} placeholder={t("auth.placeholder.email")} />
           </label>
           <button className="btn btn-ghost" type="submit" disabled={pendingRequest}>
             {pendingRequest ? t("auth.verify.requestPending") : t("auth.verify.request")}
@@ -67,7 +71,7 @@ export function EmailVerificationPage() {
         >
           <label>
             {t("auth.token")}
-            <input name="token" type="text" required placeholder={t("auth.placeholder.token")} />
+            <input name="token" type="text" required defaultValue={tokenFromUrl} placeholder={t("auth.placeholder.token")} />
           </label>
           <button className="btn btn-primary" type="submit" disabled={pendingVerify}>
             {pendingVerify ? t("auth.verify.pending") : t("auth.verify.verify")}

@@ -89,6 +89,29 @@ export const users = pgTable(
   ]
 );
 
+export const tenantConsents = pgTable(
+  "tenant_consents",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    consentType: varchar("consent_type", { length: 64 }).notNull(),
+    consentVersion: varchar("consent_version", { length: 64 }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+    ip: varchar("ip", { length: 64 }),
+    userAgent: varchar("user_agent", { length: 512 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [
+    index("idx_tenant_consents_tenant_type").on(t.tenantId, t.consentType, t.acceptedAt),
+    index("idx_tenant_consents_user").on(t.userId, t.acceptedAt)
+  ]
+);
+
 export const refreshTokens = pgTable(
   "refresh_tokens",
   {

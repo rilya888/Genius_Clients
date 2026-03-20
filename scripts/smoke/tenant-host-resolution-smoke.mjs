@@ -55,7 +55,9 @@ async function main() {
       body: JSON.stringify({
         businessName: `Smoke Tenant ${nonce}`,
         email: `smoke.tenant.${nonce}@example.com`,
-        password: "Smoke!123"
+        password: "Smoke!123",
+        privacyAccepted: true,
+        privacyVersion: process.env.PRIVACY_POLICY_VERSION ?? "v1"
       })
     });
     assert(registerResponse.response.ok, `autoregister failed: ${registerResponse.response.status}`);

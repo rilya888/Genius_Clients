@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { and, asc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
   bookings,
   createDbClient,
@@ -18,6 +18,7 @@ const heartbeatIntervalMs = Number(process.env.WORKER_HEARTBEAT_MS ?? 15000);
 const reminderPollIntervalMs = Number(process.env.WORKER_REMINDER_POLL_MS ?? 60000);
 const deliveryPollIntervalMs = Number(process.env.WORKER_DELIVERY_POLL_MS ?? 30000);
 const cleanupPollIntervalMs = Number(process.env.WORKER_CLEANUP_POLL_MS ?? 600000);
+const unverifiedAccountRetentionDays = Number(process.env.UNVERIFIED_ACCOUNT_RETENTION_DAYS ?? 30);
 const deliveryMaxAttempts = Number(process.env.WORKER_DELIVERY_MAX_ATTEMPTS ?? 5);
 const deliveryBackoffBaseSeconds = Number(process.env.WORKER_DELIVERY_BACKOFF_BASE_SECONDS ?? 30);
 const port = Number(process.env.PORT ?? 3003);
@@ -64,11 +65,13 @@ let lastCleanupStats: {
   resetDeleted: number;
   verifyDeleted: number;
   idempotencyDeleted: number;
+  unverifiedTenantDeleted: number;
 } = {
   refreshDeleted: 0,
   resetDeleted: 0,
   verifyDeleted: 0,
-  idempotencyDeleted: 0
+  idempotencyDeleted: 0,
+  unverifiedTenantDeleted: 0
 };
 
 async function pingRedis(): Promise<"ok" | "disabled" | "error"> {
@@ -521,13 +524,39 @@ async function runCleanupSweep() {
       .delete(emailVerificationTokens)
       .where(lte(emailVerificationTokens.expiresAt, now));
     const idemResult = await db.delete(idempotencyKeys).where(lte(idempotencyKeys.expiresAt, now));
+    const retentionCutoff = new Date(
+      now.getTime() - Math.max(1, Math.trunc(unverifiedAccountRetentionDays)) * 24 * 60 * 60 * 1000
+    );
+    const staleTenantRows = await db.execute<{ id: string }>(sql`
+      SELECT t.id
+      FROM tenants t
+      WHERE
+        t.created_at < ${retentionCutoff}
+        AND EXISTS (
+          SELECT 1
+          FROM users u
+          WHERE u.tenant_id = t.id
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM users verified
+          WHERE verified.tenant_id = t.id
+            AND verified.is_email_verified = TRUE
+        )
+    `);
+    const staleTenantIds = staleTenantRows.rows.map((item) => item.id).filter(Boolean);
+    const staleTenantDeleteResult =
+      staleTenantIds.length > 0
+        ? await db.delete(tenants).where(inArray(tenants.id, staleTenantIds))
+        : { rowCount: 0 };
 
     lastCleanupAt = now.toISOString();
     lastCleanupStats = {
       refreshDeleted: refreshResult.rowCount ?? 0,
       resetDeleted: resetResult.rowCount ?? 0,
       verifyDeleted: verifyResult.rowCount ?? 0,
-      idempotencyDeleted: idemResult.rowCount ?? 0
+      idempotencyDeleted: idemResult.rowCount ?? 0,
+      unverifiedTenantDeleted: staleTenantDeleteResult.rowCount ?? 0
     };
     console.log("[worker] cleanup sweep completed", lastCleanupStats);
   } catch (error) {
