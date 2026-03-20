@@ -366,7 +366,7 @@ export function SuperAdminPage() {
       </div>
 
       <div className="settings-card" style={{ marginBottom: 12 }}>
-        <h2 style={{ marginTop: 0 }}>Tenant Mapping</h2>
+        <h2 style={{ marginTop: 0 }}>Tenants</h2>
         <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
           <input
             placeholder="tenantId"
