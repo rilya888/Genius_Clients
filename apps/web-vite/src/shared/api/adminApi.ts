@@ -138,6 +138,60 @@ type ScopeEnvelope = {
   };
 };
 
+type BillingPlansEnvelope = {
+  data: {
+    items: Array<{
+      code: string;
+      name: string;
+      priceCents: number;
+      currency: string;
+      billingPeriod: "month" | "year";
+      isActive: boolean;
+      isCheckoutEnabled: boolean;
+      isEnterprise: boolean;
+      stripeConfigured: boolean;
+      isCurrent: boolean;
+      canUpgrade: boolean;
+      features: Record<string, unknown>;
+    }>;
+  };
+};
+
+type BillingSubscriptionEnvelope = {
+  data: {
+    planCode: string | null;
+    pendingPlanCode: string | null;
+    status: string | null;
+    trialEndsAt: string | null;
+    trialDaysLeft: number;
+    currentPeriodStart: string | null;
+    currentPeriodEnd: string | null;
+    cancelAtPeriodEnd: boolean;
+    lastInvoiceStatus: string | null;
+    billingState: "ok" | "past_due_warning" | "read_only" | "hard_locked";
+    readOnlyActive: boolean;
+    hardLockActive: boolean;
+    daysPastDue: number;
+  };
+};
+
+type BillingCheckoutEnvelope = {
+  data:
+    | {
+        requiresTrialConfirm: true;
+        trialDaysLeft: number;
+      }
+    | {
+        requiresTrialConfirm: false;
+        checkoutUrl: string;
+        mode: "checkout_session";
+      }
+    | {
+        requiresTrialConfirm: false;
+        mode: "subscription_updated";
+      };
+};
+
 async function authHeaders(existing?: HeadersInit) {
   const headers = new Headers(existing);
   const accessToken = await ensureAccessToken();
@@ -479,6 +533,39 @@ export async function getTenantSettings() {
 export async function getAdminScope() {
   const payload = await adminJson<ScopeEnvelope>("/api/v1/admin/scope", {
     method: "GET"
+  });
+  return payload.data;
+}
+
+export async function getBillingPlans() {
+  const payload = await adminJson<BillingPlansEnvelope>("/api/v1/admin/billing/plans", {
+    method: "GET"
+  });
+  return payload.data.items;
+}
+
+export async function getBillingSubscription() {
+  const payload = await adminJson<BillingSubscriptionEnvelope>("/api/v1/admin/billing/subscription", {
+    method: "GET"
+  });
+  return payload.data;
+}
+
+export async function createBillingCheckout(input: {
+  targetPlanCode: string;
+  confirmedTrialOverride?: boolean;
+}) {
+  const payload = await adminJson<BillingCheckoutEnvelope>("/api/v1/admin/billing/checkout", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+  return payload.data;
+}
+
+export async function confirmBillingCheckout(targetPlanCode: string) {
+  const payload = await adminJson<BillingCheckoutEnvelope>("/api/v1/admin/billing/checkout/confirm", {
+    method: "POST",
+    body: JSON.stringify({ targetPlanCode })
   });
   return payload.data;
 }

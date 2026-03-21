@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { useScopeContext } from "../shared/hooks/useScopeContext";
 import { logout } from "../shared/api/authApi";
-import { listAdminBookings } from "../shared/api/adminApi";
+import { getBillingSubscription, listAdminBookings } from "../shared/api/adminApi";
 import { clearSession, getRefreshToken, isEmailVerifiedFlagSet } from "../shared/auth/session";
 
 export function AppLayout() {
@@ -17,6 +17,10 @@ export function AppLayout() {
   const selectedSalon = useMemo(() => salons.find((item) => item.id === salonId), [salons, salonId]);
   const [newBookingToastCount, setNewBookingToastCount] = useState(0);
   const [isEmailVerified, setIsEmailVerified] = useState(true);
+  const [billingState, setBillingState] = useState<"ok" | "past_due_warning" | "read_only" | "hard_locked" | null>(
+    null
+  );
+  const [billingDaysPastDue, setBillingDaysPastDue] = useState(0);
   const knownPendingBookingIdsRef = useRef<Set<string>>(new Set());
   const isPendingPollInitializedRef = useRef(false);
 
@@ -31,6 +35,35 @@ export function AppLayout() {
 
   useEffect(() => {
     setIsEmailVerified(isEmailVerifiedFlagSet());
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function pollBillingState() {
+      try {
+        const summary = await getBillingSubscription();
+        if (cancelled) {
+          return;
+        }
+        setBillingState(summary.billingState);
+        setBillingDaysPastDue(summary.daysPastDue);
+      } catch {
+        if (cancelled) {
+          return;
+        }
+      }
+    }
+
+    void pollBillingState();
+    const timer = window.setInterval(() => {
+      void pollBillingState();
+    }, 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -147,6 +180,21 @@ export function AppLayout() {
             >
               {t("admin.notifications.newBookingsToastAction")}
             </button>
+          </div>
+        ) : null}
+        {billingState === "past_due_warning" ? (
+          <div className="status-error" role="status" aria-live="polite">
+            {t("app.billing.pastDueWarning")} {billingDaysPastDue}
+          </div>
+        ) : null}
+        {billingState === "read_only" ? (
+          <div className="status-muted" role="status" aria-live="polite">
+            {t("app.billing.readOnly")}
+          </div>
+        ) : null}
+        {billingState === "hard_locked" ? (
+          <div className="status-error" role="status" aria-live="polite">
+            {t("app.billing.hardLock")}
           </div>
         ) : null}
         <div className="scope-indicator">

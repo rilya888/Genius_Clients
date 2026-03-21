@@ -18,7 +18,7 @@ export class RuntimeSubscriptionRepository {
       FROM tenant_subscriptions ts
       WHERE
         ts.tenant_id = ${tenantId}
-        AND ts.status = 'active'
+        AND ts.status IN ('active', 'trialing', 'past_due', 'incomplete')
         AND ts.effective_from <= ${now}
         AND (ts.effective_to IS NULL OR ts.effective_to > ${now})
       ORDER BY ts.effective_from DESC, ts.updated_at DESC

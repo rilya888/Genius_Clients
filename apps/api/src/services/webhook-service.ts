@@ -1,15 +1,18 @@
 import { appError } from "../lib/http";
 import { AuditRepository, StripeRepository, WebhookRepository } from "../repositories";
 import { sha256 } from "../lib/hash";
+import { BillingService } from "./billing-service";
 
 export class WebhookService {
   private readonly webhookRepository = new WebhookRepository();
   private readonly auditRepository = new AuditRepository();
   private readonly stripeRepository = new StripeRepository();
+  private readonly billingService = new BillingService();
   private readonly stripeAllowedEventTypes = new Set([
     "checkout.session.completed",
     "checkout.session.async_payment_succeeded",
     "invoice.payment_succeeded",
+    "invoice.payment_failed",
     "customer.subscription.created",
     "customer.subscription.updated",
     "customer.subscription.deleted"
@@ -163,6 +166,13 @@ export class WebhookService {
       tenantId,
       onProcess: async () => {
         if (!tenantId || !customerId) {
+          const billing = await this.billingService.applyStripeSubscriptionEvent({
+            eventType: input.eventType,
+            payloadJson: input.payloadJson
+          });
+          if (!billing.applied) {
+            return;
+          }
           return;
         }
 
@@ -171,6 +181,11 @@ export class WebhookService {
           stripeCustomerId: customerId,
           email,
           userId
+        });
+
+        await this.billingService.applyStripeSubscriptionEvent({
+          eventType: input.eventType,
+          payloadJson: input.payloadJson
         });
       }
     });

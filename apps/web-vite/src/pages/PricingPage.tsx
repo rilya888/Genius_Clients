@@ -34,6 +34,17 @@ export function PricingPage() {
         t("pricing.plan.business.feature2"),
         t("pricing.plan.business.feature3")
       ]
+    },
+    {
+      name: t("pricing.plan.enterprise.name"),
+      priceMonthly: null,
+      priceYearly: null,
+      description: t("pricing.plan.enterprise.description"),
+      features: [
+        t("pricing.plan.enterprise.feature1"),
+        t("pricing.plan.enterprise.feature2"),
+        t("pricing.plan.enterprise.feature3")
+      ]
     }
   ];
 
@@ -53,18 +64,30 @@ export function PricingPage() {
         {plans.map((plan) => (
           <article key={plan.name} className={`pricing-card card-hover ${plan.featured ? "featured" : ""}`}>
             <h2>{plan.name}</h2>
-            <p className="price">€{period === "monthly" ? plan.priceMonthly : plan.priceYearly}</p>
-            <p className="status-muted">{t("pricing.perMonth")}</p>
-            {period === "yearly" ? <p className="badge-inline">{t("pricing.yearlySave")}</p> : null}
+            {typeof (period === "monthly" ? plan.priceMonthly : plan.priceYearly) === "number" ? (
+              <>
+                <p className="price">€{period === "monthly" ? plan.priceMonthly : plan.priceYearly}</p>
+                <p className="status-muted">{t("pricing.perMonth")}</p>
+                {period === "yearly" ? <p className="badge-inline">{t("pricing.yearlySave")}</p> : null}
+              </>
+            ) : (
+              <p className="price">{t("pricing.enterprise.contactOnly")}</p>
+            )}
             <p>{plan.description}</p>
             <ul>
               {plan.features.map((feature) => (
                 <li key={feature}>{feature}</li>
               ))}
             </ul>
-            <Link className="btn btn-primary" to="/register">
-              {t("pricing.select")}
-            </Link>
+            {plan.priceMonthly === null ? (
+              <Link className="btn btn-primary" to="/faq">
+                {t("pricing.enterprise.cta")}
+              </Link>
+            ) : (
+              <Link className="btn btn-primary" to="/register">
+                {t("pricing.select")}
+              </Link>
+            )}
           </article>
         ))}
       </div>

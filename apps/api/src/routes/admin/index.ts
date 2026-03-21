@@ -1,12 +1,67 @@
 import { Hono } from "hono";
 import type { ApiAppEnv } from "../../lib/hono-env";
 import { appError } from "../../lib/http";
-import { AdminService, BookingService } from "../../services";
+import { AdminService, BillingService, BookingService } from "../../services";
 
 const adminService = new AdminService();
 const bookingService = new BookingService();
+const billingService = new BillingService();
 
 export const adminRoutes = new Hono<ApiAppEnv>()
+  .get("/billing/plans", async (c) => {
+    const tenantId = c.get("tenantId");
+    return c.json({ data: { items: await billingService.listBillingPlans(tenantId) } });
+  })
+  .get("/billing/subscription", async (c) => {
+    const tenantId = c.get("tenantId");
+    return c.json({ data: await billingService.getBillingSubscriptionSummary(tenantId) });
+  })
+  .post("/billing/checkout", async (c) => {
+    const actorRole = c.get("userRole");
+    if (actorRole !== "owner") {
+      throw appError("AUTH_FORBIDDEN", { reason: "owner_role_required" });
+    }
+    const tenantId = c.get("tenantId");
+    const actorUserId = c.get("userId");
+    if (!actorUserId) {
+      throw appError("AUTH_UNAUTHORIZED", { reason: "user_context_missing" });
+    }
+    const body = await c.req.json<{ targetPlanCode?: string; confirmedTrialOverride?: boolean }>();
+    if (!body.targetPlanCode) {
+      throw appError("VALIDATION_ERROR", { required: ["targetPlanCode"] });
+    }
+    const data = await billingService.createCheckout({
+      tenantId,
+      actorUserId,
+      targetPlanCode: body.targetPlanCode,
+      confirmedTrialOverride: body.confirmedTrialOverride === true,
+      origin: c.req.header("origin")
+    });
+    return c.json({ data });
+  })
+  .post("/billing/checkout/confirm", async (c) => {
+    const actorRole = c.get("userRole");
+    if (actorRole !== "owner") {
+      throw appError("AUTH_FORBIDDEN", { reason: "owner_role_required" });
+    }
+    const tenantId = c.get("tenantId");
+    const actorUserId = c.get("userId");
+    if (!actorUserId) {
+      throw appError("AUTH_UNAUTHORIZED", { reason: "user_context_missing" });
+    }
+    const body = await c.req.json<{ targetPlanCode?: string }>();
+    if (!body.targetPlanCode) {
+      throw appError("VALIDATION_ERROR", { required: ["targetPlanCode"] });
+    }
+    const data = await billingService.createCheckout({
+      tenantId,
+      actorUserId,
+      targetPlanCode: body.targetPlanCode,
+      confirmedTrialOverride: true,
+      origin: c.req.header("origin")
+    });
+    return c.json({ data });
+  })
   .get("/stripe-customers", async (c) => {
     const actorRole = c.get("userRole");
     if (actorRole !== "owner") {

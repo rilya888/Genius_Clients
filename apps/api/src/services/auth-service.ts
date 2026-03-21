@@ -273,9 +273,9 @@ export class AuthService {
             ${env.trialDefaultPlanCode},
             ${now},
             ${trialEndsAt},
-            'active',
+            'trialing',
             ${now},
-            'next_cycle',
+            'immediate_prorate',
             NOW(),
             NOW()
           )
@@ -400,23 +400,28 @@ export class AuthService {
     const subscriptionSummary = await getDb().execute<{
       planCode: string | null;
       effectiveTo: Date | null;
+      status: string | null;
     }>(sql`
       SELECT
         ts.plan_code AS "planCode",
-        ts.effective_to AS "effectiveTo"
+        ts.effective_to AS "effectiveTo",
+        ts.status
       FROM tenant_subscriptions ts
       WHERE
         ts.tenant_id = ${user.tenantId}
-        AND ts.status = 'active'
+        AND ts.status IN ('active', 'trialing', 'past_due', 'incomplete')
         AND ts.effective_from <= ${now}
         AND (ts.effective_to IS NULL OR ts.effective_to > ${now})
       ORDER BY ts.effective_from DESC, ts.updated_at DESC
       LIMIT 1
     `);
     const activeSubscription = subscriptionSummary.rows[0];
-    const trialEndsAt = activeSubscription?.effectiveTo?.toISOString() ?? null;
+    const trialEndsAt =
+      activeSubscription?.status === "trialing"
+        ? activeSubscription.effectiveTo?.toISOString() ?? null
+        : null;
     const trialDaysLeft =
-      activeSubscription?.effectiveTo instanceof Date
+      activeSubscription?.status === "trialing" && activeSubscription?.effectiveTo instanceof Date
         ? Math.max(0, Math.ceil((activeSubscription.effectiveTo.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
         : 0;
 

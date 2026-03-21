@@ -21,6 +21,16 @@ const plans = [
     price: "€99",
     caption: "pricing.plan.business.description",
     features: ["pricing.plan.business.feature1", "pricing.plan.business.feature2", "pricing.plan.business.feature3"]
+  },
+  {
+    name: "Enterprise",
+    price: "Contact us",
+    caption: "pricing.plan.enterprise.description",
+    features: [
+      "pricing.plan.enterprise.feature1",
+      "pricing.plan.enterprise.feature2",
+      "pricing.plan.enterprise.feature3"
+    ]
   }
 ] as Array<{ name: string; price: string; caption: string; features: string[]; featured?: boolean }>;
 

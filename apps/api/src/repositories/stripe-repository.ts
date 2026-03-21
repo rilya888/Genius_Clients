@@ -56,4 +56,15 @@ export class StripeRepository {
 
     return record ?? null;
   }
+
+  async findByStripeCustomerId(stripeCustomerId: string) {
+    const db = getDb();
+    const [record] = await db
+      .select()
+      .from(stripeCustomers)
+      .where(eq(stripeCustomers.stripeCustomerId, stripeCustomerId))
+      .limit(1);
+
+    return record ?? null;
+  }
 }

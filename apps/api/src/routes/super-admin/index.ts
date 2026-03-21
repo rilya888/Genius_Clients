@@ -23,6 +23,7 @@ const versionRepository = new SuperAdminVersionRepository();
 const tenantRepository = new TenantRepository();
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const CANONICAL_PLAN_CODES = new Set(["starter", "pro", "business", "enterprise"]);
 
 function buildSuperAdminCookie(input: {
   cookieName: string;
@@ -48,6 +49,14 @@ function secureCompare(left: string, right: string): boolean {
 function normalizeActor(value: string | undefined): string {
   const actor = value?.trim();
   return actor && actor.length > 0 ? actor.slice(0, 120) : "super_admin";
+}
+
+function assertCanonicalPlanCode(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (!CANONICAL_PLAN_CODES.has(normalized)) {
+    throw appError("VALIDATION_ERROR", { reason: "plan_code_not_allowed" });
+  }
+  return normalized;
 }
 
 function parseBillingPeriod(value: unknown): "month" | "year" {
@@ -237,7 +246,7 @@ export const superAdminRoutes = new Hono()
     return c.json({ data: { ok: true } });
   })
   .get("/plans", async (c) => {
-    const items = await planRepository.listPlans();
+    const items = (await planRepository.listPlans()).filter((item) => CANONICAL_PLAN_CODES.has(item.code));
     return c.json({ data: { items } });
   })
   .post("/plans", async (c) => {
@@ -257,7 +266,7 @@ export const superAdminRoutes = new Hono()
       throw appError("VALIDATION_ERROR", { required: ["code", "name", "priceCents"] });
     }
 
-    const code = body.code.trim().toLowerCase();
+    const code = assertCanonicalPlanCode(body.code);
     const name = body.name.trim();
     const currency = (body.currency ?? "EUR").trim().toUpperCase();
     const sortOrder = Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0;
@@ -400,7 +409,9 @@ export const superAdminRoutes = new Hono()
   })
   .get("/plans/diff", async (c) => {
     const latest = await versionRepository.getLatestPublished();
-    const currentSnapshot = await planRepository.buildSnapshot();
+    const currentSnapshot = (await planRepository.buildSnapshot()).filter((item) =>
+      CANONICAL_PLAN_CODES.has(item.code)
+    );
 
     if (!latest) {
       return c.json({
@@ -417,7 +428,9 @@ export const superAdminRoutes = new Hono()
     }
 
     const baselineSnapshot = Array.isArray(latest.snapshotJson)
-      ? (latest.snapshotJson as SuperAdminPlanSnapshotItem[])
+      ? (latest.snapshotJson as SuperAdminPlanSnapshotItem[]).filter((item) =>
+          CANONICAL_PLAN_CODES.has(item.code)
+        )
       : [];
     return c.json({
       data: {
@@ -432,7 +445,9 @@ export const superAdminRoutes = new Hono()
       .json<{ actor?: string }>()
       .catch((): { actor?: string } => ({}));
 
-    const snapshot = await planRepository.buildSnapshot();
+    const snapshot = (await planRepository.buildSnapshot()).filter((item) =>
+      CANONICAL_PLAN_CODES.has(item.code)
+    );
     const createdVersion = await versionRepository.createPublishedVersion({
       snapshotJson: snapshot,
       publishedBy: normalizeActor(body.actor)
@@ -469,7 +484,11 @@ export const superAdminRoutes = new Hono()
       throw appError("INTERNAL_ERROR", { reason: "plan_snapshot_invalid" });
     }
 
-    await planRepository.applySnapshot(snapshot as Parameters<typeof planRepository.applySnapshot>[0]);
+    await planRepository.applySnapshot(
+      (snapshot as Parameters<typeof planRepository.applySnapshot>[0]).filter((item) =>
+        CANONICAL_PLAN_CODES.has(item.code)
+      )
+    );
 
     const createdVersion = await versionRepository.createPublishedVersion({
       snapshotJson: snapshot,
@@ -570,7 +589,7 @@ export const superAdminRoutes = new Hono()
   .put("/tenants/:tenantId/subscription", async (c) => {
     const tenantId = c.req.param("tenantId");
     const body = await c.req.json<{ planCode?: string; actor?: string }>();
-    const planCode = body.planCode?.trim().toLowerCase();
+    const planCode = body.planCode ? assertCanonicalPlanCode(body.planCode) : "";
 
     if (!planCode) {
       throw appError("VALIDATION_ERROR", { required: ["planCode"] });
