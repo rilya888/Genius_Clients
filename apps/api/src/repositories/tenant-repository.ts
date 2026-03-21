@@ -45,6 +45,14 @@ export class TenantRepository {
     bookingHorizonDays?: number;
     bookingMinAdvanceMinutes?: number;
     bookingBufferMinutes?: number;
+    addressCountry?: string | null;
+    addressCity?: string | null;
+    addressLine1?: string | null;
+    addressLine2?: string | null;
+    addressPostalCode?: string | null;
+    parkingAvailable?: boolean | null;
+    parkingNote?: string | null;
+    businessHoursNote?: string | null;
     adminNotificationEmail?: string | null;
     adminNotificationTelegramChatId?: number | null;
     adminNotificationWhatsappE164?: string | null;
@@ -61,6 +69,14 @@ export class TenantRepository {
         bookingHorizonDays: input.bookingHorizonDays,
         bookingMinAdvanceMinutes: input.bookingMinAdvanceMinutes,
         bookingBufferMinutes: input.bookingBufferMinutes,
+        addressCountry: input.addressCountry,
+        addressCity: input.addressCity,
+        addressLine1: input.addressLine1,
+        addressLine2: input.addressLine2,
+        addressPostalCode: input.addressPostalCode,
+        parkingAvailable: input.parkingAvailable,
+        parkingNote: input.parkingNote,
+        businessHoursNote: input.businessHoursNote,
         adminNotificationEmail: input.adminNotificationEmail,
         adminNotificationTelegramChatId: input.adminNotificationTelegramChatId,
         adminNotificationWhatsappE164: input.adminNotificationWhatsappE164,

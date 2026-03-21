@@ -141,6 +141,25 @@ export class BookingService {
 
     await this.subscriptionGovernanceService.enforceCanCreateBooking(input.tenantId, startAt);
 
+    if (input.masterId) {
+      const isAllowed = await this.bookingRepository.isServiceMasterPairAllowed({
+        tenantId: input.tenantId,
+        serviceId: input.serviceId,
+        masterId: input.masterId
+      });
+      if (!isAllowed) {
+        throw appError("VALIDATION_ERROR", { reason: "service_master_mapping_invalid" });
+      }
+    } else {
+      const hasMappings = await this.bookingRepository.hasActiveMasterMappingsForService({
+        tenantId: input.tenantId,
+        serviceId: input.serviceId
+      });
+      if (!hasMappings) {
+        throw appError("VALIDATION_ERROR", { reason: "service_has_no_active_masters" });
+      }
+    }
+
     const booking = await this.bookingRepository.create({
       tenantId: input.tenantId,
       serviceId: input.serviceId,

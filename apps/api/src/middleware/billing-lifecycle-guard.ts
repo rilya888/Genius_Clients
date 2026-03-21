@@ -20,6 +20,9 @@ function isAlwaysAllowedInHardLock(path: string): boolean {
   if (path === "/api/v1/admin/tenant-settings") {
     return true;
   }
+  if (path === "/api/v1/admin/settings/operational") {
+    return true;
+  }
   return false;
 }
 

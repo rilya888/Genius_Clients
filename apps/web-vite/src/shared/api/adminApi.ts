@@ -58,6 +58,62 @@ type TenantSettingsEnvelope = {
   };
 };
 
+type DashboardEnvelope = {
+  data: {
+    kpis: {
+      bookingsTodayTotal: number;
+      bookingsWeekTotal: number;
+      bookingsPendingCount: number;
+      bookingsCancelledWeek: number;
+      staffActiveCount: number;
+      bookedMinutesToday: number;
+    };
+    attention: {
+      servicesWithoutMasters: number;
+      mastersWithoutSchedule: number;
+      pendingBookings: number;
+    };
+    recentActivity: Array<{
+      id: string;
+      action: string;
+      entity: string;
+      createdAt: string;
+    }>;
+  };
+};
+
+type ServiceMastersEnvelope = {
+  data: {
+    serviceId: string;
+    masterIds: string[];
+    masters: Array<{
+      id: string;
+      displayName: string;
+    }>;
+  };
+};
+
+type OperationalSettingsEnvelope = {
+  data: {
+    id: string;
+    slug: string;
+    name: string;
+    timezone: string;
+    address: {
+      country: string;
+      city: string;
+      line1: string;
+      line2: string;
+      postalCode: string;
+    };
+    parking: {
+      available: boolean | null;
+      note: string;
+    };
+    businessHoursNote: string;
+  };
+};
+
 type DeliveriesEnvelope = {
   data: {
     items: Array<{
@@ -239,12 +295,20 @@ export async function listAdminServices() {
   return payload.data.items;
 }
 
+export async function getAdminDashboard() {
+  const payload = await adminJson<DashboardEnvelope>("/api/v1/admin/dashboard", {
+    method: "GET"
+  });
+  return payload.data;
+}
+
 export async function createAdminService(input: {
   displayName: string;
   durationMinutes: number;
   priceCents?: number | null;
   sortOrder?: number;
   isActive?: boolean;
+  masterIds?: string[];
 }) {
   const payload = await adminJson<{
     data: {
@@ -261,7 +325,8 @@ export async function createAdminService(input: {
       durationMinutes: input.durationMinutes,
       priceCents: input.priceCents ?? undefined,
       sortOrder: input.sortOrder ?? 0,
-      isActive: input.isActive ?? true
+      isActive: input.isActive ?? true,
+      masterIds: input.masterIds ?? []
     })
   });
 
@@ -308,6 +373,23 @@ export async function deleteAdminService(serviceId: string) {
     method: "DELETE"
   });
 
+  return payload.data;
+}
+
+export async function getServiceMasterMappings(serviceId: string) {
+  const payload = await adminJson<ServiceMastersEnvelope>(`/api/v1/admin/services/${serviceId}/masters`, {
+    method: "GET"
+  });
+  return payload.data;
+}
+
+export async function updateServiceMasterMappings(input: { serviceId: string; masterIds: string[] }) {
+  const payload = await adminJson<ServiceMastersEnvelope>(`/api/v1/admin/services/${input.serviceId}/masters`, {
+    method: "PUT",
+    body: JSON.stringify({
+      masterIds: input.masterIds
+    })
+  });
   return payload.data;
 }
 
@@ -526,6 +608,35 @@ export async function anonymizeBookings(input: { phoneE164: string; beforeDate?:
 export async function getTenantSettings() {
   const payload = await adminJson<TenantSettingsEnvelope>("/api/v1/admin/tenant-settings", {
     method: "GET"
+  });
+  return payload.data;
+}
+
+export async function getOperationalSettings() {
+  const payload = await adminJson<OperationalSettingsEnvelope>("/api/v1/admin/settings/operational", {
+    method: "GET"
+  });
+  return payload.data;
+}
+
+export async function updateOperationalSettings(input: {
+  timezone?: string;
+  address?: {
+    country?: string | null;
+    city?: string | null;
+    line1?: string | null;
+    line2?: string | null;
+    postalCode?: string | null;
+  };
+  parking?: {
+    available?: boolean | null;
+    note?: string | null;
+  };
+  businessHoursNote?: string | null;
+}) {
+  const payload = await adminJson<OperationalSettingsEnvelope>("/api/v1/admin/settings/operational", {
+    method: "PATCH",
+    body: JSON.stringify(input)
   });
   return payload.data;
 }

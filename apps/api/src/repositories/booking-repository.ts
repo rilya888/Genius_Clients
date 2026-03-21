@@ -1,10 +1,68 @@
 import { and, asc, desc, eq, gte, inArray, lt, lte, min, sql } from "drizzle-orm";
-import { bookings, masters, services } from "@genius/db";
+import { bookings, masterServices, masters, services } from "@genius/db";
 import { getDb } from "../lib/db";
 
 export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled";
 
 export class BookingRepository {
+  async hasActiveMasterMappingsForService(input: { tenantId: string; serviceId: string }) {
+    const db = getDb();
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(masterServices)
+      .innerJoin(
+        services,
+        and(
+          eq(services.id, masterServices.serviceId),
+          eq(services.tenantId, masterServices.tenantId),
+          eq(services.isActive, true)
+        )
+      )
+      .innerJoin(
+        masters,
+        and(
+          eq(masters.id, masterServices.masterId),
+          eq(masters.tenantId, masterServices.tenantId),
+          eq(masters.isActive, true)
+        )
+      )
+      .where(and(eq(masterServices.tenantId, input.tenantId), eq(masterServices.serviceId, input.serviceId)));
+
+    return Number(row?.count ?? 0) > 0;
+  }
+
+  async isServiceMasterPairAllowed(input: { tenantId: string; serviceId: string; masterId: string }) {
+    const db = getDb();
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(masterServices)
+      .innerJoin(
+        services,
+        and(
+          eq(services.id, masterServices.serviceId),
+          eq(services.tenantId, masterServices.tenantId),
+          eq(services.isActive, true)
+        )
+      )
+      .innerJoin(
+        masters,
+        and(
+          eq(masters.id, masterServices.masterId),
+          eq(masters.tenantId, masterServices.tenantId),
+          eq(masters.isActive, true)
+        )
+      )
+      .where(
+        and(
+          eq(masterServices.tenantId, input.tenantId),
+          eq(masterServices.serviceId, input.serviceId),
+          eq(masterServices.masterId, input.masterId)
+        )
+      );
+
+    return Number(row?.count ?? 0) > 0;
+  }
+
   async create(input: {
     tenantId: string;
     serviceId: string;

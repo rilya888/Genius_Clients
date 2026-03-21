@@ -399,7 +399,7 @@ export class AuthService {
     const now = new Date();
     const subscriptionSummary = await getDb().execute<{
       planCode: string | null;
-      effectiveTo: Date | null;
+      effectiveTo: Date | string | null;
       status: string | null;
     }>(sql`
       SELECT
@@ -416,13 +416,21 @@ export class AuthService {
       LIMIT 1
     `);
     const activeSubscription = subscriptionSummary.rows[0];
+    const effectiveToRaw = activeSubscription?.effectiveTo ?? null;
+    const effectiveToDate =
+      effectiveToRaw instanceof Date
+        ? effectiveToRaw
+        : typeof effectiveToRaw === "string"
+          ? new Date(effectiveToRaw)
+          : null;
+    const effectiveTo = effectiveToDate && !Number.isNaN(effectiveToDate.getTime()) ? effectiveToDate : null;
     const trialEndsAt =
       activeSubscription?.status === "trialing"
-        ? activeSubscription.effectiveTo?.toISOString() ?? null
+        ? effectiveTo?.toISOString() ?? null
         : null;
     const trialDaysLeft =
-      activeSubscription?.status === "trialing" && activeSubscription?.effectiveTo instanceof Date
-        ? Math.max(0, Math.ceil((activeSubscription.effectiveTo.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
+      activeSubscription?.status === "trialing" && effectiveTo
+        ? Math.max(0, Math.ceil((effectiveTo.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
         : 0;
 
     return {

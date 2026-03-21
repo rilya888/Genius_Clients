@@ -5,9 +5,12 @@ import {
   confirmBillingCheckout,
   createBillingCheckout,
   getBillingPlans,
-  getBillingSubscription
+  getBillingSubscription,
+  getOperationalSettings,
+  updateOperationalSettings
 } from "../shared/api/adminApi";
 import { ApiHttpError } from "../shared/api/http";
+import { formatApiError } from "../shared/api/formatApiError";
 import { useScopeContext } from "../shared/hooks/useScopeContext";
 
 type BillingPlan = Awaited<ReturnType<typeof getBillingPlans>>[number];
@@ -22,6 +25,21 @@ export function SettingsPage() {
   const [billingActionPendingCode, setBillingActionPendingCode] = useState<string | null>(null);
   const [billingError, setBillingError] = useState<string | null>(null);
   const [billingInfo, setBillingInfo] = useState<string | null>(null);
+  const [operationalPending, setOperationalPending] = useState(true);
+  const [operationalSaving, setOperationalSaving] = useState(false);
+  const [operationalError, setOperationalError] = useState<string | null>(null);
+  const [operationalInfo, setOperationalInfo] = useState<string | null>(null);
+  const [operationalForm, setOperationalForm] = useState({
+    timezone: "Europe/Rome",
+    country: "",
+    city: "",
+    line1: "",
+    line2: "",
+    postalCode: "",
+    parkingAvailable: "unknown" as "unknown" | "yes" | "no",
+    parkingNote: "",
+    businessHoursNote: ""
+  });
 
   const isOwner = role === "owner";
 
@@ -48,6 +66,46 @@ export function SettingsPage() {
       .finally(() => {
         if (!cancelled) {
           setBillingPending(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setOperationalPending(true);
+    setOperationalError(null);
+    setOperationalInfo(null);
+
+    getOperationalSettings()
+      .then((payload) => {
+        if (cancelled) {
+          return;
+        }
+        setOperationalForm({
+          timezone: payload.timezone || "Europe/Rome",
+          country: payload.address.country ?? "",
+          city: payload.address.city ?? "",
+          line1: payload.address.line1 ?? "",
+          line2: payload.address.line2 ?? "",
+          postalCode: payload.address.postalCode ?? "",
+          parkingAvailable:
+            payload.parking.available === true ? "yes" : payload.parking.available === false ? "no" : "unknown",
+          parkingNote: payload.parking.note ?? "",
+          businessHoursNote: payload.businessHoursNote ?? ""
+        });
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setOperationalError(formatApiError(error, t("settings.operational.loadFailed")));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setOperationalPending(false);
         }
       });
 
@@ -118,6 +176,37 @@ export function SettingsPage() {
     }
   }
 
+  async function handleOperationalSave() {
+    setOperationalSaving(true);
+    setOperationalError(null);
+    setOperationalInfo(null);
+    try {
+      await updateOperationalSettings({
+        timezone: operationalForm.timezone.trim(),
+        address: {
+          country: operationalForm.country,
+          city: operationalForm.city,
+          line1: operationalForm.line1,
+          line2: operationalForm.line2,
+          postalCode: operationalForm.postalCode
+        },
+        parking: {
+          available:
+            operationalForm.parkingAvailable === "unknown"
+              ? null
+              : operationalForm.parkingAvailable === "yes",
+          note: operationalForm.parkingNote
+        },
+        businessHoursNote: operationalForm.businessHoursNote
+      });
+      setOperationalInfo(t("settings.operational.saved"));
+    } catch (error) {
+      setOperationalError(formatApiError(error, t("settings.operational.saveFailed")));
+    } finally {
+      setOperationalSaving(false);
+    }
+  }
+
   const billingStateLabel = billingSubscription
     ? t(`settings.subscription.state.${billingSubscription.billingState}`)
     : t("common.value.na");
@@ -126,6 +215,83 @@ export function SettingsPage() {
     <section className="page-shell">
       <h1>{t("settings.title")}</h1>
       <div className="settings-grid">
+        <article className="settings-card card-hover">
+          <h3>{t("settings.operational.title")}</h3>
+          <p>{t("settings.operational.description")}</p>
+          {operationalPending ? <p>{t("settings.operational.loading")}</p> : null}
+          {operationalError ? <p className="status-error">{operationalError}</p> : null}
+          {operationalInfo ? <p className="status-success">{operationalInfo}</p> : null}
+          {!operationalPending ? (
+            <form className="auth-card" onSubmit={(event) => event.preventDefault()}>
+              <label>
+                {t("settings.operational.timezone")}
+                <input
+                  value={operationalForm.timezone}
+                  onChange={(event) => setOperationalForm((prev) => ({ ...prev, timezone: event.target.value }))}
+                />
+              </label>
+              <label>
+                {t("settings.operational.country")}
+                <input
+                  value={operationalForm.country}
+                  onChange={(event) => setOperationalForm((prev) => ({ ...prev, country: event.target.value }))}
+                />
+              </label>
+              <label>
+                {t("settings.operational.city")}
+                <input value={operationalForm.city} onChange={(event) => setOperationalForm((prev) => ({ ...prev, city: event.target.value }))} />
+              </label>
+              <label>
+                {t("settings.operational.line1")}
+                <input value={operationalForm.line1} onChange={(event) => setOperationalForm((prev) => ({ ...prev, line1: event.target.value }))} />
+              </label>
+              <label>
+                {t("settings.operational.line2")}
+                <input value={operationalForm.line2} onChange={(event) => setOperationalForm((prev) => ({ ...prev, line2: event.target.value }))} />
+              </label>
+              <label>
+                {t("settings.operational.postalCode")}
+                <input
+                  value={operationalForm.postalCode}
+                  onChange={(event) => setOperationalForm((prev) => ({ ...prev, postalCode: event.target.value }))}
+                />
+              </label>
+              <label>
+                {t("settings.operational.parkingAvailable")}
+                <select
+                  value={operationalForm.parkingAvailable}
+                  onChange={(event) =>
+                    setOperationalForm((prev) => ({
+                      ...prev,
+                      parkingAvailable: event.target.value as "unknown" | "yes" | "no"
+                    }))
+                  }
+                >
+                  <option value="unknown">{t("common.value.na")}</option>
+                  <option value="yes">{t("common.value.yes")}</option>
+                  <option value="no">{t("common.value.no")}</option>
+                </select>
+              </label>
+              <label>
+                {t("settings.operational.parkingNote")}
+                <input
+                  value={operationalForm.parkingNote}
+                  onChange={(event) => setOperationalForm((prev) => ({ ...prev, parkingNote: event.target.value }))}
+                />
+              </label>
+              <label>
+                {t("settings.operational.businessHoursNote")}
+                <input
+                  value={operationalForm.businessHoursNote}
+                  onChange={(event) => setOperationalForm((prev) => ({ ...prev, businessHoursNote: event.target.value }))}
+                />
+              </label>
+              <button className="btn btn-primary" type="button" disabled={operationalSaving} onClick={() => void handleOperationalSave()}>
+                {operationalSaving ? t("settings.operational.saving") : t("common.action.save")}
+              </button>
+            </form>
+          ) : null}
+        </article>
         <article className="settings-card card-hover">
           <h3>{t("settings.subscription.title")}</h3>
           <p>{t("settings.subscription.description")}</p>

@@ -44,6 +44,14 @@ export const tenants = pgTable(
     bookingHorizonDays: integer("booking_horizon_days").notNull().default(30),
     bookingMinAdvanceMinutes: integer("booking_min_advance_minutes").notNull().default(0),
     bookingBufferMinutes: integer("booking_buffer_minutes").notNull().default(0),
+    addressCountry: varchar("address_country", { length: 80 }),
+    addressCity: varchar("address_city", { length: 120 }),
+    addressLine1: varchar("address_line1", { length: 255 }),
+    addressLine2: varchar("address_line2", { length: 255 }),
+    addressPostalCode: varchar("address_postal_code", { length: 32 }),
+    parkingAvailable: boolean("parking_available"),
+    parkingNote: varchar("parking_note", { length: 255 }),
+    businessHoursNote: varchar("business_hours_note", { length: 255 }),
     adminNotificationEmail: varchar("admin_notification_email", { length: 255 }),
     adminNotificationTelegramChatId: bigint("admin_notification_telegram_chat_id", {
       mode: "number"

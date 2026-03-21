@@ -1,61 +1,74 @@
+import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { getNotificationSummary } from "../shared/api/adminApi";
-import { loadSystemStatus } from "../shared/api/systemApi";
+import { getAdminDashboard } from "../shared/api/adminApi";
+import { formatApiError } from "../shared/api/formatApiError";
 import { useI18n } from "../shared/i18n/I18nProvider";
 
 export function DashboardPage() {
   const { t } = useI18n();
-  const [status, setStatus] = useState<{
+  const [state, setState] = useState<{
     pending: boolean;
     error: string | null;
-    health: "ok" | "error" | "-";
-    ready: "ok" | "error" | "-";
+    kpis: {
+      bookingsTodayTotal: number;
+      bookingsWeekTotal: number;
+      bookingsPendingCount: number;
+      bookingsCancelledWeek: number;
+      staffActiveCount: number;
+      bookedMinutesToday: number;
+    } | null;
+    attention: {
+      servicesWithoutMasters: number;
+      mastersWithoutSchedule: number;
+      pendingBookings: number;
+    } | null;
+    recentActivity: Array<{
+      id: string;
+      action: string;
+      entity: string;
+      createdAt: string;
+    }>;
   }>({
     pending: true,
     error: null,
-    health: "-",
-    ready: "-"
+    kpis: null,
+    attention: null,
+    recentActivity: []
   });
-  const [notificationFailed, setNotificationFailed] = useState<number | null>(null);
-  const healthLabel = status.pending ? t("common.loadingDots") : t(`common.systemStatus.${status.health}`);
-  const readyLabel = status.pending ? t("common.loadingDots") : t(`common.systemStatus.${status.ready}`);
-  const healthClass = status.health === "ok" ? "status-success" : status.health === "error" ? "status-error" : "status-muted";
-  const readyClass = status.ready === "ok" ? "status-success" : status.ready === "error" ? "status-error" : "status-muted";
 
   useEffect(() => {
     let cancelled = false;
-    loadSystemStatus()
+    getAdminDashboard()
       .then((payload) => {
         if (!cancelled) {
-          setStatus({ pending: false, error: null, ...payload });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setStatus({
+          setState({
             pending: false,
-            error: t("admin.dashboard.statusLoadFailed"),
-            health: "error",
-            ready: "error"
+            error: null,
+            kpis: payload.kpis,
+            attention: payload.attention,
+            recentActivity: payload.recentActivity
           });
         }
-      });
-    getNotificationSummary()
-      .then((summary) => {
-        if (!cancelled) {
-          setNotificationFailed(summary.failed + summary.deadLetter);
-        }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) {
-          setNotificationFailed(null);
+          setState({
+            pending: false,
+            error: formatApiError(error, t("admin.dashboard.statusLoadFailed")),
+            kpis: null,
+            attention: null,
+            recentActivity: []
+          });
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
+
+  const kpis = state.kpis;
+  const attention = state.attention;
 
   return (
     <section className="page-shell">
@@ -63,30 +76,92 @@ export function DashboardPage() {
       <div className="admin-kpi-grid">
         <article className="kpi card-hover">
           <h3>{t("admin.dashboard.bookingsToday")}</h3>
-          <p>42</p>
+          <p>{state.pending || !kpis ? t("common.loadingDots") : kpis.bookingsTodayTotal}</p>
         </article>
         <article className="kpi card-hover">
-          <h3>{t("admin.dashboard.reminderDelivery")}</h3>
-          <p>97.2%</p>
+          <h3>{t("admin.dashboard.bookingsWeek")}</h3>
+          <p>{state.pending || !kpis ? t("common.loadingDots") : kpis.bookingsWeekTotal}</p>
         </article>
         <article className="kpi card-hover">
-          <h3>{t("admin.dashboard.noShowRisk")}</h3>
-          <p>{t("admin.dashboard.noShowRiskValue")}</p>
+          <h3>{t("admin.dashboard.pendingBookings")}</h3>
+          <p>{state.pending || !kpis ? t("common.loadingDots") : kpis.bookingsPendingCount}</p>
         </article>
         <article className="kpi card-hover">
-          <h3>{t("admin.dashboard.apiHealth")}</h3>
-          <p className={healthClass}>{healthLabel}</p>
+          <h3>{t("admin.dashboard.cancelledWeek")}</h3>
+          <p>{state.pending || !kpis ? t("common.loadingDots") : kpis.bookingsCancelledWeek}</p>
         </article>
         <article className="kpi card-hover">
-          <h3>{t("admin.dashboard.apiReady")}</h3>
-          <p className={readyClass}>{readyLabel}</p>
+          <h3>{t("admin.dashboard.activeStaff")}</h3>
+          <p>{state.pending || !kpis ? t("common.loadingDots") : kpis.staffActiveCount}</p>
         </article>
         <article className="kpi card-hover">
-          <h3>{t("admin.dashboard.notificationFailures")}</h3>
-          <p>{notificationFailed === null ? t("common.value.na") : notificationFailed}</p>
+          <h3>{t("admin.dashboard.bookedMinutesToday")}</h3>
+          <p>{state.pending || !kpis ? t("common.loadingDots") : kpis.bookedMinutesToday}</p>
         </article>
       </div>
-      {status.error ? <p className="status-error">{status.error}</p> : null}
+      <div className="settings-grid" style={{ marginTop: "1rem" }}>
+        <article className="settings-card card-hover">
+          <h3>{t("admin.dashboard.attentionTitle")}</h3>
+          <p>
+            {t("admin.dashboard.attention.pendingBookings")}:{" "}
+            <strong>{state.pending || !attention ? t("common.loadingDots") : attention.pendingBookings}</strong>
+          </p>
+          <p>
+            {t("admin.dashboard.attention.servicesWithoutMasters")}:{" "}
+            <strong>
+              {state.pending || !attention ? t("common.loadingDots") : attention.servicesWithoutMasters}
+            </strong>
+          </p>
+          <p>
+            {t("admin.dashboard.attention.mastersWithoutSchedule")}:{" "}
+            <strong>
+              {state.pending || !attention ? t("common.loadingDots") : attention.mastersWithoutSchedule}
+            </strong>
+          </p>
+          <div className="inline-actions">
+            <Link className="btn btn-ghost" to="/app/bookings">
+              {t("admin.dashboard.quick.openBookings")}
+            </Link>
+            <Link className="btn btn-ghost" to="/app/services">
+              {t("admin.dashboard.quick.openServices")}
+            </Link>
+            <Link className="btn btn-ghost" to="/app/staff">
+              {t("admin.dashboard.quick.openStaff")}
+            </Link>
+            <Link className="btn btn-ghost" to="/app/schedule">
+              {t("admin.dashboard.quick.openSchedule")}
+            </Link>
+          </div>
+        </article>
+        <article className="settings-card card-hover">
+          <h3>{t("admin.dashboard.activityTitle")}</h3>
+          {state.pending ? <p>{t("common.loadingDots")}</p> : null}
+          {!state.pending && state.recentActivity.length === 0 ? (
+            <p className="status-muted">{t("admin.dashboard.activityEmpty")}</p>
+          ) : null}
+          {!state.pending && state.recentActivity.length > 0 ? (
+            <table>
+              <thead>
+                <tr>
+                  <th>{t("admin.dashboard.activityAction")}</th>
+                  <th>{t("admin.dashboard.activityEntity")}</th>
+                  <th>{t("common.col.date")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {state.recentActivity.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.action}</td>
+                    <td>{item.entity}</td>
+                    <td>{new Date(item.createdAt).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+        </article>
+      </div>
+      {state.error ? <p className="status-error">{state.error}</p> : null}
     </section>
   );
 }

@@ -1,5 +1,7 @@
-import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import {
+  auditLogs,
+  bookings,
   masterServices,
   masterTranslations,
   masters,
@@ -77,6 +79,116 @@ export class AdminRepository {
       .limit(input.limit);
   }
 
+  async getDashboardKpis(input: { tenantId: string; timezone: string }) {
+    const db = getDb();
+    const timezone = input.timezone;
+    const result = await db.execute<{
+      bookingsTodayTotal: number;
+      bookingsWeekTotal: number;
+      bookingsPendingCount: number;
+      bookingsCancelledWeek: number;
+      staffActiveCount: number;
+      bookedMinutesToday: number;
+    }>(sql`
+      WITH window_bounds AS (
+        SELECT
+          (date_trunc('day', NOW() AT TIME ZONE ${timezone}) AT TIME ZONE ${timezone}) AS day_start_utc,
+          ((date_trunc('day', NOW() AT TIME ZONE ${timezone}) + INTERVAL '1 day') AT TIME ZONE ${timezone}) AS day_end_utc,
+          ((date_trunc('day', NOW() AT TIME ZONE ${timezone}) - INTERVAL '6 day') AT TIME ZONE ${timezone}) AS week_start_utc
+      )
+      SELECT
+        COALESCE(SUM(CASE
+          WHEN b.start_at >= w.day_start_utc AND b.start_at < w.day_end_utc
+            AND b.status IN ('pending', 'confirmed', 'completed')
+          THEN 1 ELSE 0 END), 0)::int AS "bookingsTodayTotal",
+        COALESCE(SUM(CASE
+          WHEN b.start_at >= w.week_start_utc AND b.start_at < w.day_end_utc
+            AND b.status IN ('pending', 'confirmed', 'completed')
+          THEN 1 ELSE 0 END), 0)::int AS "bookingsWeekTotal",
+        COALESCE(SUM(CASE
+          WHEN b.status = 'pending' THEN 1 ELSE 0 END), 0)::int AS "bookingsPendingCount",
+        COALESCE(SUM(CASE
+          WHEN b.start_at >= w.week_start_utc AND b.start_at < w.day_end_utc
+            AND b.status = 'cancelled'
+          THEN 1 ELSE 0 END), 0)::int AS "bookingsCancelledWeek",
+        (
+          SELECT COALESCE(COUNT(*)::int, 0)
+          FROM masters m
+          WHERE m.tenant_id = ${input.tenantId} AND m.is_active = TRUE
+        ) AS "staffActiveCount",
+        COALESCE(SUM(CASE
+          WHEN b.start_at >= w.day_start_utc AND b.start_at < w.day_end_utc
+            AND b.status IN ('pending', 'confirmed', 'completed')
+          THEN GREATEST(0, EXTRACT(EPOCH FROM (b.end_at - b.start_at)) / 60)::int
+          ELSE 0 END), 0)::int AS "bookedMinutesToday"
+      FROM window_bounds w
+      LEFT JOIN bookings b ON b.tenant_id = ${input.tenantId}
+    `);
+    return result.rows[0] ?? null;
+  }
+
+  async getDashboardAttention(input: { tenantId: string }) {
+    const db = getDb();
+    const result = await db.execute<{
+      servicesWithoutMasters: number;
+      mastersWithoutSchedule: number;
+      pendingBookings: number;
+    }>(sql`
+      SELECT
+        (
+          SELECT COALESCE(COUNT(*)::int, 0)
+          FROM services s
+          WHERE
+            s.tenant_id = ${input.tenantId}
+            AND s.is_active = TRUE
+            AND NOT EXISTS (
+              SELECT 1
+              FROM master_services ms
+              INNER JOIN masters m ON m.id = ms.master_id
+              WHERE ms.tenant_id = s.tenant_id AND ms.service_id = s.id AND m.is_active = TRUE
+            )
+        ) AS "servicesWithoutMasters",
+        (
+          SELECT COALESCE(COUNT(*)::int, 0)
+          FROM masters m
+          WHERE
+            m.tenant_id = ${input.tenantId}
+            AND m.is_active = TRUE
+            AND NOT EXISTS (
+              SELECT 1
+              FROM working_hours wh
+              WHERE wh.tenant_id = m.tenant_id AND wh.master_id = m.id AND wh.is_active = TRUE
+            )
+        ) AS "mastersWithoutSchedule",
+        (
+          SELECT COALESCE(COUNT(*)::int, 0)
+          FROM bookings b
+          WHERE b.tenant_id = ${input.tenantId} AND b.status = 'pending'
+        ) AS "pendingBookings"
+    `);
+
+    return result.rows[0] ?? {
+      servicesWithoutMasters: 0,
+      mastersWithoutSchedule: 0,
+      pendingBookings: 0
+    };
+  }
+
+  async listRecentActivity(input: { tenantId: string; limit: number }) {
+    const db = getDb();
+    return db
+      .select({
+        id: auditLogs.id,
+        action: auditLogs.action,
+        entity: auditLogs.entity,
+        createdAt: auditLogs.createdAt
+      })
+      .from(auditLogs)
+      .where(eq(auditLogs.tenantId, input.tenantId))
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(input.limit);
+  }
+
   async listMasters(tenantId: string) {
     const db = getDb();
     return db
@@ -89,6 +201,18 @@ export class AdminRepository {
       })
       .from(masters)
       .where(eq(masters.tenantId, tenantId))
+      .orderBy(asc(masters.displayName));
+  }
+
+  async listActiveMasters(tenantId: string) {
+    const db = getDb();
+    return db
+      .select({
+        id: masters.id,
+        displayName: masters.displayName
+      })
+      .from(masters)
+      .where(and(eq(masters.tenantId, tenantId), eq(masters.isActive, true)))
       .orderBy(asc(masters.displayName));
   }
 
@@ -150,31 +274,65 @@ export class AdminRepository {
     isActive: boolean;
   }) {
     const db = getDb();
-    const [record] = await db
-      .update(masters)
-      .set({
-        displayName: input.displayName,
-        isActive: input.isActive,
-        updatedAt: new Date()
-      })
-      .where(and(eq(masters.tenantId, input.tenantId), eq(masters.id, input.masterId)))
-      .returning();
+    if (input.isActive) {
+      const [record] = await db
+        .update(masters)
+        .set({
+          displayName: input.displayName,
+          isActive: input.isActive,
+          updatedAt: new Date()
+        })
+        .where(and(eq(masters.tenantId, input.tenantId), eq(masters.id, input.masterId)))
+        .returning();
 
-    return record ?? null;
+      return record ?? null;
+    }
+
+    return db.transaction(async (tx) => {
+      const [record] = await tx
+        .update(masters)
+        .set({
+          displayName: input.displayName,
+          isActive: false,
+          updatedAt: new Date()
+        })
+        .where(and(eq(masters.tenantId, input.tenantId), eq(masters.id, input.masterId)))
+        .returning();
+
+      if (!record) {
+        return null;
+      }
+
+      await tx
+        .delete(masterServices)
+        .where(and(eq(masterServices.tenantId, input.tenantId), eq(masterServices.masterId, input.masterId)));
+
+      return record;
+    });
   }
 
   async deactivateMaster(input: { tenantId: string; masterId: string }) {
     const db = getDb();
-    const [record] = await db
-      .update(masters)
-      .set({
-        isActive: false,
-        updatedAt: new Date()
-      })
-      .where(and(eq(masters.tenantId, input.tenantId), eq(masters.id, input.masterId)))
-      .returning();
+    return db.transaction(async (tx) => {
+      const [record] = await tx
+        .update(masters)
+        .set({
+          isActive: false,
+          updatedAt: new Date()
+        })
+        .where(and(eq(masters.tenantId, input.tenantId), eq(masters.id, input.masterId)))
+        .returning();
 
-    return record ?? null;
+      if (!record) {
+        return null;
+      }
+
+      await tx
+        .delete(masterServices)
+        .where(and(eq(masterServices.tenantId, input.tenantId), eq(masterServices.masterId, input.masterId)));
+
+      return record;
+    });
   }
 
   async listServices(tenantId: string) {
@@ -195,6 +353,20 @@ export class AdminRepository {
       .orderBy(asc(services.sortOrder), asc(services.displayName));
   }
 
+  async findServiceById(input: { tenantId: string; serviceId: string }) {
+    const db = getDb();
+    const [record] = await db
+      .select({
+        id: services.id,
+        isActive: services.isActive
+      })
+      .from(services)
+      .where(and(eq(services.tenantId, input.tenantId), eq(services.id, input.serviceId)))
+      .limit(1);
+
+    return record ?? null;
+  }
+
   async createService(input: {
     tenantId: string;
     displayName: string;
@@ -202,21 +374,39 @@ export class AdminRepository {
     priceCents?: number;
     sortOrder?: number;
     isActive?: boolean;
+    masterIds?: string[];
   }) {
     const db = getDb();
-    const [record] = await db
-      .insert(services)
-      .values({
-        tenantId: input.tenantId,
-        displayName: input.displayName,
-        durationMinutes: input.durationMinutes,
-        priceCents: input.priceCents,
-        sortOrder: input.sortOrder ?? 0,
-        isActive: input.isActive ?? true
-      })
-      .returning();
+    const masterIds = input.masterIds ?? [];
+    return db.transaction(async (tx) => {
+      const [record] = await tx
+        .insert(services)
+        .values({
+          tenantId: input.tenantId,
+          displayName: input.displayName,
+          durationMinutes: input.durationMinutes,
+          priceCents: input.priceCents,
+          sortOrder: input.sortOrder ?? 0,
+          isActive: input.isActive ?? true
+        })
+        .returning();
 
-    return record ?? null;
+      if (!record) {
+        return null;
+      }
+
+      if (masterIds.length > 0) {
+        await tx.insert(masterServices).values(
+          masterIds.map((masterId) => ({
+            tenantId: input.tenantId,
+            serviceId: record.id,
+            masterId
+          }))
+        );
+      }
+
+      return record;
+    });
   }
 
   async listMasterTranslations(tenantId: string) {
@@ -434,6 +624,59 @@ export class AdminRepository {
       .from(masterServices)
       .where(eq(masterServices.tenantId, tenantId))
       .orderBy(asc(masterServices.createdAt));
+  }
+
+  async listServiceMasterIds(input: { tenantId: string; serviceId: string }) {
+    const db = getDb();
+    const rows = await db
+      .select({
+        masterId: masterServices.masterId
+      })
+      .from(masterServices)
+      .where(and(eq(masterServices.tenantId, input.tenantId), eq(masterServices.serviceId, input.serviceId)));
+    return rows.map((row) => row.masterId);
+  }
+
+  async countActiveMasterMappingsByService(input: { tenantId: string; serviceId: string; masterIds?: string[] }) {
+    const db = getDb();
+    const filters = [
+      eq(masterServices.tenantId, input.tenantId),
+      eq(masterServices.serviceId, input.serviceId),
+      eq(masters.isActive, true),
+      eq(masters.tenantId, input.tenantId)
+    ];
+    if (input.masterIds && input.masterIds.length > 0) {
+      filters.push(inArray(masterServices.masterId, input.masterIds));
+    }
+
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(masterServices)
+      .innerJoin(masters, eq(masters.id, masterServices.masterId))
+      .where(and(...filters));
+
+    return Number(row?.count ?? 0);
+  }
+
+  async replaceServiceMasterMappings(input: { tenantId: string; serviceId: string; masterIds: string[] }) {
+    const db = getDb();
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(masterServices)
+        .where(and(eq(masterServices.tenantId, input.tenantId), eq(masterServices.serviceId, input.serviceId)));
+
+      if (input.masterIds.length === 0) {
+        return;
+      }
+
+      await tx.insert(masterServices).values(
+        input.masterIds.map((masterId) => ({
+          tenantId: input.tenantId,
+          serviceId: input.serviceId,
+          masterId
+        }))
+      );
+    });
   }
 
   async createMasterService(input: {

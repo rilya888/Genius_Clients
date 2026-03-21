@@ -1,5 +1,13 @@
 import { FormEvent, useEffect, useState } from "react";
-import { createAdminService, deleteAdminService, listAdminServices, updateAdminService } from "../shared/api/adminApi";
+import {
+  createAdminService,
+  deleteAdminService,
+  getServiceMasterMappings,
+  listAdminMasters,
+  listAdminServices,
+  updateAdminService,
+  updateServiceMasterMappings
+} from "../shared/api/adminApi";
 import { formatApiError } from "../shared/api/formatApiError";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/AsyncState";
 import { Modal } from "../components/ui/Modal";
@@ -22,6 +30,7 @@ type EditorState = {
   price: string;
   sortOrder: string;
   isActive: boolean;
+  masterIds: string[];
 };
 
 function createEmptyEditor(sortOrder = 0): EditorState {
@@ -32,7 +41,8 @@ function createEmptyEditor(sortOrder = 0): EditorState {
     durationMinutes: "30",
     price: "",
     sortOrder: String(sortOrder),
-    isActive: true
+    isActive: true,
+    masterIds: []
   };
 }
 
@@ -51,6 +61,7 @@ export function ServicesPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
+  const [availableMasters, setAvailableMasters] = useState<Array<{ id: string; displayName: string }>>([]);
 
   async function loadServices() {
     setState((prev) => ({ ...prev, pending: true, error: null }));
@@ -75,6 +86,13 @@ export function ServicesPage() {
 
   useEffect(() => {
     void loadServices();
+    listAdminMasters()
+      .then((items) => {
+        setAvailableMasters(items.filter((item) => item.isActive).map((item) => ({ id: item.id, displayName: item.displayName })));
+      })
+      .catch(() => {
+        setAvailableMasters([]);
+      });
   }, []);
 
   function openCreate() {
@@ -83,7 +101,14 @@ export function ServicesPage() {
     setMessage(null);
   }
 
-  function openEdit(service: ServiceItem) {
+  async function openEdit(service: ServiceItem) {
+    let masterIds: string[] = [];
+    try {
+      const mapping = await getServiceMasterMappings(service.id);
+      masterIds = mapping.masterIds;
+    } catch {
+      masterIds = [];
+    }
     setEditor({
       mode: "edit",
       id: service.id,
@@ -91,7 +116,8 @@ export function ServicesPage() {
       durationMinutes: String(service.durationMinutes),
       price: service.priceCents === null ? "" : String(service.priceCents / 100),
       sortOrder: String(service.sortOrder),
-      isActive: service.isActive
+      isActive: service.isActive,
+      masterIds
     });
     setMessage(null);
   }
@@ -117,6 +143,11 @@ export function ServicesPage() {
       setMessage(t("services.validationError"));
       return;
     }
+    if (editor.isActive && editor.masterIds.length === 0) {
+      setIsError(true);
+      setMessage(t("services.masterRequiredForActive"));
+      return;
+    }
 
     setSaving(true);
     setMessage(null);
@@ -127,7 +158,8 @@ export function ServicesPage() {
           durationMinutes,
           priceCents,
           sortOrder,
-          isActive: editor.isActive
+          isActive: editor.isActive,
+          masterIds: editor.masterIds
         });
         setIsError(false);
         setMessage(t("services.createSuccess"));
@@ -139,6 +171,10 @@ export function ServicesPage() {
           priceCents,
           sortOrder,
           isActive: editor.isActive
+        });
+        await updateServiceMasterMappings({
+          serviceId: editor.id,
+          masterIds: editor.masterIds
         });
         setIsError(false);
         setMessage(t("services.updateSuccess"));
@@ -199,7 +235,13 @@ export function ServicesPage() {
             <p>{service.durationMinutes}m</p>
             <p>{service.priceCents ? `€${(service.priceCents / 100).toFixed(2)}` : t("services.priceUnset")}</p>
             <p>{service.isActive ? t("common.status.active") : t("common.status.inactive")}</p>
-            <button className="btn btn-ghost" type="button" onClick={() => openEdit(service)}>
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={() => {
+                void openEdit(service);
+              }}
+            >
               {t("common.action.edit")}
             </button>
           </article>
@@ -255,6 +297,31 @@ export function ServicesPage() {
                 <option value="active">{t("common.status.active")}</option>
                 <option value="inactive">{t("common.status.inactive")}</option>
               </select>
+            </label>
+            <label>
+              {t("services.fieldMasters")}
+              <div className="table-shell" style={{ display: "grid", gap: "0.35rem", maxHeight: "180px", overflow: "auto" }}>
+                {availableMasters.map((master) => (
+                  <label key={master.id}>
+                    <input
+                      type="checkbox"
+                      checked={editor.masterIds.includes(master.id)}
+                      onChange={(event) => {
+                        setEditor((prev) => {
+                          if (!prev) {
+                            return prev;
+                          }
+                          if (event.target.checked) {
+                            return { ...prev, masterIds: [...prev.masterIds, master.id] };
+                          }
+                          return { ...prev, masterIds: prev.masterIds.filter((id) => id !== master.id) };
+                        });
+                      }}
+                    />
+                    {master.displayName}
+                  </label>
+                ))}
+              </div>
             </label>
             <div className="inline-actions">
               <button className="btn btn-primary" type="submit" disabled={saving}>

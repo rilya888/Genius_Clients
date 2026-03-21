@@ -8,6 +8,10 @@ const bookingService = new BookingService();
 const billingService = new BillingService();
 
 export const adminRoutes = new Hono<ApiAppEnv>()
+  .get("/dashboard", async (c) => {
+    const tenantId = c.get("tenantId");
+    return c.json({ data: await adminService.getDashboard({ tenantId }) });
+  })
   .get("/billing/plans", async (c) => {
     const tenantId = c.get("tenantId");
     return c.json({ data: { items: await billingService.listBillingPlans(tenantId) } });
@@ -196,6 +200,7 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       priceCents?: number;
       sortOrder?: number;
       isActive?: boolean;
+      masterIds?: string[];
     }>();
     const durationMinutes = Number(body.durationMinutes);
     if (!body.displayName || !Number.isInteger(durationMinutes)) {
@@ -208,7 +213,8 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       durationMinutes,
       priceCents: body.priceCents,
       sortOrder: body.sortOrder,
-      isActive: body.isActive
+      isActive: body.isActive,
+      masterIds: body.masterIds
     });
 
     return c.json({ data: item }, 201);
@@ -247,6 +253,31 @@ export const adminRoutes = new Hono<ApiAppEnv>()
     const serviceId = c.req.param("id");
     const item = await adminService.deleteService({ tenantId, serviceId });
     return c.json({ data: item });
+  })
+  .get("/services/:id/masters", async (c) => {
+    const tenantId = c.get("tenantId");
+    const serviceId = c.req.param("id");
+    const data = await adminService.getServiceMasterMappings({ tenantId, serviceId });
+    return c.json({ data });
+  })
+  .put("/services/:id/masters", async (c) => {
+    const tenantId = c.get("tenantId");
+    const actorUserId = c.get("userId");
+    const requestId = c.get("requestId");
+    const serviceId = c.req.param("id");
+    const body = await c.req.json<{ masterIds?: string[] }>();
+    if (!Array.isArray(body.masterIds)) {
+      throw appError("VALIDATION_ERROR", { required: ["masterIds"] });
+    }
+
+    const data = await adminService.replaceServiceMasterMappings({
+      tenantId,
+      serviceId,
+      masterIds: body.masterIds,
+      actorUserId,
+      requestId
+    });
+    return c.json({ data });
   })
   .get("/master-translations", async (c) => {
     const tenantId = c.get("tenantId");
@@ -633,6 +664,40 @@ export const adminRoutes = new Hono<ApiAppEnv>()
     });
 
     return c.json({ data: updated });
+  })
+  .get("/settings/operational", async (c) => {
+    const tenantId = c.get("tenantId");
+    return c.json({ data: await adminService.getOperationalSettings(tenantId) });
+  })
+  .patch("/settings/operational", async (c) => {
+    const tenantId = c.get("tenantId");
+    const actorUserId = c.get("userId");
+    const requestId = c.get("requestId");
+    const body = await c.req.json<{
+      timezone?: string;
+      address?: {
+        country?: string | null;
+        city?: string | null;
+        line1?: string | null;
+        line2?: string | null;
+        postalCode?: string | null;
+      };
+      parking?: {
+        available?: boolean | null;
+        note?: string | null;
+      };
+      businessHoursNote?: string | null;
+    }>();
+    const data = await adminService.updateOperationalSettings({
+      tenantId,
+      actorUserId,
+      requestId,
+      timezone: body.timezone,
+      address: body.address,
+      parking: body.parking,
+      businessHoursNote: body.businessHoursNote
+    });
+    return c.json({ data });
   })
   .get("/tenant-settings", async (c) => {
     const tenantId = c.get("tenantId");

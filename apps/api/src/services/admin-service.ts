@@ -31,6 +31,55 @@ export class AdminService {
     }
   }
 
+  private normalizeOptionalText(value: string | null | undefined) {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (value === null) {
+      return null;
+    }
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  async getDashboard(input: { tenantId: string }) {
+    const tenant = await this.tenantRepository.findById(input.tenantId);
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND");
+    }
+
+    const [kpis, attention, recentActivity] = await Promise.all([
+      this.adminRepository.getDashboardKpis({
+        tenantId: input.tenantId,
+        timezone: tenant.timezone
+      }),
+      this.adminRepository.getDashboardAttention({
+        tenantId: input.tenantId
+      }),
+      this.adminRepository.listRecentActivity({
+        tenantId: input.tenantId,
+        limit: 10
+      })
+    ]);
+
+    return {
+      kpis: {
+        bookingsTodayTotal: Number(kpis?.bookingsTodayTotal ?? 0),
+        bookingsWeekTotal: Number(kpis?.bookingsWeekTotal ?? 0),
+        bookingsPendingCount: Number(kpis?.bookingsPendingCount ?? 0),
+        bookingsCancelledWeek: Number(kpis?.bookingsCancelledWeek ?? 0),
+        staffActiveCount: Number(kpis?.staffActiveCount ?? 0),
+        bookedMinutesToday: Number(kpis?.bookedMinutesToday ?? 0)
+      },
+      attention: {
+        servicesWithoutMasters: Number(attention.servicesWithoutMasters ?? 0),
+        mastersWithoutSchedule: Number(attention.mastersWithoutSchedule ?? 0),
+        pendingBookings: Number(attention.pendingBookings ?? 0)
+      },
+      recentActivity
+    };
+  }
+
   async listNotificationDeliveries(input: { tenantId: string; limit?: number }) {
     const limitRaw = input.limit ?? 50;
     const limit = Math.min(Math.max(Number(limitRaw) || 50, 1), 200);
@@ -196,6 +245,7 @@ export class AdminService {
     priceCents?: number;
     sortOrder?: number;
     isActive?: boolean;
+    masterIds?: string[];
   }) {
     const displayName = input.displayName.trim();
     if (!displayName) {
@@ -210,8 +260,26 @@ export class AdminService {
     if (input.sortOrder !== undefined && !Number.isInteger(input.sortOrder)) {
       throw appError("VALIDATION_ERROR", { reason: "sort_order_invalid" });
     }
+    const normalizedMasterIds = Array.from(
+      new Set((input.masterIds ?? []).filter((value) => typeof value === "string" && value.trim().length > 0))
+    );
+    if ((input.isActive ?? true) && normalizedMasterIds.length === 0) {
+      throw appError("VALIDATION_ERROR", { reason: "service_requires_active_master_mapping" });
+    }
+    if (normalizedMasterIds.length > 0) {
+      const activeMasters = await this.adminRepository.listActiveMasters(input.tenantId);
+      const activeMasterSet = new Set(activeMasters.map((master) => master.id));
+      for (const masterId of normalizedMasterIds) {
+        if (!activeMasterSet.has(masterId)) {
+          throw appError("VALIDATION_ERROR", { reason: "master_not_active_or_not_in_tenant", masterId });
+        }
+      }
+    }
 
-    const created = await this.adminRepository.createService(input);
+    const created = await this.adminRepository.createService({
+      ...input,
+      masterIds: normalizedMasterIds
+    });
     if (!created) {
       throw appError("INTERNAL_ERROR", { reason: "service_create_failed" });
     }
@@ -240,6 +308,16 @@ export class AdminService {
     }
     if (!Number.isInteger(input.sortOrder)) {
       throw appError("VALIDATION_ERROR", { reason: "sort_order_invalid" });
+    }
+
+    if (input.isActive) {
+      const activeMappingCount = await this.adminRepository.countActiveMasterMappingsByService({
+        tenantId: input.tenantId,
+        serviceId: input.serviceId
+      });
+      if (activeMappingCount <= 0) {
+        throw appError("VALIDATION_ERROR", { reason: "service_requires_active_master_mapping" });
+      }
     }
 
     const updated = await this.adminRepository.updateService(input);
@@ -336,6 +414,84 @@ export class AdminService {
 
   async listMasterServices(tenantId: string) {
     return this.adminRepository.listMasterServices(tenantId);
+  }
+
+  async getServiceMasterMappings(input: { tenantId: string; serviceId: string }) {
+    const service = await this.adminRepository.findServiceById({
+      tenantId: input.tenantId,
+      serviceId: input.serviceId
+    });
+    if (!service) {
+      throw appError("TENANT_NOT_FOUND", { reason: "service_not_found_in_tenant" });
+    }
+
+    const [masterIds, masters] = await Promise.all([
+      this.adminRepository.listServiceMasterIds(input),
+      this.adminRepository.listActiveMasters(input.tenantId)
+    ]);
+
+    return {
+      serviceId: input.serviceId,
+      masterIds,
+      masters
+    };
+  }
+
+  async replaceServiceMasterMappings(input: {
+    tenantId: string;
+    serviceId: string;
+    masterIds: string[];
+    actorUserId?: string;
+    requestId?: string;
+  }) {
+    const service = await this.adminRepository.findServiceById({
+      tenantId: input.tenantId,
+      serviceId: input.serviceId
+    });
+    if (!service) {
+      throw appError("TENANT_NOT_FOUND", { reason: "service_not_found_in_tenant" });
+    }
+
+    const normalizedMasterIds = Array.from(new Set(input.masterIds.filter((value) => typeof value === "string" && value.trim().length > 0)));
+    const activeMasters = await this.adminRepository.listActiveMasters(input.tenantId);
+    const activeMasterSet = new Set(activeMasters.map((master) => master.id));
+    for (const masterId of normalizedMasterIds) {
+      if (!activeMasterSet.has(masterId)) {
+        throw appError("VALIDATION_ERROR", { reason: "master_not_active_or_not_in_tenant", masterId });
+      }
+    }
+
+    if (service.isActive && normalizedMasterIds.length === 0) {
+      throw appError("VALIDATION_ERROR", { reason: "service_requires_active_master_mapping" });
+    }
+
+    const before = await this.adminRepository.listServiceMasterIds({
+      tenantId: input.tenantId,
+      serviceId: input.serviceId
+    });
+    await this.adminRepository.replaceServiceMasterMappings({
+      tenantId: input.tenantId,
+      serviceId: input.serviceId,
+      masterIds: normalizedMasterIds
+    });
+
+    await this.auditRepository.create({
+      tenantId: input.tenantId,
+      actorUserId: input.actorUserId,
+      action: "service_master_mapping_updated",
+      entity: "service",
+      entityId: input.serviceId,
+      meta: {
+        requestId: input.requestId,
+        mastersCountBefore: before.length,
+        mastersCountAfter: normalizedMasterIds.length
+      }
+    });
+
+    return {
+      serviceId: input.serviceId,
+      masterIds: normalizedMasterIds
+    };
   }
 
   async createMasterService(input: {
@@ -617,6 +773,93 @@ export class AdminService {
       openaiModel: tenant.openaiModel,
       humanHandoffEnabled: tenant.humanHandoffEnabled
     };
+  }
+
+  async getOperationalSettings(tenantId: string) {
+    const tenant = await this.tenantRepository.findById(tenantId);
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND");
+    }
+
+    return {
+      id: tenant.id,
+      slug: tenant.slug,
+      name: tenant.name,
+      timezone: tenant.timezone,
+      address: {
+        country: tenant.addressCountry ?? "",
+        city: tenant.addressCity ?? "",
+        line1: tenant.addressLine1 ?? "",
+        line2: tenant.addressLine2 ?? "",
+        postalCode: tenant.addressPostalCode ?? ""
+      },
+      parking: {
+        available: tenant.parkingAvailable ?? null,
+        note: tenant.parkingNote ?? ""
+      },
+      businessHoursNote: tenant.businessHoursNote ?? ""
+    };
+  }
+
+  async updateOperationalSettings(input: {
+    tenantId: string;
+    actorUserId?: string;
+    requestId?: string;
+    timezone?: string;
+    address?: {
+      country?: string | null;
+      city?: string | null;
+      line1?: string | null;
+      line2?: string | null;
+      postalCode?: string | null;
+    };
+    parking?: {
+      available?: boolean | null;
+      note?: string | null;
+    };
+    businessHoursNote?: string | null;
+  }) {
+    const patch = {
+      tenantId: input.tenantId,
+      timezone: input.timezone,
+      addressCountry: this.normalizeOptionalText(input.address?.country),
+      addressCity: this.normalizeOptionalText(input.address?.city),
+      addressLine1: this.normalizeOptionalText(input.address?.line1),
+      addressLine2: this.normalizeOptionalText(input.address?.line2),
+      addressPostalCode: this.normalizeOptionalText(input.address?.postalCode),
+      parkingAvailable: input.parking?.available,
+      parkingNote: this.normalizeOptionalText(input.parking?.note),
+      businessHoursNote: this.normalizeOptionalText(input.businessHoursNote)
+    };
+
+    const updated = await this.tenantRepository.updateSettings(patch);
+    if (!updated) {
+      throw appError("TENANT_NOT_FOUND");
+    }
+
+    await this.auditRepository.create({
+      tenantId: input.tenantId,
+      actorUserId: input.actorUserId,
+      action: "tenant_operational_settings_updated",
+      entity: "tenant",
+      entityId: input.tenantId,
+      meta: {
+        requestId: input.requestId,
+        changed: {
+          timezone: patch.timezone,
+          addressCountry: patch.addressCountry,
+          addressCity: patch.addressCity,
+          addressLine1: patch.addressLine1,
+          addressLine2: patch.addressLine2,
+          addressPostalCode: patch.addressPostalCode,
+          parkingAvailable: patch.parkingAvailable,
+          parkingNote: patch.parkingNote,
+          businessHoursNote: patch.businessHoursNote
+        }
+      }
+    });
+
+    return this.getOperationalSettings(input.tenantId);
   }
 
   async getScope(tenantId: string) {
