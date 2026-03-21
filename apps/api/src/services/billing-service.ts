@@ -70,6 +70,17 @@ function unixToDate(value: unknown): Date | null {
   return new Date(Math.trunc(seconds) * 1000);
 }
 
+function toDateOrNull(value: unknown): Date | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
 function getFutureDaysLeft(value: Date | null, now: Date): number {
   if (!value) {
     return 0;
@@ -285,17 +296,24 @@ export class BillingService {
       };
     }
 
+    const pastDueSince = toDateOrNull(row.pastDueSince);
+    const readOnlySince = toDateOrNull(row.readOnlySince);
+    const hardLockedSince = toDateOrNull(row.hardLockedSince);
+    const effectiveTo = toDateOrNull(row.effectiveTo);
+    const currentPeriodStart = toDateOrNull(row.currentPeriodStart);
+    const currentPeriodEnd = toDateOrNull(row.currentPeriodEnd);
+
     const lifecycle = this.mapBillingState({
       status: row.status,
-      pastDueSince: row.pastDueSince,
-      readOnlySince: row.readOnlySince,
-      hardLockedSince: row.hardLockedSince,
+      pastDueSince,
+      readOnlySince,
+      hardLockedSince,
       now
     });
 
     if (
-      lifecycle.readOnlySince?.toISOString() !== row.readOnlySince?.toISOString() ||
-      lifecycle.hardLockedSince?.toISOString() !== row.hardLockedSince?.toISOString()
+      lifecycle.readOnlySince?.toISOString() !== readOnlySince?.toISOString() ||
+      lifecycle.hardLockedSince?.toISOString() !== hardLockedSince?.toISOString()
     ) {
       await this.billingRepository.updateLifecycleMarkers({
         subscriptionId: row.id,
@@ -305,15 +323,15 @@ export class BillingService {
     }
 
     const trialEndsAtDate =
-      row.status === "trialing" ? row.effectiveTo ?? row.currentPeriodEnd : null;
+      row.status === "trialing" ? effectiveTo ?? currentPeriodEnd : null;
     return {
       planCode: row.planCode,
       pendingPlanCode: row.pendingPlanCode,
       status: row.status as BillingSubscriptionStatus,
       trialEndsAt: trialEndsAtDate?.toISOString() ?? null,
       trialDaysLeft: getFutureDaysLeft(trialEndsAtDate, now),
-      currentPeriodStart: row.currentPeriodStart?.toISOString() ?? null,
-      currentPeriodEnd: row.currentPeriodEnd?.toISOString() ?? null,
+      currentPeriodStart: currentPeriodStart?.toISOString() ?? null,
+      currentPeriodEnd: currentPeriodEnd?.toISOString() ?? null,
       cancelAtPeriodEnd: row.cancelAtPeriodEnd,
       lastInvoiceStatus: row.lastInvoiceStatus,
       billingState: lifecycle.state,
