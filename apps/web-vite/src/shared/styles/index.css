@@ -321,6 +321,10 @@ h1 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.settings-grid--content {
+  align-items: start;
+}
+
 .feature-grid article,
 .service-card,
 .settings-card {

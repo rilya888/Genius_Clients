@@ -214,7 +214,7 @@ export function SettingsPage() {
   return (
     <section className="page-shell">
       <h1>{t("settings.title")}</h1>
-      <div className="settings-grid">
+      <div className="settings-grid settings-grid--content">
         <article className="settings-card card-hover">
           <h3>{t("settings.operational.title")}</h3>
           <p>{t("settings.operational.description")}</p>
