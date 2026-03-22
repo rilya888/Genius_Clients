@@ -430,8 +430,15 @@ h1 {
 .inline-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-3);
   margin-top: var(--space-4);
+}
+
+.settings-card > .btn,
+.settings-card > a.btn {
+  width: auto;
+  justify-self: start;
 }
 
 .pricing-grid {

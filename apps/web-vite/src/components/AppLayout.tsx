@@ -2,14 +2,15 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { useScopeContext } from "../shared/hooks/useScopeContext";
-import { logout } from "../shared/api/authApi";
+import { logout, requestEmailVerification } from "../shared/api/authApi";
 import { getBillingSubscription, listAdminBookings } from "../shared/api/adminApi";
 import { clearSession, getRefreshToken, isEmailVerifiedFlagSet } from "../shared/auth/session";
+import { formatApiError } from "../shared/api/formatApiError";
 
 export function AppLayout() {
   const navigate = useNavigate();
   const { t } = useI18n();
-  const { accountId, salonId, accounts, salons, capabilities, role, setAccountId, setSalonId } =
+  const { accountId, salonId, accounts, salons, capabilities, role, userEmail, setAccountId, setSalonId } =
     useScopeContext();
 
   const availableSalons = useMemo(() => salons.filter((item) => item.accountId === accountId), [salons, accountId]);
@@ -17,6 +18,9 @@ export function AppLayout() {
   const selectedSalon = useMemo(() => salons.find((item) => item.id === salonId), [salons, salonId]);
   const [newBookingToastCount, setNewBookingToastCount] = useState(0);
   const [isEmailVerified, setIsEmailVerified] = useState(true);
+  const [emailVerificationPending, setEmailVerificationPending] = useState(false);
+  const [emailVerificationMessage, setEmailVerificationMessage] = useState<string | null>(null);
+  const [emailVerificationError, setEmailVerificationError] = useState<string | null>(null);
   const [billingState, setBillingState] = useState<"ok" | "past_due_warning" | "read_only" | "hard_locked" | null>(
     null
   );
@@ -163,7 +167,42 @@ export function AppLayout() {
       <main className="admin-main">
         {!isEmailVerified ? (
           <div className="status-muted" role="status" aria-live="polite">
-            {t("auth.emailVerificationReadOnlyNotice")}
+            <div>{t("auth.emailVerificationReadOnlyNotice")}</div>
+            <div className="inline-actions" style={{ marginTop: "0.5rem" }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => navigate("/email-verification")}
+              >
+                {t("auth.verifyLink")}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={emailVerificationPending || !userEmail}
+                onClick={() => {
+                  if (!userEmail) {
+                    setEmailVerificationError(t("auth.verify.requestFailed"));
+                    return;
+                  }
+                  setEmailVerificationPending(true);
+                  setEmailVerificationMessage(null);
+                  setEmailVerificationError(null);
+                  requestEmailVerification({ email: userEmail })
+                    .then(() => {
+                      setEmailVerificationMessage(t("auth.verify.requestSuccess"));
+                    })
+                    .catch((error) => {
+                      setEmailVerificationError(formatApiError(error, t("auth.verify.requestFailed")));
+                    })
+                    .finally(() => setEmailVerificationPending(false));
+                }}
+              >
+                {emailVerificationPending ? t("auth.verify.requestPending") : t("auth.verify.request")}
+              </button>
+            </div>
+            {emailVerificationMessage ? <div className="status-success">{emailVerificationMessage}</div> : null}
+            {emailVerificationError ? <div className="status-error">{emailVerificationError}</div> : null}
           </div>
         ) : null}
         {newBookingToastCount > 0 ? (
