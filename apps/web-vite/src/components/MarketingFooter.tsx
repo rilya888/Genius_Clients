@@ -12,6 +12,7 @@ export function MarketingFooter() {
       <div>
         <Link to="/pricing">{t("nav.pricing")}</Link>
         <Link to="/faq">{t("nav.faq")}</Link>
+        <Link to="/contact">{t("nav.contact")}</Link>
         <Link to="/book">{t("nav.booking")}</Link>
       </div>
     </footer>

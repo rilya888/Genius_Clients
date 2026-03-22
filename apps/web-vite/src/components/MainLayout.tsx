@@ -45,6 +45,9 @@ export function MainLayout() {
           <NavLink to="/faq" onClick={closeMobileMenu}>
             {t("nav.faq")}
           </NavLink>
+          <NavLink to="/contact" onClick={closeMobileMenu}>
+            {t("nav.contact")}
+          </NavLink>
         </nav>
         <div className="site-header-actions" data-open={mobileNavOpen}>
           <div className="lang-switch">

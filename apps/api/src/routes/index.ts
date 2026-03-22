@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { authRoutes } from "./auth";
 import { publicRoutes } from "./public";
+import { marketingRoutes } from "./marketing";
 import { adminRoutes } from "./admin";
 import { superAdminRoutes } from "./super-admin";
 import { webhookRoutes } from "./webhooks";
@@ -67,6 +68,9 @@ export function createApiV1Routes() {
   apiV1.use("/public/*", tenantHostResolverMiddleware);
   apiV1.use("/public/*", tenantContextMiddleware);
   apiV1.route("/public", publicRoutes);
+
+  apiV1.use("/marketing/*", rateLimitMiddleware);
+  apiV1.route("/marketing", marketingRoutes);
 
   apiV1.use("/admin/*", rateLimitMiddleware);
   apiV1.use("/admin/*", sessionAuthMiddleware);

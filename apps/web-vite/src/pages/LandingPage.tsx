@@ -1,81 +1,93 @@
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { listPublicPricingPlans, trackMarketingEvent } from "../shared/api/marketingApi";
 import { useRevealOnScroll } from "../shared/hooks/useRevealOnScroll";
 import { useI18n } from "../shared/i18n/I18nProvider";
 
-const plans = [
-  {
-    name: "Starter",
-    price: "€19",
-    caption: "pricing.plan.starter.description",
-    features: ["pricing.plan.starter.feature1", "pricing.plan.starter.feature2", "pricing.plan.starter.feature3"]
-  },
-  {
-    name: "Pro",
-    price: "€49",
-    caption: "pricing.plan.pro.description",
-    features: ["pricing.plan.pro.feature1", "pricing.plan.pro.feature2", "pricing.plan.pro.feature3"],
-    featured: true
-  },
-  {
-    name: "Business",
-    price: "€99",
-    caption: "pricing.plan.business.description",
-    features: ["pricing.plan.business.feature1", "pricing.plan.business.feature2", "pricing.plan.business.feature3"]
-  },
-  {
-    name: "Enterprise",
-    price: "Contact us",
-    caption: "pricing.plan.enterprise.description",
-    features: [
-      "pricing.plan.enterprise.feature1",
-      "pricing.plan.enterprise.feature2",
-      "pricing.plan.enterprise.feature3"
-    ]
-  }
-] as Array<{ name: string; price: string; caption: string; features: string[]; featured?: boolean }>;
+type PublicPlan = Awaited<ReturnType<typeof listPublicPricingPlans>>[number];
+
+const canonicalPlanOrder = ["starter", "pro", "business", "enterprise"] as const;
 
 export function LandingPage() {
   const { t } = useI18n();
   const heroRef = useRevealOnScroll<HTMLElement>();
-  const featuresRef = useRevealOnScroll<HTMLElement>();
   const pricingRef = useRevealOnScroll<HTMLElement>();
-  const faqRef = useRevealOnScroll<HTMLElement>();
+  const [plans, setPlans] = useState<PublicPlan[]>([]);
 
-  const howItWorks = [
-    { step: "01", title: t("landing.how.step1.title"), text: t("landing.how.step1.text") },
-    { step: "02", title: t("landing.how.step2.title"), text: t("landing.how.step2.text") },
-    { step: "03", title: t("landing.how.step3.title"), text: t("landing.how.step3.text") },
-    { step: "04", title: t("landing.how.step4.title"), text: t("landing.how.step4.text") }
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    listPublicPricingPlans()
+      .then((items) => {
+        if (cancelled) {
+          return;
+        }
+        const sorted = [...items].sort(
+          (left, right) => canonicalPlanOrder.indexOf(left.code as (typeof canonicalPlanOrder)[number]) - canonicalPlanOrder.indexOf(right.code as (typeof canonicalPlanOrder)[number])
+        );
+        setPlans(sorted);
+        void trackMarketingEvent({
+          event: "landing_pricing_plan_view",
+          payload: {
+            count: sorted.length,
+            codes: sorted.map((item) => item.code)
+          }
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPlans([]);
+        }
+      });
 
-  const tourPanels = [
-    { title: t("landing.tour.item1.title"), text: t("landing.tour.item1.text") },
-    { title: t("landing.tour.item2.title"), text: t("landing.tour.item2.text") },
-    { title: t("landing.tour.item3.title"), text: t("landing.tour.item3.text") }
-  ];
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const faqs = [
-    { q: t("landing.faq.item1.q"), a: t("landing.faq.item1.a") },
-    { q: t("landing.faq.item2.q"), a: t("landing.faq.item2.a") },
-    { q: t("landing.faq.item3.q"), a: t("landing.faq.item3.a") }
-  ];
+  const verticals = useMemo(
+    () => [
+      { title: t("landing.vertical.salon.title"), text: t("landing.vertical.salon.text") },
+      { title: t("landing.vertical.auto.title"), text: t("landing.vertical.auto.text") },
+      { title: t("landing.vertical.medical.title"), text: t("landing.vertical.medical.text") },
+      { title: t("landing.vertical.wellness.title"), text: t("landing.vertical.wellness.text") },
+      { title: t("landing.vertical.generic.title"), text: t("landing.vertical.generic.text") }
+    ],
+    [t]
+  );
 
-  const highlights = [
-    { icon: "📅", title: t("features.booking"), text: t("landing.featureCard.booking") },
-    { icon: "🔔", title: t("features.reminders"), text: t("landing.featureCard.reminders") },
-    { icon: "👥", title: t("features.staff"), text: t("landing.featureCard.staff") },
-    { icon: "📈", title: t("features.analytics"), text: t("landing.featureCard.analytics") }
-  ];
+  const whatsappFlow = useMemo(
+    () => [
+      { step: "01", title: t("landing.whatsapp.step1.title"), text: t("landing.whatsapp.step1.text") },
+      { step: "02", title: t("landing.whatsapp.step2.title"), text: t("landing.whatsapp.step2.text") },
+      { step: "03", title: t("landing.whatsapp.step3.title"), text: t("landing.whatsapp.step3.text") },
+      { step: "04", title: t("landing.whatsapp.step4.title"), text: t("landing.whatsapp.step4.text") }
+    ],
+    [t]
+  );
+
+  const operations = useMemo(
+    () => [
+      { title: t("landing.ops.item1.title"), text: t("landing.ops.item1.text") },
+      { title: t("landing.ops.item2.title"), text: t("landing.ops.item2.text") },
+      { title: t("landing.ops.item3.title"), text: t("landing.ops.item3.text") },
+      { title: t("landing.ops.item4.title"), text: t("landing.ops.item4.text") }
+    ],
+    [t]
+  );
 
   return (
     <>
       <section ref={heroRef} className="section hero reveal-on-scroll">
         <div>
           <p className="eyebrow">{t("landing.eyebrow")}</p>
-          <h1>{t("hero.title")}</h1>
-          <p className="hero-subtitle">{t("hero.subtitle")}</p>
+          <h1>{t("landing.v2.title")}</h1>
+          <p className="hero-subtitle">{t("landing.v2.subtitle")}</p>
           <div className="hero-actions">
-            <Link className="btn btn-primary" to="/register">
+            <Link
+              className="btn btn-primary"
+              to="/register"
+              onClick={() => void trackMarketingEvent({ event: "landing_cta_start_free_click" })}
+            >
               {t("hero.ctaPrimary")}
             </Link>
             <Link className="btn btn-ghost" to="/pricing">
@@ -84,47 +96,20 @@ export function LandingPage() {
           </div>
         </div>
         <div className="hero-panel card-hover">
-          <h3>{t("landing.heroOverview.title")}</h3>
+          <h3>{t("landing.v2.heroPanelTitle")}</h3>
           <ul>
-            <li>{t("landing.heroOverview.item1")}</li>
-            <li>{t("landing.heroOverview.item2")}</li>
-            <li>{t("landing.heroOverview.item3")}</li>
+            <li>{t("landing.v2.heroPanelItem1")}</li>
+            <li>{t("landing.v2.heroPanelItem2")}</li>
+            <li>{t("landing.v2.heroPanelItem3")}</li>
           </ul>
-          <div className="hero-metrics">
-            <div>
-              <strong>4.9</strong>
-              <span>{t("landing.metrics.rating")}</span>
-            </div>
-            <div>
-              <strong>500K+</strong>
-              <span>{t("landing.metrics.bookings")}</span>
-            </div>
-            <div>
-              <strong>97%</strong>
-              <span>{t("landing.metrics.delivery")}</span>
-            </div>
-          </div>
         </div>
       </section>
 
-      <section className="section proof">
-        <p>{t("proof.title")}</p>
-        <div className="proof-logos">
-          <span>STYLE LAB</span>
-          <span>URBAN CUT</span>
-          <span>LAGOON SPA</span>
-          <span>NOVA STUDIO</span>
-        </div>
-      </section>
-
-      <section ref={featuresRef} className="section reveal-on-scroll">
-        <h2>{t("features.title")}</h2>
+      <section className="section reveal-on-scroll">
+        <h2>{t("landing.v2.verticalsTitle")}</h2>
         <div className="feature-grid">
-          {highlights.map((item) => (
-            <article key={item.title} className="feature-card card-hover">
-              <span className="feature-icon" aria-hidden="true">
-                {item.icon}
-              </span>
+          {verticals.map((item) => (
+            <article className="feature-card card-hover" key={item.title}>
               <h3>{item.title}</h3>
               <p>{item.text}</p>
             </article>
@@ -133,9 +118,21 @@ export function LandingPage() {
       </section>
 
       <section className="section reveal-on-scroll">
-        <h2>{t("landing.how.title")}</h2>
+        <div className="inline-actions" style={{ justifyContent: "space-between", alignItems: "end" }}>
+          <div>
+            <h2>{t("landing.whatsapp.title")}</h2>
+            <p className="status-muted">{t("landing.whatsapp.subtitle")}</p>
+          </div>
+          <button
+            className="btn btn-ghost"
+            type="button"
+            onClick={() => void trackMarketingEvent({ event: "landing_whatsapp_flow_expand" })}
+          >
+            {t("landing.whatsapp.track")}
+          </button>
+        </div>
         <div className="steps-grid">
-          {howItWorks.map((item) => (
+          {whatsappFlow.map((item) => (
             <article className="step-card card-hover" key={item.step}>
               <span>{item.step}</span>
               <h3>{item.title}</h3>
@@ -146,12 +143,12 @@ export function LandingPage() {
       </section>
 
       <section className="section reveal-on-scroll">
-        <h2>{t("landing.tour.title")}</h2>
+        <h2>{t("landing.ops.title")}</h2>
         <div className="tour-grid">
-          {tourPanels.map((panel) => (
-            <article key={panel.title} className="tour-card card-hover">
-              <h3>{panel.title}</h3>
-              <p>{panel.text}</p>
+          {operations.map((item) => (
+            <article className="tour-card card-hover" key={item.title}>
+              <h3>{item.title}</h3>
+              <p>{item.text}</p>
             </article>
           ))}
         </div>
@@ -159,56 +156,85 @@ export function LandingPage() {
 
       <section ref={pricingRef} className="section reveal-on-scroll">
         <h2>{t("pricing.title")}</h2>
+        <p className="status-muted">{t("landing.v2.pricingSubtitle")}</p>
         <div className="pricing-grid">
-          {plans.map((plan) => (
-            <article key={plan.name} className={`pricing-card card-hover ${plan.featured ? "featured" : ""}`}>
-              {plan.featured ? <span className="badge-inline">{t("pricing.popular")}</span> : null}
-              <h3>{plan.name}</h3>
-              <p className="price">{plan.price}</p>
-              <p>{t(plan.caption)}</p>
-              <ul>
-                {plan.features.map((feature) => (
-                  <li key={feature}>{t(feature)}</li>
-                ))}
-              </ul>
-              <Link className="btn btn-primary" to="/register">
-                {t("landing.choosePlan")}
-              </Link>
-            </article>
-          ))}
+          {plans.map((plan) => {
+            const isEnterprise = plan.isEnterprise;
+            const featured = plan.code === "pro";
+            const price = isEnterprise ? t("pricing.enterprise.contactOnly") : `€${(plan.priceCents / 100).toFixed(0)}`;
+            return (
+              <article key={plan.code} className={`pricing-card card-hover ${featured ? "featured" : ""}`}>
+                {featured ? <span className="badge-inline">{t("pricing.popular")}</span> : null}
+                <h3>{t(`pricing.plan.${plan.code}.name`)}</h3>
+                <p className="price">{price}</p>
+                {!isEnterprise ? <p className="status-muted">{t("pricing.perMonth")}</p> : null}
+                <p>{t(`pricing.plan.${plan.code}.description`)}</p>
+                <ul>
+                  <li>{t(`pricing.plan.${plan.code}.feature1`)}</li>
+                  <li>{t(`pricing.plan.${plan.code}.feature2`)}</li>
+                  <li>{t(`pricing.plan.${plan.code}.feature3`)}</li>
+                </ul>
+                {isEnterprise ? (
+                  <Link
+                    className="btn btn-primary"
+                    to="/contact"
+                    onClick={() => void trackMarketingEvent({ event: "landing_cta_enterprise_click" })}
+                  >
+                    {t("pricing.enterprise.cta")}
+                  </Link>
+                ) : (
+                  <Link
+                    className="btn btn-primary"
+                    to="/register"
+                    onClick={() => void trackMarketingEvent({ event: "landing_cta_start_free_click", payload: { planCode: plan.code } })}
+                  >
+                    {t("pricing.select")}
+                  </Link>
+                )}
+              </article>
+            );
+          })}
         </div>
       </section>
 
-      <section ref={faqRef} className="section reveal-on-scroll">
+      <section className="section reveal-on-scroll">
         <h2>{t("faq.title")}</h2>
         <div className="faq-list">
-          {faqs.map((item) => (
-            <details key={item.q} className="faq-item card-hover">
-              <summary>{item.q}</summary>
-              <p>{item.a}</p>
-            </details>
-          ))}
+          <details className="faq-item card-hover" open>
+            <summary>{t("landing.v2.faq1.q")}</summary>
+            <p>{t("landing.v2.faq1.a")}</p>
+          </details>
+          <details className="faq-item card-hover">
+            <summary>{t("landing.v2.faq2.q")}</summary>
+            <p>{t("landing.v2.faq2.a")}</p>
+          </details>
+          <details className="faq-item card-hover">
+            <summary>{t("landing.v2.faq3.q")}</summary>
+            <p>{t("landing.v2.faq3.a")}</p>
+          </details>
         </div>
       </section>
 
       <section className="section final-cta">
         <h2>{t("final.title")}</h2>
-        <Link className="btn btn-primary" to="/register">
-          {t("final.cta")}
-        </Link>
+        <div className="hero-actions" style={{ justifyContent: "center" }}>
+          <Link
+            className="btn btn-primary"
+            to="/register"
+            onClick={() => void trackMarketingEvent({ event: "landing_cta_start_free_click" })}
+          >
+            {t("final.cta")}
+          </Link>
+          <Link
+            className="btn btn-ghost"
+            to="/contact"
+            onClick={() => void trackMarketingEvent({ event: "landing_cta_enterprise_click" })}
+          >
+            {t("landing.v2.contactAdmin")}
+          </Link>
+        </div>
       </section>
-
-      <section className="section trust-section">
-        <article className="trust-card card-hover">
-          <h3>{t("landing.trust.item1.title")}</h3>
-          <p>{t("landing.trust.item1.text")}</p>
-        </article>
-        <article className="trust-card card-hover">
-          <h3>{t("landing.trust.item2.title")}</h3>
-          <p>{t("landing.trust.item2.text")}</p>
-        </article>
-      </section>
-
     </>
   );
 }
+

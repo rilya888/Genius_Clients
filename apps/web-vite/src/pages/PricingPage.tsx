@@ -1,96 +1,97 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { listPublicPricingPlans, trackMarketingEvent } from "../shared/api/marketingApi";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { useRevealOnScroll } from "../shared/hooks/useRevealOnScroll";
 
+type PublicPlan = Awaited<ReturnType<typeof listPublicPricingPlans>>[number];
+
 export function PricingPage() {
   const { t } = useI18n();
-  const [period, setPeriod] = useState<"monthly" | "yearly">("monthly");
   const shellRef = useRevealOnScroll<HTMLElement>();
+  const [plans, setPlans] = useState<PublicPlan[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const plans = [
-    {
-      name: t("pricing.plan.starter.name"),
-      priceMonthly: 19,
-      priceYearly: 15,
-      description: t("pricing.plan.starter.description"),
-      features: [t("pricing.plan.starter.feature1"), t("pricing.plan.starter.feature2"), t("pricing.plan.starter.feature3")]
-    },
-    {
-      name: t("pricing.plan.pro.name"),
-      priceMonthly: 49,
-      priceYearly: 39,
-      description: t("pricing.plan.pro.description"),
-      features: [t("pricing.plan.pro.feature1"), t("pricing.plan.pro.feature2"), t("pricing.plan.pro.feature3")],
-      featured: true
-    },
-    {
-      name: t("pricing.plan.business.name"),
-      priceMonthly: 99,
-      priceYearly: 79,
-      description: t("pricing.plan.business.description"),
-      features: [
-        t("pricing.plan.business.feature1"),
-        t("pricing.plan.business.feature2"),
-        t("pricing.plan.business.feature3")
-      ]
-    },
-    {
-      name: t("pricing.plan.enterprise.name"),
-      priceMonthly: null,
-      priceYearly: null,
-      description: t("pricing.plan.enterprise.description"),
-      features: [
-        t("pricing.plan.enterprise.feature1"),
-        t("pricing.plan.enterprise.feature2"),
-        t("pricing.plan.enterprise.feature3")
-      ]
-    }
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    listPublicPricingPlans()
+      .then((items) => {
+        if (cancelled) {
+          return;
+        }
+        setPlans(items);
+        void trackMarketingEvent({
+          event: "landing_pricing_plan_view",
+          payload: {
+            source: "pricing_page",
+            count: items.length
+          }
+        });
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const sortedPlans = useMemo(() => {
+    const order = ["starter", "pro", "business", "enterprise"];
+    return [...plans].sort((left, right) => order.indexOf(left.code) - order.indexOf(right.code));
+  }, [plans]);
 
   return (
     <section ref={shellRef} className="section page-shell reveal-on-scroll">
       <h1>{t("pricing.pageTitle")}</h1>
       <p>{t("pricing.pageSubtitle")}</p>
-      <div className="pricing-switch">
-        <button type="button" onClick={() => setPeriod("monthly")} data-active={period === "monthly"}>
-          {t("pricing.monthly")}
-        </button>
-        <button type="button" onClick={() => setPeriod("yearly")} data-active={period === "yearly"}>
-          {t("pricing.yearly")}
-        </button>
-      </div>
+      {loading ? <p>{t("common.loadingDots")}</p> : null}
       <div className="pricing-grid">
-        {plans.map((plan) => (
-          <article key={plan.name} className={`pricing-card card-hover ${plan.featured ? "featured" : ""}`}>
-            <h2>{plan.name}</h2>
-            {typeof (period === "monthly" ? plan.priceMonthly : plan.priceYearly) === "number" ? (
-              <>
-                <p className="price">€{period === "monthly" ? plan.priceMonthly : plan.priceYearly}</p>
-                <p className="status-muted">{t("pricing.perMonth")}</p>
-                {period === "yearly" ? <p className="badge-inline">{t("pricing.yearlySave")}</p> : null}
-              </>
-            ) : (
-              <p className="price">{t("pricing.enterprise.contactOnly")}</p>
-            )}
-            <p>{plan.description}</p>
-            <ul>
-              {plan.features.map((feature) => (
-                <li key={feature}>{feature}</li>
-              ))}
-            </ul>
-            {plan.priceMonthly === null ? (
-              <Link className="btn btn-primary" to="/faq">
-                {t("pricing.enterprise.cta")}
-              </Link>
-            ) : (
-              <Link className="btn btn-primary" to="/register">
-                {t("pricing.select")}
-              </Link>
-            )}
-          </article>
-        ))}
+        {sortedPlans.map((plan) => {
+          const isEnterprise = plan.isEnterprise;
+          const featured = plan.code === "pro";
+          return (
+            <article key={plan.code} className={`pricing-card card-hover ${featured ? "featured" : ""}`}>
+              {featured ? <span className="badge-inline">{t("pricing.popular")}</span> : null}
+              <h2>{t(`pricing.plan.${plan.code}.name`)}</h2>
+              {isEnterprise ? (
+                <p className="price">{t("pricing.enterprise.contactOnly")}</p>
+              ) : (
+                <>
+                  <p className="price">€{(plan.priceCents / 100).toFixed(0)}</p>
+                  <p className="status-muted">{t("pricing.perMonth")}</p>
+                </>
+              )}
+              <p>{t(`pricing.plan.${plan.code}.description`)}</p>
+              <ul>
+                <li>{t(`pricing.plan.${plan.code}.feature1`)}</li>
+                <li>{t(`pricing.plan.${plan.code}.feature2`)}</li>
+                <li>{t(`pricing.plan.${plan.code}.feature3`)}</li>
+              </ul>
+              {isEnterprise ? (
+                <Link
+                  className="btn btn-primary"
+                  to="/contact"
+                  onClick={() => void trackMarketingEvent({ event: "landing_cta_enterprise_click", payload: { source: "pricing_page" } })}
+                >
+                  {t("pricing.enterprise.cta")}
+                </Link>
+              ) : (
+                <Link
+                  className="btn btn-primary"
+                  to="/register"
+                  onClick={() => void trackMarketingEvent({ event: "landing_cta_start_free_click", payload: { source: "pricing_page", planCode: plan.code } })}
+                >
+                  {t("pricing.select")}
+                </Link>
+              )}
+            </article>
+          );
+        })}
       </div>
     </section>
   );
 }
+
