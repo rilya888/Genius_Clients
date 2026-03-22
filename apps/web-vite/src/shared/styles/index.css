@@ -439,6 +439,7 @@ h1 {
 .settings-card > a.btn {
   width: auto;
   justify-self: start;
+  align-self: start;
 }
 
 .pricing-grid {
