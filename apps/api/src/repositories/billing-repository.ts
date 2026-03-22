@@ -44,6 +44,7 @@ export type TenantSubscriptionRow = {
 };
 
 const CANONICAL_PLAN_CODES = ["starter", "pro", "business", "enterprise"] as const;
+const canonicalPlanCodesSql = sql.join(CANONICAL_PLAN_CODES.map((item) => sql`${item}`), sql`, `);
 
 export class BillingRepository {
   async listCanonicalPlans(): Promise<BillingPlanRow[]> {
@@ -64,7 +65,7 @@ export class BillingRepository {
       FROM subscription_plans p
       LEFT JOIN subscription_plan_billing_config cfg
         ON cfg.plan_code = p.code
-      WHERE p.code = ANY (${CANONICAL_PLAN_CODES}::text[])
+      WHERE p.code IN (${canonicalPlanCodesSql})
       ORDER BY p.sort_order ASC, p.code ASC
     `);
 
@@ -130,7 +131,7 @@ export class BillingRepository {
         f.value_json AS "valueJson"
       FROM subscription_plan_features f
       INNER JOIN subscription_plans p ON p.id = f.plan_id
-      WHERE p.code = ANY (${CANONICAL_PLAN_CODES}::text[])
+      WHERE p.code IN (${canonicalPlanCodesSql})
       ORDER BY p.sort_order ASC, f.feature_key ASC
     `);
     return result.rows as unknown as BillingPlanFeatureRow[];
