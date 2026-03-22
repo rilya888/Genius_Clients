@@ -211,3 +211,17 @@
 3. Публичный booking-flow создает запись только в tenant текущего host.
 4. Отсутствуют cross-tenant доступы в QA/security smoke.
 5. Бот/worker интеграции не имеют регрессий после host-first перехода.
+
+## Статус реализации (2026-03-22)
+1. Выполнено:
+- host-first tenant resolution в API + header fallback в совместимом режиме;
+- tenant host security guard для browser headers;
+- web-vite tenant host routing (`/`, `/app`, `/login`) с canonical переходами;
+- smoke сценарии:
+  - `pnpm smoke:tenant-host` — OK (с `SMOKE_TENANT_AUTOREGISTER=1`);
+  - `pnpm smoke:tenant-host:security` — OK.
+2. Ограничение вне кода:
+- production wildcard-домен `*.geniusclients.info` и финальная DNS/SSL каноникализация зависят от инфраструктурного подключения реального домена.
+3. Итог:
+- этап реализован на 100% в коде и тестируемом контуре Railway;
+- финальный custom-domain cutover выполняется как отдельная infra-операция.

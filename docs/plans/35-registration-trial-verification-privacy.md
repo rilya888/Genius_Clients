@@ -304,3 +304,19 @@
 8. i18n обновления.
 9. Smoke scripts и метрики.
 10. Rollout в production через GitHub deploy ветки.
+
+## Статус реализации (2026-03-22)
+1. Выполнено:
+- регистрация с обязательными `privacyAccepted` и `privacyVersion`;
+- trial provisioning (`business`, 30 дней, `trialing`) при signup;
+- verify/resend email endpoints и rate-limit защита;
+- forgot/reset password flow;
+- read-only gating для неподтвержденных аккаунтов;
+- cleanup job неподтвержденных аккаунтов (`UNVERIFIED_ACCOUNT_RETENTION_DAYS`);
+- UI страницы register/login/verify/forgot/reset и i18n ключи.
+2. Проверки:
+- `pnpm --filter @genius/api run typecheck` — OK;
+- `pnpm --filter @genius/web-vite run typecheck` — OK;
+- `SMOKE_API_URL=https://api-production-9caa.up.railway.app SMOKE_AUTH_AUTOREGISTER=1 pnpm smoke:spa:auth-admin` — OK.
+3. Итог:
+- этап выполнен до 100% в текущем scope.

@@ -1,4 +1,10 @@
 import type { SupportedLocale } from "@genius/i18n";
+import {
+  resolveSpecialistSelectionMode,
+  resolveTenantTerminology,
+  type TenantFlowConfig,
+  type TenantTerminologyConfig
+} from "./tenant-terminology";
 
 type ServiceItem = {
   id: string;
@@ -135,6 +141,7 @@ type Choice = {
 
 type FlowCtaAction = "flow_confirm_booking" | "flow_confirm_cancel";
 type BookingSelectionUiMode = "none" | "buttons" | "list";
+type SpecialistSelectionMode = "required" | "optional" | "hidden";
 
 export type WhatsAppConversationDeps = {
   dedupInboundMessage: (messageId: string) => Promise<boolean>;
@@ -180,6 +187,10 @@ export type WhatsAppConversationDeps = {
     locale: SupportedLocale;
   }) => Promise<string>;
   getTenantTimezone: () => Promise<string>;
+  getTenantConfig?: () => Promise<{
+    terminology?: TenantTerminologyConfig;
+    flowConfig?: TenantFlowConfig;
+  }>;
 };
 
 const FLOW_VERSION = 1;
@@ -191,11 +202,26 @@ const KEEP_NAME_TOKEN = "name:keep";
 const BOOKING_SELECTION_BUTTONS_MAX_ITEMS = 2;
 const MAX_CLIENT_NAME_ATTEMPTS = 3;
 
+async function resolveConversationConfig(locale: SupportedLocale, deps: WhatsAppConversationDeps) {
+  const tenantConfig = (await deps.getTenantConfig?.().catch(() => null)) ?? null;
+  return {
+    terminology: resolveTenantTerminology(locale, tenantConfig?.terminology),
+    specialistSelectionMode: resolveSpecialistSelectionMode(tenantConfig?.flowConfig) as SpecialistSelectionMode
+  };
+}
+
 function truncateForChoice(input: string, maxLength: number): string {
   if (input.length <= maxLength) {
     return input;
   }
   return `${input.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+function capitalizeLabel(value: string) {
+  if (!value) {
+    return value;
+  }
+  return value[0]?.toUpperCase() + value.slice(1);
 }
 
 export function createInitialSession(locale: SupportedLocale): WhatsAppConversationSession {
@@ -569,19 +595,22 @@ async function promptService(
   session: WhatsAppConversationSession,
   deps: WhatsAppConversationDeps
 ) {
+  const config = await resolveConversationConfig(session.locale, deps);
   const services = await deps.fetchServices(session.locale);
   if (services.length === 0) {
     await deps.sendText(
       input.from,
       session.locale === "it"
-        ? "Al momento non ci sono servizi disponibili."
-        : "No services are currently available."
+        ? `Al momento non ci sono ${config.terminology.servicePlural} disponibili.`
+        : `No ${config.terminology.servicePlural} are currently available.`
     );
     return;
   }
 
   const bodyText =
-    session.locale === "it" ? "Seleziona il servizio." : "Select a service.";
+    session.locale === "it"
+      ? `Seleziona il ${config.terminology.serviceSingular}.`
+      : `Select a ${config.terminology.serviceSingular}.`;
   const { choices, safePage, totalPages } = buildPaginatedList({
     items: services.slice(0, 10),
     page: session.servicePage ?? 0,
@@ -597,7 +626,7 @@ async function promptService(
   await deps.sendList(
     input.from,
     bodyText,
-    session.locale === "it" ? "Servizi" : "Services",
+    config.terminology.servicePlural,
     appendFlowRows({ choices, locale: session.locale })
   );
 }
@@ -607,16 +636,22 @@ async function promptMaster(
   session: WhatsAppConversationSession,
   deps: WhatsAppConversationDeps
 ) {
+  const config = await resolveConversationConfig(session.locale, deps);
   const masters = await deps.fetchMasters(session.locale, session.serviceId);
   if (masters.length === 0) {
     await deps.sendText(
       input.from,
-      session.locale === "it" ? "Nessun master disponibile." : "No masters are available."
+      session.locale === "it"
+        ? `Nessuno ${config.terminology.specialistSingular} disponibile.`
+        : `No ${config.terminology.specialistPlural} are available.`
     );
     return;
   }
 
-  const bodyText = session.locale === "it" ? "Scegli il master." : "Choose a master.";
+  const bodyText =
+    session.locale === "it"
+      ? `Scegli lo ${config.terminology.specialistSingular}.`
+      : `Choose a ${config.terminology.specialistSingular}.`;
   const { choices, safePage, totalPages } = buildPaginatedList({
     items: masters.slice(0, 10),
     page: session.masterPage ?? 0,
@@ -630,7 +665,7 @@ async function promptMaster(
   await deps.sendList(
     input.from,
     bodyText,
-    session.locale === "it" ? "Master" : "Masters",
+    config.terminology.specialistPlural,
     appendFlowRows({ choices, locale: session.locale })
   );
 }
@@ -740,10 +775,17 @@ async function promptConfirm(
   session: WhatsAppConversationSession,
   deps: WhatsAppConversationDeps
 ) {
+  const config = await resolveConversationConfig(session.locale, deps);
+  const specialistLine =
+    session.masterName && session.masterName.trim()
+      ? session.locale === "it"
+        ? `\n${capitalizeLabel(config.terminology.specialistSingular)}: ${session.masterName}`
+        : `\n${capitalizeLabel(config.terminology.specialistSingular)}: ${session.masterName}`
+      : "";
   const summary =
     session.locale === "it"
-      ? `Confermi prenotazione?\nNome: ${session.clientName ?? "-"}\nServizio: ${session.serviceName ?? "-"}\nMaster: ${session.masterName ?? "-"}\nData: ${session.date ?? "-"}\nOrario: ${session.slotDisplayTime ?? "-"}`
-      : `Confirm booking?\nName: ${session.clientName ?? "-"}\nService: ${session.serviceName ?? "-"}\nMaster: ${session.masterName ?? "-"}\nDate: ${session.date ?? "-"}\nTime: ${session.slotDisplayTime ?? "-"}`;
+      ? `Confermi ${config.terminology.appointmentSingular}?\nNome: ${session.clientName ?? "-"}\n${capitalizeLabel(config.terminology.serviceSingular)}: ${session.serviceName ?? "-"}${specialistLine}\nData: ${session.date ?? "-"}\nOrario: ${session.slotDisplayTime ?? "-"}`
+      : `Confirm ${config.terminology.appointmentSingular}?\nName: ${session.clientName ?? "-"}\n${capitalizeLabel(config.terminology.serviceSingular)}: ${session.serviceName ?? "-"}${specialistLine}\nDate: ${session.date ?? "-"}\nTime: ${session.slotDisplayTime ?? "-"}`;
 
   const confirmCta = deps.createFlowCtaAction?.({
     action: "flow_confirm_booking",
@@ -1423,10 +1465,20 @@ export async function processWhatsAppConversation(
         await promptService(input, session, deps);
         return { handled: true };
       case "choose_date":
-        session.state = "choose_master";
-        session.masterPage = 0;
-        await deps.saveSession(input.from, session);
-        await promptMaster(input, session, deps);
+        {
+          const config = await resolveConversationConfig(session.locale, deps);
+          if (config.specialistSelectionMode === "required") {
+            session.state = "choose_master";
+            session.masterPage = 0;
+            await deps.saveSession(input.from, session);
+            await promptMaster(input, session, deps);
+          } else {
+            session.state = "choose_service";
+            session.servicePage = 0;
+            await deps.saveSession(input.from, session);
+            await promptService(input, session, deps);
+          }
+        }
         return { handled: true };
       case "choose_slot":
         session.state = "choose_date";
@@ -1704,6 +1756,7 @@ export async function processWhatsAppConversation(
       }
       session.serviceId = picked.id;
       session.serviceName = picked.displayName;
+      const config = await resolveConversationConfig(session.locale, deps);
       const mastersForService = await deps.fetchMasters(session.locale, session.serviceId);
       const masterCandidate = session.collectedEntities?.masterNameCandidate;
       const matchedMasters = findMastersByCandidate(mastersForService, masterCandidate);
@@ -1750,6 +1803,45 @@ export async function processWhatsAppConversation(
           await promptDate(input, session, deps);
           return { handled: true };
         }
+      }
+      if (config.specialistSelectionMode === "hidden") {
+        const preferred = mastersForService[0];
+        session.masterId = preferred?.id;
+        session.masterName = preferred?.displayName;
+        const candidateAdvanced = await advanceWithDateAndTimeCandidates(
+          input,
+          session,
+          deps,
+          "choose_service"
+        );
+        if (candidateAdvanced) {
+          return { handled: true };
+        }
+        session.state = "choose_date";
+        session.datePage = 0;
+        session.slotPage = 0;
+        await deps.saveSession(input.from, session);
+        await promptDate(input, session, deps);
+        return { handled: true };
+      }
+      if (config.specialistSelectionMode === "optional") {
+        session.masterId = undefined;
+        session.masterName = undefined;
+        const candidateAdvanced = await advanceWithDateAndTimeCandidates(
+          input,
+          session,
+          deps,
+          "choose_service"
+        );
+        if (candidateAdvanced) {
+          return { handled: true };
+        }
+        session.state = "choose_date";
+        session.datePage = 0;
+        session.slotPage = 0;
+        await deps.saveSession(input.from, session);
+        await promptDate(input, session, deps);
+        return { handled: true };
       }
       session.state = "choose_master";
       session.masterPage = 0;

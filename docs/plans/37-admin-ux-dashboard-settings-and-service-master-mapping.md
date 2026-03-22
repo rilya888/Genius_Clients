@@ -250,7 +250,10 @@
      - Settings: operational form (address/parking/hours note) + subscription блок сохранен;
    - i18n ключи для новых экранов и сообщений (EN/IT).
 2. Проверки:
-   - `pnpm --filter @genius/api typecheck` — OK.
-   - `pnpm --filter @genius/web-vite typecheck` — OK.
-3. Осталось:
-   - smoke/e2e прогон в окружении с БД и деплоем (вне локального typecheck).
+- `pnpm --filter @genius/api typecheck` — OK.
+- `pnpm --filter @genius/web-vite typecheck` — OK.
+3. Дополнительные проверки (2026-03-22):
+- `pnpm smoke:production` — OK;
+- `SMOKE_API_URL=https://api-production-9caa.up.railway.app SMOKE_AUTH_AUTOREGISTER=1 pnpm smoke:spa:auth-admin` — OK.
+4. Итог:
+- этап выполнен до 100% в текущем scope.

@@ -16,6 +16,13 @@ import {
 } from "./openai-prompts";
 import { OpenAIResponsesClient, OpenAIResponsesError } from "./openai-responses-client";
 import { resolveConversationLocale } from "./conversation-locale";
+import { maskPhone, sanitizeHandoffSummary } from "./log-safety";
+import {
+  resolveSpecialistSelectionMode,
+  resolveTenantTerminology,
+  type TenantFlowConfig,
+  type TenantTerminologyConfig
+} from "./tenant-terminology";
 
 type ServiceItem = {
   id: string;
@@ -69,6 +76,8 @@ type TenantBotConfig = {
       workingHoursInfo?: string;
     };
   };
+  terminology?: TenantTerminologyConfig;
+  flowConfig?: TenantFlowConfig;
 };
 
 type ParsedIntent =
@@ -278,6 +287,15 @@ export async function processAiWhatsAppMessage(
         ? "La richiesta e stata inoltrata all'amministratore. Attendi una risposta."
         : "Your request has been forwarded to the administrator. Please wait for a reply."
     );
+    return { handled: true };
+  }
+
+  const socialReply = detectSocialReply(userText, detectedLocale);
+  if (socialReply) {
+    session.lastResolvedIntent = "unknown";
+    session.lastAiSummary = `social_message:${detectedLocale}`;
+    await deps.saveSession(input.from, session);
+    await deps.sendText(input.from, socialReply);
     return { handled: true };
   }
 
@@ -509,7 +527,16 @@ export async function processAiWhatsAppMessage(
 
     if (result.artifact.kind !== "none") {
       logSessionHealth(traceId, session);
-      await renderArtifact({ from: input.from, locale: detectedLocale, session, artifact: result.artifact }, deps);
+      await renderArtifact(
+        {
+          from: input.from,
+          locale: detectedLocale,
+          session,
+          artifact: result.artifact,
+          tenantConfig
+        },
+        deps
+      );
       return { handled: true };
     }
 
@@ -573,7 +600,16 @@ export async function processAiWhatsAppMessage(
 
           if (fallbackResult.artifact.kind !== "none") {
             logSessionHealth(traceId, session);
-            await renderArtifact({ from: input.from, locale: detectedLocale, session, artifact: fallbackResult.artifact }, deps);
+            await renderArtifact(
+              {
+                from: input.from,
+                locale: detectedLocale,
+                session,
+                artifact: fallbackResult.artifact,
+                tenantConfig
+              },
+              deps
+            );
             console.info("[bot][ai] transport fallback render", {
               traceId,
               intent: fallbackParsed.intent
@@ -668,6 +704,7 @@ async function parseUserMessage(input: {
       tenantName: input.tenantConfig.name,
       tenantTimezone: input.tenantConfig.timezone,
       session: input.session,
+      terminology: input.tenantConfig.terminology,
       promptVersion: input.promptVersion
     }),
     input: buildBookingParserInput({
@@ -675,7 +712,8 @@ async function parseUserMessage(input: {
       userText: input.userText,
       session: input.session,
       availableServices: input.catalogHints.services,
-      availableMasters: input.catalogHints.masters
+      availableMasters: input.catalogHints.masters,
+      terminology: input.tenantConfig.terminology
     }),
     turnType: "user_input",
     metadata: {
@@ -691,7 +729,7 @@ async function parseUserMessage(input: {
     throw new Error("ai_parse_invalid_json");
   }
 
-  return normalizeAiParseResult(payload, input.locale);
+  return normalizeAiParseResult(payload);
 }
 
 async function resolveAiPlan(
@@ -714,6 +752,18 @@ async function resolveAiPlan(
 
   switch (input.parsed.intent) {
     case "human_handoff": {
+      if (!input.tenantConfig.humanHandoffEnabled) {
+        return {
+          artifact: {
+            kind: "quick_actions",
+            prompt:
+              input.locale === "it"
+                ? "Capisco il problema. Posso aiutarti subito con prenotazioni, annullamenti o spostamenti."
+                : "I understand the issue. I can help right now with booking, cancellation, or rescheduling.",
+            items: buildIntentQuickActions(input.locale)
+          }
+        };
+      }
       const summary = sanitizeHandoffSummary(
         input.parsed.handoffSummary?.trim() ||
           input.parsed.replyText?.trim() ||
@@ -770,40 +820,66 @@ async function resolveAiPlan(
 
     case "cancel_booking": {
       const items = await deps.listBookingsByPhone({ phone: input.phone, limit: 10 });
+      const { ranked: rankedItems, matchedByDate } = rankBookingsForAction(items, {
+        dateText: input.parsed.dateText,
+        locale: input.locale,
+        timezone: input.tenantConfig.timezone
+      });
       logBookingFunnelStep(input.traceId, {
-        step: items.length > 0 ? "cancel_selection_shown" : "no_active_bookings",
+        step: rankedItems.length > 0 ? "cancel_selection_shown" : "no_active_bookings",
         locale: input.locale,
         intent: input.parsed.intent
       });
+      const defaultPrompt = matchedByDate
+        ? input.locale === "it"
+          ? "Ho trovato queste prenotazioni per la data indicata. Scegli quale annullare."
+          : "I found these bookings for the requested date. Choose one to cancel."
+        : input.parsed.dateText
+          ? input.locale === "it"
+            ? "Non trovo prenotazioni in quella data. Scegli dalla lista delle prenotazioni attive."
+            : "I cannot find bookings on that date. Choose from your active bookings."
+          : input.locale === "it"
+            ? "Scegli la prenotazione da annullare."
+            : "Choose the booking to cancel.";
       return {
         artifact: {
           kind: "booking_list",
-          prompt:
-            input.locale === "it"
-              ? "Scegli la prenotazione da annullare."
-              : "Choose the booking to cancel.",
+          prompt: selectReplyPrompt(defaultPrompt, input.parsed.replyText),
           action: "cancel",
-          items
+          items: rankedItems
         }
       };
     }
 
     case "reschedule_booking": {
       const items = await deps.listBookingsByPhone({ phone: input.phone, limit: 10 });
+      const { ranked: rankedItems, matchedByDate } = rankBookingsForAction(items, {
+        dateText: input.parsed.dateText,
+        locale: input.locale,
+        timezone: input.tenantConfig.timezone
+      });
       logBookingFunnelStep(input.traceId, {
-        step: items.length > 0 ? "reschedule_selection_shown" : "no_active_bookings",
+        step: rankedItems.length > 0 ? "reschedule_selection_shown" : "no_active_bookings",
         locale: input.locale,
         intent: input.parsed.intent
       });
+      const defaultPrompt = matchedByDate
+        ? input.locale === "it"
+          ? "Ho trovato queste prenotazioni per la data indicata. Scegli quale spostare."
+          : "I found these bookings for the requested date. Choose one to reschedule."
+        : input.parsed.dateText
+          ? input.locale === "it"
+            ? "Non trovo prenotazioni in quella data. Scegli dalla lista delle prenotazioni attive."
+            : "I cannot find bookings on that date. Choose from your active bookings."
+          : input.locale === "it"
+            ? "Scegli la prenotazione da spostare."
+            : "Choose the booking to reschedule.";
       return {
         artifact: {
           kind: "booking_list",
-          prompt:
-            input.locale === "it"
-              ? "Scegli la prenotazione da spostare."
-              : "Choose the booking to reschedule.",
+          prompt: selectReplyPrompt(defaultPrompt, input.parsed.replyText),
           action: "reschedule",
-          items
+          items: rankedItems
         }
       };
     }
@@ -941,6 +1017,8 @@ async function resolveBookingLikeIntent(
   },
   deps: AiOrchestratorDeps
 ): Promise<{ artifact: ToolArtifact; outputText?: string }> {
+  const terminology = resolveTenantTerminology(input.locale, input.tenantConfig.terminology);
+  const specialistSelectionMode = resolveSpecialistSelectionMode(input.tenantConfig.flowConfig);
   input.session.intent = input.parsed.intent === "new_booking" || input.parsed.intent === "check_availability" ? "new_booking" : "new_booking";
 
   let services = await deps.fetchServices(input.locale);
@@ -991,14 +1069,16 @@ async function resolveBookingLikeIntent(
     return {
       artifact: {
         kind: "service_list",
-        prompt:
+        prompt: selectReplyPrompt(
           input.parsed.masterQuery && input.parsed.masterQuery.trim()
             ? input.locale === "it"
-              ? `Perfetto, per ${input.parsed.masterQuery.trim()} seleziona prima il servizio.`
-              : `Perfect, for ${input.parsed.masterQuery.trim()} please select the service first.`
+              ? `Perfetto, per ${input.parsed.masterQuery.trim()} seleziona prima il ${terminology.serviceSingular}.`
+              : `Perfect, for ${input.parsed.masterQuery.trim()} please select the ${terminology.serviceSingular} first.`
             : input.locale === "it"
-              ? "Seleziona il servizio."
-              : "Select a service.",
+              ? `Seleziona il ${terminology.serviceSingular}.`
+              : `Select a ${terminology.serviceSingular}.`,
+          input.parsed.replyText
+        ),
         items: services.slice(0, 8),
         intent: "new_booking"
       }
@@ -1013,10 +1093,12 @@ async function resolveBookingLikeIntent(
     return {
       artifact: {
         kind: "service_list",
-        prompt:
+        prompt: selectReplyPrompt(
           input.locale === "it"
-            ? "Ho trovato piu servizi. Scegline uno."
-            : "I found multiple services. Please choose one.",
+            ? `Ho trovato piu ${terminology.servicePlural}. Scegline uno.`
+            : `I found multiple ${terminology.servicePlural}. Please choose one.`,
+          input.parsed.replyText
+        ),
         items: (serviceResolution.matches.length > 0 ? serviceResolution.matches : services).slice(0, 8),
         intent: "new_booking"
       }
@@ -1041,7 +1123,23 @@ async function resolveBookingLikeIntent(
   const effectiveMasterQuery = input.parsed.masterQuery ?? inferredMasterQuery;
   const masterResolution = resolveNamedChoice(masters, effectiveMasterQuery, (item) => item.displayName);
   if (!effectiveMasterQuery) {
-    if (masters.length === 1) {
+    if (specialistSelectionMode === "hidden") {
+      if (masters.length > 0) {
+        input.session.masterId = masters[0]?.id;
+        input.session.masterName = masters[0]?.displayName;
+      } else {
+        input.session.masterId = undefined;
+        input.session.masterName = undefined;
+      }
+    } else if (specialistSelectionMode === "optional") {
+      if (masters.length === 1) {
+        input.session.masterId = masters[0]?.id;
+        input.session.masterName = masters[0]?.displayName;
+      } else {
+        input.session.masterId = undefined;
+        input.session.masterName = undefined;
+      }
+    } else if (masters.length === 1) {
       input.session.masterId = masters[0]?.id;
       input.session.masterName = masters[0]?.displayName;
     } else {
@@ -1053,7 +1151,12 @@ async function resolveBookingLikeIntent(
       return {
         artifact: {
           kind: "master_list",
-          prompt: input.locale === "it" ? "Scegli il master." : "Choose a master.",
+          prompt: selectReplyPrompt(
+            input.locale === "it"
+              ? `Scegli lo ${terminology.specialistSingular}.`
+              : `Choose a ${terminology.specialistSingular}.`,
+            input.parsed.replyText
+          ),
           serviceId: service.id,
           serviceName: service.displayName,
           items: masters.slice(0, 8),
@@ -1062,6 +1165,10 @@ async function resolveBookingLikeIntent(
       };
     }
   } else if (masterResolution.matches.length !== 1) {
+    if (specialistSelectionMode === "hidden") {
+      input.session.masterId = masters[0]?.id;
+      input.session.masterName = masters[0]?.displayName;
+    } else {
     logBookingFunnelStep(input.traceId, {
       step: "master_ambiguous",
       locale: input.locale,
@@ -1070,16 +1177,19 @@ async function resolveBookingLikeIntent(
     return {
       artifact: {
         kind: "master_list",
-        prompt:
+        prompt: selectReplyPrompt(
           input.locale === "it"
-            ? "Ho trovato piu master. Scegline uno."
-            : "I found multiple masters. Please choose one.",
+            ? `Ho trovato piu ${terminology.specialistPlural}. Scegline uno.`
+            : `I found multiple ${terminology.specialistPlural}. Please choose one.`,
+          input.parsed.replyText
+        ),
         serviceId: service.id,
         serviceName: service.displayName,
         items: (masterResolution.matches.length > 0 ? masterResolution.matches : masters).slice(0, 8),
         intent: "new_booking"
       }
     };
+    }
   } else {
     const master = masterResolution.matches[0] as MasterItem;
     input.session.masterId = master.id;
@@ -1110,7 +1220,10 @@ async function resolveBookingLikeIntent(
     return {
       artifact: {
         kind: "date_list",
-        prompt: input.locale === "it" ? "Scegli una data." : "Choose a date.",
+        prompt: selectReplyPrompt(
+          input.locale === "it" ? "Scegli una data." : "Choose a date.",
+          input.parsed.replyText
+        ),
         serviceId: service.id,
         serviceName: service.displayName,
         masterId: input.session.masterId,
@@ -1154,10 +1267,12 @@ async function resolveBookingLikeIntent(
     return {
       artifact: {
         kind: "date_list",
-        prompt:
+        prompt: selectReplyPrompt(
           input.locale === "it"
             ? "Per questa data non ci sono slot. Scegli un'altra data."
             : "There are no slots for this date. Please choose another date.",
+          input.parsed.replyText
+        ),
         serviceId: service.id,
         serviceName: service.displayName,
         masterId: input.session.masterId,
@@ -1178,7 +1293,10 @@ async function resolveBookingLikeIntent(
     return {
       artifact: {
         kind: "slot_list",
-        prompt: input.locale === "it" ? "Scegli un orario." : "Choose a time.",
+        prompt: selectReplyPrompt(
+          input.locale === "it" ? "Scegli un orario." : "Choose a time.",
+          input.parsed.replyText
+        ),
         serviceId: service.id,
         serviceName: service.displayName,
         masterId: input.session.masterId,
@@ -1223,15 +1341,19 @@ async function renderArtifact(
     locale: SupportedLocale;
     session: WhatsAppConversationSession;
     artifact: ToolArtifact;
+    tenantConfig: TenantBotConfig;
   },
   deps: AiOrchestratorDeps
 ) {
+  const terminology = resolveTenantTerminology(input.locale, input.tenantConfig.terminology);
   switch (input.artifact.kind) {
     case "service_list": {
       if (input.artifact.items.length === 0) {
         await deps.sendText(
           input.from,
-          input.locale === "it" ? "Al momento non ci sono servizi disponibili." : "No services are currently available."
+          input.locale === "it"
+            ? `Al momento non ci sono ${terminology.servicePlural} disponibili.`
+            : `No ${terminology.servicePlural} are currently available.`
         );
         return;
       }
@@ -1242,7 +1364,7 @@ async function renderArtifact(
       await deps.sendList(
         input.from,
         input.artifact.prompt,
-        input.locale === "it" ? "Servizi" : "Services",
+        terminology.servicePlural,
         appendFlowRows(
           input.artifact.items.map((item) => ({
             id: `service:${item.id}`,
@@ -1258,7 +1380,9 @@ async function renderArtifact(
       if (input.artifact.items.length === 0) {
         await deps.sendText(
           input.from,
-          input.locale === "it" ? "Nessun master disponibile." : "No masters are available."
+          input.locale === "it"
+            ? `Nessuno ${terminology.specialistSingular} disponibile.`
+            : `No ${terminology.specialistPlural} are available.`
         );
         return;
       }
@@ -1271,7 +1395,7 @@ async function renderArtifact(
       await deps.sendList(
         input.from,
         input.artifact.prompt,
-        input.locale === "it" ? "Master" : "Masters",
+        terminology.specialistPlural,
         appendFlowRows(
           input.artifact.items.map((item) => ({
             id: `master:${item.id}`,
@@ -1411,10 +1535,16 @@ async function renderArtifact(
       }
       input.session.state = "confirm";
       await deps.saveSession(input.from, input.session);
+      const specialistLine =
+        input.artifact.masterName && input.artifact.masterName.trim()
+          ? input.locale === "it"
+            ? `\n${capitalizeLabel(terminology.specialistSingular)}: ${input.artifact.masterName}`
+            : `\n${capitalizeLabel(terminology.specialistSingular)}: ${input.artifact.masterName}`
+          : "";
       const summary =
         input.locale === "it"
-          ? `Confermi prenotazione?\nNome: ${input.session.clientName}\nServizio: ${input.artifact.serviceName ?? "-"}\nMaster: ${input.artifact.masterName ?? "-"}\nData: ${input.artifact.date ?? "-"}\nOrario: ${input.artifact.slotDisplayTime ?? "-"}`
-          : `Confirm booking?\nName: ${input.session.clientName}\nService: ${input.artifact.serviceName ?? "-"}\nMaster: ${input.artifact.masterName ?? "-"}\nDate: ${input.artifact.date ?? "-"}\nTime: ${input.artifact.slotDisplayTime ?? "-"}`;
+          ? `Confermi ${terminology.appointmentSingular}?\nNome: ${input.session.clientName}\n${capitalizeLabel(terminology.serviceSingular)}: ${input.artifact.serviceName ?? "-"}${specialistLine}\nData: ${input.artifact.date ?? "-"}\nOrario: ${input.artifact.slotDisplayTime ?? "-"}`
+          : `Confirm ${terminology.appointmentSingular}?\nName: ${input.session.clientName}\n${capitalizeLabel(terminology.serviceSingular)}: ${input.artifact.serviceName ?? "-"}${specialistLine}\nDate: ${input.artifact.date ?? "-"}\nTime: ${input.artifact.slotDisplayTime ?? "-"}`;
       await deps.sendList(input.from, summary, input.locale === "it" ? "Conferma" : "Confirm", [
         {
           id: "confirm:yes",
@@ -1534,6 +1664,56 @@ function formatBookingChoice(startAtIso: string, locale: SupportedLocale) {
     minute: "2-digit",
     hour12: false
   }).format(new Date(startAtIso));
+}
+
+function rankBookingsForAction(
+  items: BookingItem[],
+  input: {
+    dateText?: string;
+    locale: SupportedLocale;
+    timezone: string;
+  }
+) {
+  const activeItems = items.filter((item) => item.status === "pending" || item.status === "confirmed");
+  if (!input.dateText?.trim()) {
+    return { ranked: activeItems, matchedByDate: false };
+  }
+  const dateIso = normalizeDateCandidate(input.dateText, input.locale, input.timezone);
+  if (!dateIso) {
+    return { ranked: activeItems, matchedByDate: false };
+  }
+  const sameDate: BookingItem[] = [];
+  const otherDates: BookingItem[] = [];
+  for (const item of activeItems) {
+    const itemDate = toDateInTimezone(item.startAt, input.timezone);
+    if (itemDate === dateIso) {
+      sameDate.push(item);
+      continue;
+    }
+    otherDates.push(item);
+  }
+  const ranked = sameDate.concat(otherDates);
+  return { ranked, matchedByDate: sameDate.length > 0 };
+}
+
+function toDateInTimezone(iso: string, timezone: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const year = parts.find((item) => item.type === "year")?.value;
+  const month = parts.find((item) => item.type === "month")?.value;
+  const day = parts.find((item) => item.type === "day")?.value;
+  if (!year || !month || !day) {
+    return "";
+  }
+  return `${year}-${month}-${day}`;
 }
 
 function resolveNamedChoice<T>(items: T[], query: string | undefined, readLabel: (item: T) => string) {
@@ -1691,10 +1871,11 @@ function safeJsonParse(value: string): Record<string, unknown> | null {
   }
 }
 
-function normalizeAiParseResult(payload: Record<string, unknown>, locale: SupportedLocale): AiParseResult {
+function normalizeAiParseResult(payload: Record<string, unknown>): AiParseResult {
   const rawIntent = asOptionalString(payload.intent) ?? "unknown";
   const rawConfidence = asOptionalString(payload.confidence) ?? "low";
   const schemaVersion = asOptionalString(payload.schema_version);
+  const rawReplyText = asOptionalString(payload.reply_text);
   return {
     schemaVersion,
     intent: isParsedIntent(rawIntent) ? rawIntent : "unknown",
@@ -1704,9 +1885,7 @@ function normalizeAiParseResult(payload: Record<string, unknown>, locale: Suppor
     dateText: asOptionalString(payload.date_text),
     timeText: asOptionalString(payload.time_text),
     bookingReference: asOptionalString(payload.booking_reference),
-    replyText:
-      asOptionalString(payload.reply_text) ||
-      (locale === "it" ? "Posso aiutarti con prenotazioni, annullamenti e spostamenti." : "I can help with bookings, cancellations, and rescheduling."),
+    replyText: sanitizeReplyTextOverride(rawReplyText),
     handoffSummary: asOptionalString(payload.handoff_summary)
   };
 }
@@ -1961,11 +2140,11 @@ function normalizeParsedIntentWithHeuristics(parsed: AiParseResult, text: string
     };
   }
 
-  if (hasBookingList && !bookingSignal) {
+  if (hasBookingList && !hasCancel && !hasReschedule) {
     return {
       ...parsed,
       intent: "booking_list",
-      confidence: parsed.confidence === "low" ? "medium" : parsed.confidence,
+      confidence: parsed.confidence === "low" ? "medium" : "high",
       replyText:
         locale === "it"
           ? "Ecco le tue prenotazioni attive."
@@ -1998,11 +2177,11 @@ function normalizeParsedIntentWithHeuristics(parsed: AiParseResult, text: string
   }
 
   if (parsed.intent === "unknown") {
-    if (hasBookingList && !bookingSignal) {
+    if (hasBookingList && !hasCancel && !hasReschedule) {
       return {
         ...parsed,
         intent: "booking_list",
-        confidence: "medium",
+        confidence: "high",
         replyText:
           locale === "it"
             ? "Ecco le tue prenotazioni attive."
@@ -2431,6 +2610,13 @@ function truncate(value: string, maxLength: number) {
   return value.length <= maxLength ? value : `${value.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
+function capitalizeLabel(value: string) {
+  if (!value) {
+    return value;
+  }
+  return value[0]?.toUpperCase() + value.slice(1);
+}
+
 function sanitizeUserText(value: string) {
   return value
     .replace(/\b(?:code|codice)\b\s*:\s*[^\n]+/gi, "")
@@ -2440,17 +2626,62 @@ function sanitizeUserText(value: string) {
     .slice(0, 280);
 }
 
-function sanitizeHandoffSummary(value: string) {
-  return value
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
-    .replace(/\+?\d[\d\s().-]{6,}\d/g, "[phone]")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 200);
+function sanitizeReplyTextOverride(replyText: string | undefined) {
+  const sanitized = sanitizeUserText(replyText ?? "");
+  if (!sanitized) {
+    return undefined;
+  }
+  const normalized = normalizeSearch(sanitized);
+  if (isLowValueReplyText(normalized)) {
+    return undefined;
+  }
+  return sanitized;
+}
+
+function isLowValueReplyText(normalizedText: string) {
+  const genericReplies = [
+    "posso aiutarti con prenotazioni annullamenti e spostamenti",
+    "ti posso aiutare con prenotazioni annullamenti e spostamenti",
+    "scegli un azione",
+    "seleziona un azione",
+    "i can help with bookings cancellations and rescheduling",
+    "i can help with booking cancellation and rescheduling",
+    "please choose an action",
+    "choose an action"
+  ];
+  if (genericReplies.includes(normalizedText)) {
+    return true;
+  }
+  if (normalizedText.length < 6) {
+    return true;
+  }
+  return false;
+}
+
+function selectReplyPrompt(defaultPrompt: string, replyText: string | undefined) {
+  const sanitized = sanitizeReplyTextOverride(replyText) ?? "";
+  if (!sanitized) {
+    return defaultPrompt;
+  }
+  const normalized = sanitized.toLowerCase();
+  if (
+    normalized.includes("choose") ||
+    normalized.includes("select") ||
+    normalized.includes("scegli")
+  ) {
+    return sanitized;
+  }
+  return `${sanitized}\n${defaultPrompt}`.slice(0, 280);
 }
 
 function normalizeInboundUserText(value: string) {
-  return value.replace(/\s+/g, " ").trim();
+  return value
+    .slice(0, 500)
+    .replace(/```/g, "")
+    .replace(/[{}]/g, "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function asOptionalString(value: unknown) {
@@ -2475,10 +2706,31 @@ function isOpenAiQuotaError(error: unknown) {
   return message.includes("insufficient_quota") || message.includes("exceeded your current quota");
 }
 
-function maskPhone(value: string): string {
-  const normalized = value.replace(/\s+/g, "");
-  if (normalized.length <= 4) {
-    return "***";
+function detectSocialReply(text: string, locale: SupportedLocale): string | undefined {
+  const normalized = normalizeSearch(text);
+  if (!normalized) {
+    return undefined;
   }
-  return `${normalized.slice(0, 3)}***${normalized.slice(-2)}`;
+  const itThanks = /\b(grazie|grazie mille|perfetto|ottimo|benissimo)\b/;
+  const itBye = /\b(arrivederci|a presto|ciao ciao|buona giornata|buonasera)\b/;
+  const enThanks = /\b(thanks|thank you|perfect|great|awesome)\b/;
+  const enBye = /\b(bye|goodbye|see you|have a nice day|good night)\b/;
+
+  if (locale === "it") {
+    if (itThanks.test(normalized)) {
+      return "Prego! Se vuoi, posso aiutarti anche con una nuova prenotazione.";
+    }
+    if (itBye.test(normalized)) {
+      return "A presto! Quando vuoi, sono qui per aiutarti.";
+    }
+    return undefined;
+  }
+
+  if (enThanks.test(normalized)) {
+    return "You are welcome. I can also help you with a new booking anytime.";
+  }
+  if (enBye.test(normalized)) {
+    return "See you soon. I am here whenever you need help.";
+  }
+  return undefined;
 }
