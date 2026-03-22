@@ -89,13 +89,21 @@ export class ApiHttpError extends Error {
   readonly status: number;
   readonly requestId: string | null;
   readonly code: string | null;
+  readonly details: unknown;
 
-  constructor(input: { status: number; requestId: string | null; message: string; code?: string | null }) {
+  constructor(input: {
+    status: number;
+    requestId: string | null;
+    message: string;
+    code?: string | null;
+    details?: unknown;
+  }) {
     super(input.message);
     this.name = "ApiHttpError";
     this.status = input.status;
     this.requestId = input.requestId;
     this.code = input.code ?? null;
+    this.details = input.details ?? null;
   }
 }
 
@@ -134,7 +142,7 @@ export async function httpJson<T>(path: string, init?: HttpInit): Promise<T> {
   });
 
   const payload = (await response.json().catch(() => null)) as
-    | (T & { error?: { message?: string; code?: string } })
+    | (T & { error?: { message?: string; code?: string; details?: unknown } })
     | null;
   if (!response.ok || !payload) {
     const message = payload?.error?.message ?? `HTTP_${response.status}`;
@@ -143,7 +151,8 @@ export async function httpJson<T>(path: string, init?: HttpInit): Promise<T> {
       status: response.status,
       requestId: response.headers.get("x-request-id"),
       message,
-      code
+      code,
+      details: payload?.error?.details
     });
   }
 

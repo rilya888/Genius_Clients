@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { register } from "../shared/api/authApi";
 import { formatApiError } from "../shared/api/formatApiError";
+import { ApiHttpError } from "../shared/api/http";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { saveSession } from "../shared/auth/session";
 import { buildTenantAppUrl } from "../shared/routing/tenant-host";
@@ -46,7 +47,7 @@ export function RegisterPage() {
               }, 150);
             })
             .catch((apiError) => {
-              setError(formatApiError(apiError, t("auth.registerFailed")));
+              setError(formatRegisterError(apiError, t));
             })
             .finally(() => setPending(false));
         }}
@@ -78,4 +79,41 @@ export function RegisterPage() {
       </form>
     </section>
   );
+}
+
+function formatRegisterError(error: unknown, t: (key: string) => string) {
+  if (error instanceof ApiHttpError) {
+    const reason = extractApiReason(error.details);
+    if (
+      reason === "Password must contain at least one special character" ||
+      reason === "password_special_character_required"
+    ) {
+      return withRequestId(t("auth.register.passwordSpecialRequired"), error.requestId);
+    }
+    if (reason === "Password must be at least 6 characters long") {
+      return withRequestId(t("auth.register.passwordMinLength"), error.requestId);
+    }
+    if (reason === "email_already_exists") {
+      return withRequestId(t("auth.register.emailExists"), error.requestId);
+    }
+    if (reason === "privacy_consent_required") {
+      return withRequestId(t("auth.register.privacyRequired"), error.requestId);
+    }
+    if (reason === "invalid_turnstile_token") {
+      return withRequestId(t("auth.register.turnstileInvalid"), error.requestId);
+    }
+  }
+  return formatApiError(error, t("auth.registerFailed"));
+}
+
+function extractApiReason(details: unknown) {
+  if (!details || typeof details !== "object") {
+    return null;
+  }
+  const source = details as Record<string, unknown>;
+  return typeof source.reason === "string" ? source.reason : null;
+}
+
+function withRequestId(message: string, requestId: string | null) {
+  return requestId ? `${message} (requestId: ${requestId})` : message;
 }
