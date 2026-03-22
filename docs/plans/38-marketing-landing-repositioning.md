@@ -218,3 +218,26 @@
 7. Прогнать QA по контент-паритету, адаптиву и ссылкам.
 8. Добавить/проверить first-party analytics events.
 9. Подготовить release checklist и критерии post-release оценки.
+
+## Статус реализации (2026-03-22)
+1. Выполнено:
+- создан backup архива проекта в `backups/` перед стартом реализации;
+- реализован публичный marketing API:
+  - `GET /api/v1/marketing/pricing/plans`;
+  - `POST /api/v1/marketing/events`;
+- лендинг `LandingPage` переработан под мульти-вертикали и WhatsApp flow;
+- добавлена `ContactPage` и маршрут `/contact` для enterprise CTA;
+- `PricingPage` переведен на backend-driven цены из Stripe-aligned конфигурации;
+- навигация и footer обновлены под страницу контактов;
+- добавлены новые EN/IT i18n ключи для этапа 38;
+- деплой выполнен через GitHub (`main` + `deploy/web` + `deploy/api`).
+2. Исправленные прод-дефекты в процессе релиза:
+- стабилизация SQL для canonical pricing plans (`IN (...)` вместо нестабильного `ANY(($1,$2...))` паттерна).
+3. Проверки:
+- `pnpm --filter @genius/api typecheck` — OK;
+- `pnpm --filter @genius/web-vite typecheck` — OK;
+- `pnpm --filter @genius/api build` — OK;
+- `pnpm --filter @genius/web-vite build` — OK;
+- `pnpm smoke:production` — OK;
+- `SMOKE_AUTH_AUTOREGISTER=1 pnpm smoke:spa:auth-admin` — OK;
+- ручная проверка `GET /api/v1/marketing/pricing/plans` — OK, возвращает 4 canonical плана.
