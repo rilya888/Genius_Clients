@@ -46,6 +46,14 @@ type PlanDiffItem = {
   changeType: "added" | "removed" | "updated";
 };
 
+type SystemSettings = {
+  authEmailVerificationRequired: boolean;
+  source: "runtime" | "env_default";
+  envDefault: boolean;
+  updatedBy: string | null;
+  updatedAt: string | null;
+};
+
 export function SuperAdminPage() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<string>("");
@@ -67,6 +75,8 @@ export function SuperAdminPage() {
   const [slugDraft, setSlugDraft] = useState("");
   const [rollbackVersion, setRollbackVersion] = useState("");
   const [publishConfirmed, setPublishConfirmed] = useState(false);
+  const [systemSettings, setSystemSettings] = useState<SystemSettings | null>(null);
+  const [emailVerificationRequiredDraft, setEmailVerificationRequiredDraft] = useState(true);
 
   const sortedPlans = useMemo(
     () => [...plans].sort((a, b) => a.sortOrder - b.sortOrder),
@@ -87,14 +97,16 @@ export function SuperAdminPage() {
       tenantParams.set("planCode", tenantPlanFilter);
     }
 
-    const [plansResult, versionsResult, tenantsResult, auditResult, diffResult] = await Promise.all([
+    const [plansResult, versionsResult, tenantsResult, auditResult, diffResult, settingsResult] =
+      await Promise.all([
       superAdminRequest<{ items: Plan[] }>("/api/v1/super-admin/plans"),
       superAdminRequest<{ items: PlanVersion[] }>("/api/v1/super-admin/plan-versions"),
       superAdminRequest<{ items: TenantOverview[] }>(`/api/v1/super-admin/tenants?${tenantParams.toString()}`),
       superAdminRequest<{ items: AuditLogRow[] }>("/api/v1/super-admin/audit-log?limit=100"),
       superAdminRequest<{ baselineVersion: number | null; items: PlanDiffItem[] }>(
         "/api/v1/super-admin/plans/diff"
-      )
+      ),
+      superAdminRequest<SystemSettings>("/api/v1/super-admin/system-settings")
     ]);
 
     if (!plansResult.ok) {
@@ -120,6 +132,9 @@ export function SuperAdminPage() {
     setAuditRows(auditResult.data?.items ?? []);
     setPlanDiffItems(diffResult.data?.items ?? []);
     setBaselineVersion(diffResult.data?.baselineVersion ?? null);
+    const loadedSystemSettings = settingsResult.data ?? null;
+    setSystemSettings(loadedSystemSettings);
+    setEmailVerificationRequiredDraft(loadedSystemSettings?.authEmailVerificationRequired ?? true);
     setPublishConfirmed(false);
     setStatus("Data loaded");
   }
@@ -155,6 +170,50 @@ export function SuperAdminPage() {
             }}
           >
             Logout
+          </button>
+        </div>
+      </div>
+
+      <div className="settings-card" style={{ marginBottom: 12 }}>
+        <h2 style={{ marginTop: 0 }}>System Settings</h2>
+        <p style={{ marginTop: 0 }}>
+          Email verification required for write operations:{" "}
+          <strong>{emailVerificationRequiredDraft ? "enabled" : "disabled"}</strong>
+        </p>
+        <p style={{ marginTop: 0, color: "var(--text-muted)" }}>
+          Source: {systemSettings?.source ?? "unknown"} | ENV default:{" "}
+          {systemSettings?.envDefault ? "enabled" : "disabled"}
+          {systemSettings?.updatedBy ? ` | updated by: ${systemSettings.updatedBy}` : ""}
+        </p>
+        <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            type="checkbox"
+            checked={emailVerificationRequiredDraft}
+            onChange={(event) => setEmailVerificationRequiredDraft(event.target.checked)}
+          />
+          Require verified email for POST/PUT/PATCH/DELETE endpoints
+        </label>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <button
+            className="btn btn-ghost"
+            onClick={() => {
+              void superAdminRequest<SystemSettings>("/api/v1/super-admin/system-settings", {
+                method: "PATCH",
+                body: JSON.stringify({
+                  authEmailVerificationRequired: emailVerificationRequiredDraft,
+                  actor
+                })
+              }).then(async (result) => {
+                if (!result.ok) {
+                  setStatus(result.error?.message ?? "System settings update failed");
+                  return;
+                }
+                setStatus("System settings updated");
+                await loadAll();
+              });
+            }}
+          >
+            Save Setting
           </button>
         </div>
       </div>

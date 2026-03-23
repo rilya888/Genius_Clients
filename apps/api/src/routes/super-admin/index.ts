@@ -15,11 +15,14 @@ import {
 import { SuperAdminTenantSubscriptionRepository } from "../../repositories/super-admin/tenant-subscription-repository";
 import { SuperAdminAuditRepository } from "../../repositories/super-admin/audit-repository";
 import { SuperAdminVersionRepository } from "../../repositories/super-admin/version-repository";
+import { SuperAdminRuntimeSettingsRepository } from "../../repositories/super-admin/runtime-settings-repository";
+import { getApiEnv } from "../../lib/env";
 
 const planRepository = new SuperAdminPlanRepository();
 const tenantSubscriptionRepository = new SuperAdminTenantSubscriptionRepository();
 const auditRepository = new SuperAdminAuditRepository();
 const versionRepository = new SuperAdminVersionRepository();
+const runtimeSettingsRepository = new SuperAdminRuntimeSettingsRepository();
 const tenantRepository = new TenantRepository();
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
@@ -71,6 +74,13 @@ function parseFeatureType(value: unknown): "boolean" | "number" | "string" | "js
     return value;
   }
   throw appError("VALIDATION_ERROR", { reason: "feature_type_invalid" });
+}
+
+function isUndefinedTableError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false;
+  }
+  return String((error as { code: unknown }).code) === "42P01";
 }
 
 function computeNextCycleDate(input: {
@@ -675,4 +685,77 @@ export const superAdminRoutes = new Hono()
     const limit = limitRaw ? Number(limitRaw) : 200;
     const items = await auditRepository.listAuditLog(limit);
     return c.json({ data: { items } });
+  })
+  .get("/system-settings", async (c) => {
+    const envDefault = getApiEnv().authEmailVerificationRequired;
+    const runtime = await runtimeSettingsRepository.getAuthEmailVerificationRequired();
+    const value = runtime.source === "runtime" && runtime.value !== null ? runtime.value : envDefault;
+    return c.json({
+      data: {
+        authEmailVerificationRequired: value,
+        source: runtime.source === "runtime" ? "runtime" : "env_default",
+        envDefault,
+        updatedBy: runtime.updatedBy,
+        updatedAt: runtime.updatedAt
+      }
+    });
+  })
+  .patch("/system-settings", async (c) => {
+    const body = await c.req.json<{
+      authEmailVerificationRequired?: unknown;
+      actor?: string;
+    }>();
+
+    if (typeof body.authEmailVerificationRequired !== "boolean") {
+      throw appError("VALIDATION_ERROR", { reason: "auth_email_verification_required_boolean_expected" });
+    }
+
+    const beforeRuntime = await runtimeSettingsRepository.getAuthEmailVerificationRequired();
+    const envDefault = getApiEnv().authEmailVerificationRequired;
+    const beforeValue =
+      beforeRuntime.source === "runtime" && beforeRuntime.value !== null
+        ? beforeRuntime.value
+        : envDefault;
+
+    let updated;
+    try {
+      updated = await runtimeSettingsRepository.setAuthEmailVerificationRequired({
+        value: body.authEmailVerificationRequired,
+        actor: normalizeActor(body.actor)
+      });
+    } catch (error) {
+      if (isUndefinedTableError(error)) {
+        throw appError("INTERNAL_ERROR", {
+          reason: "system_settings_storage_not_ready_run_migrations"
+        });
+      }
+      throw error;
+    }
+
+    await auditRepository.createLog({
+      actor: normalizeActor(body.actor),
+      action: "super_admin.system_settings.update_email_verification_requirement",
+      entity: "system_runtime_settings",
+      entityId: "auth_email_verification_required",
+      beforeJson: {
+        authEmailVerificationRequired: beforeValue
+      },
+      afterJson: {
+        authEmailVerificationRequired: updated.value,
+        source: "runtime",
+        updatedBy: updated.updatedBy,
+        updatedAt: updated.updatedAt
+      },
+      requestId: undefined
+    });
+
+    return c.json({
+      data: {
+        authEmailVerificationRequired: updated.value,
+        source: "runtime",
+        envDefault,
+        updatedBy: updated.updatedBy,
+        updatedAt: updated.updatedAt
+      }
+    });
   });
