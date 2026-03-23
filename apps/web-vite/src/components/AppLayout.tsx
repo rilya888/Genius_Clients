@@ -9,7 +9,7 @@ import { formatApiError } from "../shared/api/formatApiError";
 
 export function AppLayout() {
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { locale, setLocale, t } = useI18n();
   const { accountId, salonId, accounts, salons, capabilities, role, userEmail, setAccountId, setSalonId } =
     useScopeContext();
 
@@ -112,6 +112,19 @@ export function AppLayout() {
     <div className="admin-shell">
       <aside className="admin-sidebar">
         <LinkLikeBrand label={t("app.brand")} />
+        <div style={{ marginTop: "0.75rem", marginBottom: "0.75rem" }}>
+          <label style={{ display: "block", marginBottom: "0.35rem", fontSize: "0.9rem", color: "var(--text-muted)" }}>
+            {t("app.language")}
+          </label>
+          <div className="lang-switch" role="group" aria-label={t("app.language")}>
+            <button type="button" data-active={locale === "en"} onClick={() => setLocale("en")}>
+              {t("app.language.en")}
+            </button>
+            <button type="button" data-active={locale === "it"} onClick={() => setLocale("it")}>
+              {t("app.language.it")}
+            </button>
+          </div>
+        </div>
         <div className="scope-panel">
           <label>
             {t("app.scope.account")}
