@@ -151,9 +151,11 @@ export function PublicTenantLandingPage() {
             </section>
           ) : null}
 
-          <section className="section" id="booking">
-            <PublicBookingPage embedded />
-          </section>
+          {hasCatalog ? (
+            <section className="section" id="booking">
+              <PublicBookingPage embedded />
+            </section>
+          ) : null}
         </>
       ) : null}
     </>

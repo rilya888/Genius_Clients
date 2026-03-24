@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { useScopeContext } from "../shared/hooks/useScopeContext";
 import { logout, requestEmailVerification } from "../shared/api/authApi";
@@ -7,6 +7,7 @@ import { getBillingSubscription, listAdminBookings } from "../shared/api/adminAp
 import { clearSession, getRefreshToken, isEmailVerifiedFlagSet } from "../shared/auth/session";
 import { formatApiError } from "../shared/api/formatApiError";
 import { buildTenantScopedPath, resolveCurrentTenantSlug } from "../shared/routing/tenant-host";
+import { ADMIN_BOOKINGS_CHANGED_EVENT } from "../shared/admin-events";
 
 export function AppLayout() {
   const navigate = useNavigate();
@@ -17,7 +18,7 @@ export function AppLayout() {
   const availableSalons = useMemo(() => salons.filter((item) => item.accountId === accountId), [salons, accountId]);
   const selectedAccount = useMemo(() => accounts.find((item) => item.id === accountId), [accounts, accountId]);
   const selectedSalon = useMemo(() => salons.find((item) => item.id === salonId), [salons, salonId]);
-  const [newBookingToastCount, setNewBookingToastCount] = useState(0);
+  const [pendingBookingCount, setPendingBookingCount] = useState(0);
   const [isEmailVerified, setIsEmailVerified] = useState(true);
   const [emailVerificationPending, setEmailVerificationPending] = useState(false);
   const [emailVerificationMessage, setEmailVerificationMessage] = useState<string | null>(null);
@@ -26,8 +27,6 @@ export function AppLayout() {
     null
   );
   const [billingDaysPastDue, setBillingDaysPastDue] = useState(0);
-  const knownPendingBookingIdsRef = useRef<Set<string>>(new Set());
-  const isPendingPollInitializedRef = useRef(false);
   const currentTenantSlug = resolveCurrentTenantSlug();
   const appHref = (path = "/app") => (currentTenantSlug ? buildTenantScopedPath(currentTenantSlug, path) : path);
 
@@ -82,31 +81,24 @@ export function AppLayout() {
         if (cancelled) {
           return;
         }
-
-        const currentIds = new Set(items.map((item) => item.id));
-        const previousIds = knownPendingBookingIdsRef.current;
-
-        if (isPendingPollInitializedRef.current) {
-          const freshCount = Array.from(currentIds).filter((id) => !previousIds.has(id)).length;
-          if (freshCount > 0) {
-            setNewBookingToastCount((prev) => prev + freshCount);
-          }
-        }
-
-        knownPendingBookingIdsRef.current = currentIds;
-        isPendingPollInitializedRef.current = true;
+        setPendingBookingCount(items.length);
       } catch {
         // Ignore background polling failures to keep layout stable.
       }
     }
 
     void pollPendingBookings();
+    const onBookingsChanged = () => {
+      void pollPendingBookings();
+    };
+    window.addEventListener(ADMIN_BOOKINGS_CHANGED_EVENT, onBookingsChanged);
     const timer = window.setInterval(() => {
       void pollPendingBookings();
     }, 20_000);
 
     return () => {
       cancelled = true;
+      window.removeEventListener(ADMIN_BOOKINGS_CHANGED_EVENT, onBookingsChanged);
       window.clearInterval(timer);
     };
   }, []);
@@ -221,15 +213,14 @@ export function AppLayout() {
             {emailVerificationError ? <div className="status-error">{emailVerificationError}</div> : null}
           </div>
         ) : null}
-        {newBookingToastCount > 0 ? (
+        {pendingBookingCount > 0 ? (
           <div className="status-success" role="status" aria-live="polite">
-            {t("admin.notifications.newBookingsToastPrefix")} {newBookingToastCount}
+            {t("admin.dashboard.attention.pendingBookings")}: {pendingBookingCount}
             {" · "}
             <button
               type="button"
               className="btn btn-ghost"
               onClick={() => {
-                setNewBookingToastCount(0);
                 navigate(appHref("/app/bookings"));
               }}
             >

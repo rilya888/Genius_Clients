@@ -3,6 +3,7 @@ import { confirmAdminBooking, listAdminBookings } from "../shared/api/adminApi";
 import { formatApiError } from "../shared/api/formatApiError";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/AsyncState";
 import { useI18n } from "../shared/i18n/I18nProvider";
+import { emitAdminBookingsChanged } from "../shared/admin-events";
 
 type BookingRow = {
   id: string;
@@ -69,11 +70,15 @@ export function BookingsPage() {
     const previous = state.data;
     setState((prev) => ({
       ...prev,
-      data: prev.data.map((row) => (row.id === bookingId ? { ...row, status: "confirmed" } : row))
+      data:
+        status === "pending"
+          ? prev.data.filter((row) => row.id !== bookingId)
+          : prev.data.map((row) => (row.id === bookingId ? { ...row, status: "confirmed" } : row))
     }));
 
     try {
       await confirmAdminBooking(bookingId);
+      emitAdminBookingsChanged();
     } catch (error) {
       setState((prev) => ({
         ...prev,
