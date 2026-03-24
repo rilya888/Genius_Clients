@@ -18,6 +18,7 @@ import { SuperAdminVersionRepository } from "../../repositories/super-admin/vers
 import { SuperAdminRuntimeSettingsRepository } from "../../repositories/super-admin/runtime-settings-repository";
 import { SuperAdminChannelEndpointRepository } from "../../repositories/super-admin/channel-endpoint-repository";
 import { getApiEnv } from "../../lib/env";
+import { computeWhatsAppSetupSummary } from "../../lib/whatsapp-setup";
 
 const planRepository = new SuperAdminPlanRepository();
 const tenantSubscriptionRepository = new SuperAdminTenantSubscriptionRepository();
@@ -662,7 +663,59 @@ export const superAdminRoutes = new Hono()
       query,
       planCode
     });
-    return c.json({ data: { items } });
+    const whatsappEndpoints = await channelEndpointRepository.listWhatsAppEndpointsByTenantIds(
+      items.map((item) => item.tenantId)
+    );
+    const tokenMap = parseWhatsAppTokenMap(process.env.WA_ACCESS_TOKEN_BY_PHONE_JSON);
+    const botHealth = await fetchBotWhatsAppTokenHealth();
+    const endpointsByTenant = new Map<string, Array<(typeof whatsappEndpoints)[number] & {
+      tokenConfigured: boolean;
+      tokenHealthStatus: "ok" | "error" | "unknown" | "missing";
+    }>>();
+
+    for (const endpoint of whatsappEndpoints) {
+      let tokenHealthStatus: "ok" | "error" | "unknown" | "missing" = "missing";
+      if (tokenMap.has(endpoint.externalEndpointId)) {
+        tokenHealthStatus = (botHealth.get(endpoint.externalEndpointId)?.status ?? "unknown") as
+          | "ok"
+          | "error"
+          | "unknown";
+      } else if (
+        endpoint.tokenSource === "fallback" &&
+        Boolean(process.env.WA_PHONE_NUMBER_ID) &&
+        Boolean(process.env.WA_ACCESS_TOKEN)
+      ) {
+        tokenHealthStatus = (botHealth.get(endpoint.externalEndpointId)?.status ?? "unknown") as
+          | "ok"
+          | "error"
+          | "unknown";
+      }
+      const enrichedEndpoint = {
+        ...endpoint,
+        tokenConfigured:
+          tokenMap.has(endpoint.externalEndpointId) ||
+          (endpoint.tokenSource === "fallback" &&
+            Boolean(process.env.WA_PHONE_NUMBER_ID) &&
+            Boolean(process.env.WA_ACCESS_TOKEN)),
+        tokenHealthStatus
+      };
+      const bucket = endpointsByTenant.get(endpoint.tenantId) ?? [];
+      bucket.push(enrichedEndpoint);
+      endpointsByTenant.set(endpoint.tenantId, bucket);
+    }
+
+    return c.json({
+      data: {
+        items: items.map((item) => ({
+          ...item,
+          whatsappSetup: computeWhatsAppSetupSummary({
+            desiredBotNumber: item.desiredWhatsappBotE164,
+            operatorNumber: item.operatorWhatsappE164,
+            endpoints: endpointsByTenant.get(item.tenantId) ?? []
+          })
+        }))
+      }
+    });
   })
   .put("/tenants/:tenantId/slug", async (c) => {
     const tenantId = c.req.param("tenantId");

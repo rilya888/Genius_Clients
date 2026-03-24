@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { getAdminDashboard } from "../shared/api/adminApi";
+import { getAdminDashboard, updateOperationalSettings } from "../shared/api/adminApi";
 import { formatApiError } from "../shared/api/formatApiError";
 import { useI18n } from "../shared/i18n/I18nProvider";
 
@@ -28,12 +28,42 @@ export function DashboardPage() {
       entity: string;
       createdAt: string;
     }>;
+    whatsappSetup: {
+      desiredBotNumber: string | null;
+      operatorNumber: string | null;
+      status:
+        | "not_started"
+        | "incomplete"
+        | "numbers_provided"
+        | "pending_meta_connection"
+        | "connected"
+        | "action_required";
+      connectedEndpointId: string | null;
+      connectedDisplayPhoneNumber: string | null;
+      requiresAction: boolean;
+      statusReason: string;
+    } | null;
+    whatsappSaving: boolean;
+    whatsappMessage: string | null;
+    whatsappMessageIsError: boolean;
+    whatsappForm: {
+      desiredBotNumber: string;
+      operatorNumber: string;
+    };
   }>({
     pending: true,
     error: null,
     kpis: null,
     attention: null,
-    recentActivity: []
+    recentActivity: [],
+    whatsappSetup: null,
+    whatsappSaving: false,
+    whatsappMessage: null,
+    whatsappMessageIsError: false,
+    whatsappForm: {
+      desiredBotNumber: "",
+      operatorNumber: ""
+    }
   });
 
   useEffect(() => {
@@ -46,7 +76,15 @@ export function DashboardPage() {
             error: null,
             kpis: payload.kpis,
             attention: payload.attention,
-            recentActivity: payload.recentActivity
+            recentActivity: payload.recentActivity,
+            whatsappSetup: payload.whatsappSetup,
+            whatsappSaving: false,
+            whatsappMessage: null,
+            whatsappMessageIsError: false,
+            whatsappForm: {
+              desiredBotNumber: payload.whatsappSetup.desiredBotNumber ?? "",
+              operatorNumber: payload.whatsappSetup.operatorNumber ?? ""
+            }
           });
         }
       })
@@ -57,7 +95,15 @@ export function DashboardPage() {
             error: formatApiError(error, t("admin.dashboard.statusLoadFailed")),
             kpis: null,
             attention: null,
-            recentActivity: []
+            recentActivity: [],
+            whatsappSetup: null,
+            whatsappSaving: false,
+            whatsappMessage: null,
+            whatsappMessageIsError: false,
+            whatsappForm: {
+              desiredBotNumber: "",
+              operatorNumber: ""
+            }
           });
         }
       });
@@ -69,6 +115,56 @@ export function DashboardPage() {
 
   const kpis = state.kpis;
   const attention = state.attention;
+  const whatsappSetup = state.whatsappSetup;
+
+  function getWhatsAppSetupStatusLabel() {
+    if (!whatsappSetup) {
+      return t("common.loadingDots");
+    }
+    return t(`admin.dashboard.whatsapp.status.${whatsappSetup.status}`);
+  }
+
+  function getWhatsAppSetupReason() {
+    if (!whatsappSetup) {
+      return "";
+    }
+    return t(`admin.dashboard.whatsapp.reason.${whatsappSetup.statusReason}`);
+  }
+
+  async function handleWhatsAppSave() {
+    setState((current) => ({
+      ...current,
+      whatsappSaving: true,
+      whatsappMessage: null,
+      whatsappMessageIsError: false
+    }));
+    try {
+      const payload = await updateOperationalSettings({
+        whatsapp: {
+          desiredBotNumber: state.whatsappForm.desiredBotNumber,
+          operatorNumber: state.whatsappForm.operatorNumber
+        }
+      });
+      setState((current) => ({
+        ...current,
+        whatsappSaving: false,
+        whatsappSetup: payload.whatsapp,
+        whatsappMessage: t("admin.dashboard.whatsapp.saved"),
+        whatsappMessageIsError: false,
+        whatsappForm: {
+          desiredBotNumber: payload.whatsapp.desiredBotNumber ?? "",
+          operatorNumber: payload.whatsapp.operatorNumber ?? ""
+        }
+      }));
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        whatsappSaving: false,
+        whatsappMessage: formatApiError(error, t("admin.dashboard.whatsapp.saveFailed")),
+        whatsappMessageIsError: true
+      }));
+    }
+  }
 
   return (
     <section className="page-shell">
@@ -159,6 +255,73 @@ export function DashboardPage() {
               </tbody>
             </table>
           ) : null}
+        </article>
+        <article className="settings-card card-hover">
+          <h3>{t("admin.dashboard.whatsapp.title")}</h3>
+          <p>{t("admin.dashboard.whatsapp.description")}</p>
+          <p>
+            {t("admin.dashboard.whatsapp.currentStatus")}: <strong>{getWhatsAppSetupStatusLabel()}</strong>
+          </p>
+          {whatsappSetup?.connectedDisplayPhoneNumber ? (
+            <p>
+              {t("admin.dashboard.whatsapp.connectedNumber")}:{" "}
+              <strong>{whatsappSetup.connectedDisplayPhoneNumber}</strong>
+            </p>
+          ) : null}
+          <p className="status-muted">{getWhatsAppSetupReason()}</p>
+          <form className="auth-card" onSubmit={(event) => event.preventDefault()}>
+            <label>
+              {t("admin.dashboard.whatsapp.botNumber")}
+              <input
+                placeholder="+393331234567"
+                value={state.whatsappForm.desiredBotNumber}
+                onChange={(event) =>
+                  setState((current) => ({
+                    ...current,
+                    whatsappForm: {
+                      ...current.whatsappForm,
+                      desiredBotNumber: event.target.value
+                    }
+                  }))
+                }
+              />
+            </label>
+            <label>
+              {t("admin.dashboard.whatsapp.operatorNumber")}
+              <input
+                placeholder="+393339876543"
+                value={state.whatsappForm.operatorNumber}
+                onChange={(event) =>
+                  setState((current) => ({
+                    ...current,
+                    whatsappForm: {
+                      ...current.whatsappForm,
+                      operatorNumber: event.target.value
+                    }
+                  }))
+                }
+              />
+            </label>
+            <p className="status-muted">{t("admin.dashboard.whatsapp.hint")}</p>
+            {state.whatsappMessage ? (
+              <p className={state.whatsappMessageIsError ? "status-error" : "status-success"}>
+                {state.whatsappMessage}
+              </p>
+            ) : null}
+            <div className="inline-actions">
+              <button
+                className="btn btn-primary"
+                type="button"
+                disabled={state.whatsappSaving}
+                onClick={() => void handleWhatsAppSave()}
+              >
+                {state.whatsappSaving ? t("settings.operational.saving") : t("common.action.save")}
+              </button>
+              <Link className="btn btn-ghost" to="/app/settings">
+                {t("admin.dashboard.whatsapp.openSettings")}
+              </Link>
+            </div>
+          </form>
         </article>
       </div>
       {state.error ? <p className="status-error">{state.error}</p> : null}

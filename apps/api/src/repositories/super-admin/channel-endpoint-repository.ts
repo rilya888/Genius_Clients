@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { channelEndpointEvents, channelEndpointsV2, tenants } from "@genius/db";
 import { getDb } from "../../lib/db";
 
@@ -67,6 +67,101 @@ function normalizeEndpointRow(
 }
 
 export class SuperAdminChannelEndpointRepository {
+  async listWhatsAppEndpointsByTenantIds(tenantIds: string[]): Promise<WhatsAppEndpointRow[]> {
+    const normalizedTenantIds = Array.from(new Set(tenantIds.filter((item) => item.trim().length > 0)));
+    if (normalizedTenantIds.length === 0) {
+      return [];
+    }
+
+    const db = getDb();
+    try {
+      const items = await db
+        .select({
+          id: channelEndpointsV2.id,
+          provider: channelEndpointsV2.provider,
+          externalEndpointId: channelEndpointsV2.externalEndpointId,
+          tenantId: channelEndpointsV2.tenantId,
+          tenantSlug: tenants.slug,
+          tenantName: tenants.name,
+          accountId: channelEndpointsV2.accountId,
+          salonId: channelEndpointsV2.salonId,
+          environment: channelEndpointsV2.environment,
+          bindingStatus: channelEndpointsV2.bindingStatus,
+          displayName: channelEndpointsV2.displayName,
+          displayPhoneNumber: channelEndpointsV2.displayPhoneNumber,
+          e164: channelEndpointsV2.e164,
+          verifiedName: channelEndpointsV2.verifiedName,
+          wabaId: channelEndpointsV2.wabaId,
+          businessId: channelEndpointsV2.businessId,
+          tokenSource: channelEndpointsV2.tokenSource,
+          templateStatus: channelEndpointsV2.templateStatus,
+          profileStatus: channelEndpointsV2.profileStatus,
+          qualityRating: channelEndpointsV2.qualityRating,
+          metaStatus: channelEndpointsV2.metaStatus,
+          codeVerificationStatus: channelEndpointsV2.codeVerificationStatus,
+          notes: channelEndpointsV2.notes,
+          isActive: channelEndpointsV2.isActive,
+          connectedAt: channelEndpointsV2.connectedAt,
+          disconnectedAt: channelEndpointsV2.disconnectedAt,
+          lastInboundAt: channelEndpointsV2.lastInboundAt,
+          lastOutboundAt: channelEndpointsV2.lastOutboundAt,
+          createdBy: channelEndpointsV2.createdBy,
+          updatedBy: channelEndpointsV2.updatedBy,
+          createdAt: channelEndpointsV2.createdAt,
+          updatedAt: channelEndpointsV2.updatedAt
+        })
+        .from(channelEndpointsV2)
+        .innerJoin(tenants, eq(channelEndpointsV2.tenantId, tenants.id))
+        .where(
+          and(
+            eq(channelEndpointsV2.provider, "whatsapp"),
+            inArray(channelEndpointsV2.tenantId, normalizedTenantIds)
+          )
+        )
+        .orderBy(desc(channelEndpointsV2.updatedAt), desc(channelEndpointsV2.createdAt));
+      return items.map(normalizeEndpointRow);
+    } catch (error) {
+      if (isUndefinedTableError(error)) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  async findActiveWhatsAppEndpointConflictByE164(input: {
+    tenantId: string;
+    e164: string;
+  }): Promise<Pick<WhatsAppEndpointRow, "id" | "tenantId" | "tenantSlug" | "tenantName" | "e164"> | null> {
+    const db = getDb();
+    try {
+      const items = await db
+        .select({
+          id: channelEndpointsV2.id,
+          tenantId: channelEndpointsV2.tenantId,
+          tenantSlug: tenants.slug,
+          tenantName: tenants.name,
+          e164: channelEndpointsV2.e164
+        })
+        .from(channelEndpointsV2)
+        .innerJoin(tenants, eq(channelEndpointsV2.tenantId, tenants.id))
+        .where(
+          and(
+            eq(channelEndpointsV2.provider, "whatsapp"),
+            eq(channelEndpointsV2.e164, input.e164),
+            eq(channelEndpointsV2.isActive, true),
+            sql`${channelEndpointsV2.tenantId} <> ${input.tenantId}`
+          )
+        )
+        .limit(1);
+      return items[0] ?? null;
+    } catch (error) {
+      if (isUndefinedTableError(error)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
   async listWhatsAppEndpoints(): Promise<WhatsAppEndpointRow[]> {
     const db = getDb();
     try {

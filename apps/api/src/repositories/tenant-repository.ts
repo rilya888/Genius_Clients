@@ -56,6 +56,8 @@ export class TenantRepository {
     adminNotificationEmail?: string | null;
     adminNotificationTelegramChatId?: number | null;
     adminNotificationWhatsappE164?: string | null;
+    desiredWhatsappBotE164?: string | null;
+    operatorWhatsappE164?: string | null;
     openaiEnabled?: boolean;
     openaiModel?: string;
     humanHandoffEnabled?: boolean;
@@ -80,6 +82,8 @@ export class TenantRepository {
         adminNotificationEmail: input.adminNotificationEmail,
         adminNotificationTelegramChatId: input.adminNotificationTelegramChatId,
         adminNotificationWhatsappE164: input.adminNotificationWhatsappE164,
+        desiredWhatsappBotE164: input.desiredWhatsappBotE164,
+        operatorWhatsappE164: input.operatorWhatsappE164,
         openaiEnabled: input.openaiEnabled,
         openaiModel: input.openaiModel,
         humanHandoffEnabled: input.humanHandoffEnabled,

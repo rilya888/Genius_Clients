@@ -57,6 +57,8 @@ export const tenants = pgTable(
       mode: "number"
     }),
     adminNotificationWhatsappE164: varchar("admin_notification_whatsapp_e164", { length: 32 }),
+    desiredWhatsappBotE164: varchar("desired_whatsapp_bot_e164", { length: 32 }),
+    operatorWhatsappE164: varchar("operator_whatsapp_e164", { length: 32 }),
     openaiEnabled: boolean("openai_enabled").notNull().default(true),
     openaiModel: varchar("openai_model", { length: 80 }).notNull().default("gpt-5-mini"),
     humanHandoffEnabled: boolean("human_handoff_enabled").notNull().default(true),

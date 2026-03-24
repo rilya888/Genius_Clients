@@ -1,4 +1,5 @@
 import { appError } from "../lib/http";
+import { computeWhatsAppSetupSummary } from "../lib/whatsapp-setup";
 import { captureException } from "@genius/shared";
 import {
   AuditRepository,
@@ -9,6 +10,7 @@ import {
   TenantRepository
 } from "../repositories";
 import { SubscriptionGovernanceService } from "./subscription-governance-service";
+import { SuperAdminChannelEndpointRepository } from "../repositories/super-admin/channel-endpoint-repository";
 
 export class AdminService {
   private readonly adminRepository = new AdminRepository();
@@ -18,6 +20,8 @@ export class AdminService {
   private readonly stripeRepository = new StripeRepository();
   private readonly bookingRepository = new BookingRepository();
   private readonly subscriptionGovernanceService = new SubscriptionGovernanceService();
+  private readonly channelEndpointRepository = new SuperAdminChannelEndpointRepository();
+  private readonly e164Pattern = /^\+[1-9]\d{5,14}$/;
 
   private assertMinuteRange(startMinute: number, endMinute: number) {
     if (
@@ -42,13 +46,21 @@ export class AdminService {
     return normalized.length > 0 ? normalized : null;
   }
 
+  private validateOptionalE164(value: string | null | undefined, reason: string) {
+    const normalized = this.normalizeOptionalText(value);
+    if (normalized && !this.e164Pattern.test(normalized)) {
+      throw appError("VALIDATION_ERROR", { reason });
+    }
+    return normalized;
+  }
+
   async getDashboard(input: { tenantId: string }) {
     const tenant = await this.tenantRepository.findById(input.tenantId);
     if (!tenant) {
       throw appError("TENANT_NOT_FOUND");
     }
 
-    const [kpis, attention, recentActivity] = await Promise.all([
+    const [kpis, attention, recentActivity, endpoints] = await Promise.all([
       this.adminRepository.getDashboardKpis({
         tenantId: input.tenantId,
         timezone: tenant.timezone
@@ -59,8 +71,22 @@ export class AdminService {
       this.adminRepository.listRecentActivity({
         tenantId: input.tenantId,
         limit: 10
-      })
+      }),
+      this.channelEndpointRepository.listWhatsAppEndpointsByTenantIds([input.tenantId])
     ]);
+
+    const botNumberConflict = tenant.desiredWhatsappBotE164
+      ? await this.channelEndpointRepository.findActiveWhatsAppEndpointConflictByE164({
+          tenantId: input.tenantId,
+          e164: tenant.desiredWhatsappBotE164
+        })
+      : null;
+    const whatsappSetup = computeWhatsAppSetupSummary({
+      desiredBotNumber: tenant.desiredWhatsappBotE164,
+      operatorNumber: tenant.operatorWhatsappE164,
+      endpoints,
+      hasBotNumberConflict: Boolean(botNumberConflict)
+    });
 
     return {
       kpis: {
@@ -76,7 +102,8 @@ export class AdminService {
         mastersWithoutSchedule: Number(attention.mastersWithoutSchedule ?? 0),
         pendingBookings: Number(attention.pendingBookings ?? 0)
       },
-      recentActivity
+      recentActivity,
+      whatsappSetup
     };
   }
 
@@ -769,6 +796,8 @@ export class AdminService {
       adminNotificationEmail: tenant.adminNotificationEmail,
       adminNotificationTelegramChatId: tenant.adminNotificationTelegramChatId,
       adminNotificationWhatsappE164: tenant.adminNotificationWhatsappE164,
+      desiredWhatsappBotE164: tenant.desiredWhatsappBotE164,
+      operatorWhatsappE164: tenant.operatorWhatsappE164,
       openaiEnabled: tenant.openaiEnabled,
       openaiModel: tenant.openaiModel,
       humanHandoffEnabled: tenant.humanHandoffEnabled
@@ -780,6 +809,16 @@ export class AdminService {
     if (!tenant) {
       throw appError("TENANT_NOT_FOUND");
     }
+
+    const [endpoints, botNumberConflict] = await Promise.all([
+      this.channelEndpointRepository.listWhatsAppEndpointsByTenantIds([tenantId]),
+      tenant.desiredWhatsappBotE164
+        ? this.channelEndpointRepository.findActiveWhatsAppEndpointConflictByE164({
+            tenantId,
+            e164: tenant.desiredWhatsappBotE164
+          })
+        : Promise.resolve(null)
+    ]);
 
     return {
       id: tenant.id,
@@ -797,7 +836,13 @@ export class AdminService {
         available: tenant.parkingAvailable ?? null,
         note: tenant.parkingNote ?? ""
       },
-      businessHoursNote: tenant.businessHoursNote ?? ""
+      businessHoursNote: tenant.businessHoursNote ?? "",
+      whatsapp: computeWhatsAppSetupSummary({
+        desiredBotNumber: tenant.desiredWhatsappBotE164,
+        operatorNumber: tenant.operatorWhatsappE164,
+        endpoints,
+        hasBotNumberConflict: Boolean(botNumberConflict)
+      })
     };
   }
 
@@ -818,7 +863,40 @@ export class AdminService {
       note?: string | null;
     };
     businessHoursNote?: string | null;
+    whatsapp?: {
+      desiredBotNumber?: string | null;
+      operatorNumber?: string | null;
+    };
   }) {
+    const desiredWhatsappBotE164 = this.validateOptionalE164(
+      input.whatsapp?.desiredBotNumber,
+      "desired_whatsapp_bot_e164_invalid"
+    );
+    const operatorWhatsappE164 = this.validateOptionalE164(
+      input.whatsapp?.operatorNumber,
+      "operator_whatsapp_e164_invalid"
+    );
+    if (
+      desiredWhatsappBotE164 &&
+      operatorWhatsappE164 &&
+      desiredWhatsappBotE164 === operatorWhatsappE164
+    ) {
+      throw appError("VALIDATION_ERROR", { reason: "whatsapp_numbers_must_be_different" });
+    }
+    if (desiredWhatsappBotE164) {
+      const conflict = await this.channelEndpointRepository.findActiveWhatsAppEndpointConflictByE164({
+        tenantId: input.tenantId,
+        e164: desiredWhatsappBotE164
+      });
+      if (conflict) {
+        throw appError("CONFLICT", {
+          reason: "desired_whatsapp_bot_e164_conflict",
+          conflictTenantId: conflict.tenantId,
+          conflictTenantSlug: conflict.tenantSlug
+        });
+      }
+    }
+
     const patch = {
       tenantId: input.tenantId,
       timezone: input.timezone,
@@ -829,7 +907,9 @@ export class AdminService {
       addressPostalCode: this.normalizeOptionalText(input.address?.postalCode),
       parkingAvailable: input.parking?.available,
       parkingNote: this.normalizeOptionalText(input.parking?.note),
-      businessHoursNote: this.normalizeOptionalText(input.businessHoursNote)
+      businessHoursNote: this.normalizeOptionalText(input.businessHoursNote),
+      desiredWhatsappBotE164,
+      operatorWhatsappE164
     };
 
     const updated = await this.tenantRepository.updateSettings(patch);
@@ -854,7 +934,9 @@ export class AdminService {
           addressPostalCode: patch.addressPostalCode,
           parkingAvailable: patch.parkingAvailable,
           parkingNote: patch.parkingNote,
-          businessHoursNote: patch.businessHoursNote
+          businessHoursNote: patch.businessHoursNote,
+          desiredWhatsappBotE164: patch.desiredWhatsappBotE164,
+          operatorWhatsappE164: patch.operatorWhatsappE164
         }
       }
     });

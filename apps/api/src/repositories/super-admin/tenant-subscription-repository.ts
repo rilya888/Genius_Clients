@@ -5,6 +5,8 @@ export type SuperAdminTenantOverviewRow = {
   tenantId: string;
   tenantSlug: string;
   tenantName: string;
+  desiredWhatsappBotE164: string | null;
+  operatorWhatsappE164: string | null;
   subscriptionId: string | null;
   planCode: string | null;
   pendingPlanCode: string | null;
@@ -68,6 +70,8 @@ export class SuperAdminTenantSubscriptionRepository {
         t.id AS "tenantId",
         t.slug AS "tenantSlug",
         t.name AS "tenantName",
+        t.desired_whatsapp_bot_e164 AS "desiredWhatsappBotE164",
+        t.operator_whatsapp_e164 AS "operatorWhatsappE164",
         ts.id AS "subscriptionId",
         ts.plan_code AS "planCode",
         ts.pending_plan_code AS "pendingPlanCode",

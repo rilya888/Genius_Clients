@@ -712,6 +712,10 @@ export const adminRoutes = new Hono<ApiAppEnv>()
         note?: string | null;
       };
       businessHoursNote?: string | null;
+      whatsapp?: {
+        desiredBotNumber?: string | null;
+        operatorNumber?: string | null;
+      };
     }>();
     const data = await adminService.updateOperationalSettings({
       tenantId,
@@ -720,7 +724,8 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       timezone: body.timezone,
       address: body.address,
       parking: body.parking,
-      businessHoursNote: body.businessHoursNote
+      businessHoursNote: body.businessHoursNote,
+      whatsapp: body.whatsapp
     });
     return c.json({ data });
   })

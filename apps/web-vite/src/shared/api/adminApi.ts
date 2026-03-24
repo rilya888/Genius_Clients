@@ -79,6 +79,21 @@ type DashboardEnvelope = {
       entity: string;
       createdAt: string;
     }>;
+    whatsappSetup: {
+      desiredBotNumber: string | null;
+      operatorNumber: string | null;
+      status:
+        | "not_started"
+        | "incomplete"
+        | "numbers_provided"
+        | "pending_meta_connection"
+        | "connected"
+        | "action_required";
+      connectedEndpointId: string | null;
+      connectedDisplayPhoneNumber: string | null;
+      requiresAction: boolean;
+      statusReason: string;
+    };
   };
 };
 
@@ -111,6 +126,21 @@ type OperationalSettingsEnvelope = {
       note: string;
     };
     businessHoursNote: string;
+    whatsapp: {
+      desiredBotNumber: string | null;
+      operatorNumber: string | null;
+      status:
+        | "not_started"
+        | "incomplete"
+        | "numbers_provided"
+        | "pending_meta_connection"
+        | "connected"
+        | "action_required";
+      connectedEndpointId: string | null;
+      connectedDisplayPhoneNumber: string | null;
+      requiresAction: boolean;
+      statusReason: string;
+    };
   };
 };
 
@@ -633,6 +663,10 @@ export async function updateOperationalSettings(input: {
     note?: string | null;
   };
   businessHoursNote?: string | null;
+  whatsapp?: {
+    desiredBotNumber?: string | null;
+    operatorNumber?: string | null;
+  };
 }) {
   const payload = await adminJson<OperationalSettingsEnvelope>("/api/v1/admin/settings/operational", {
     method: "PATCH",

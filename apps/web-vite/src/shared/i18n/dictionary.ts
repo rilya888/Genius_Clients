@@ -154,6 +154,40 @@ export const dictionary: Record<Locale, Dict> = {
     "admin.dashboard.activityEmpty": "No recent activity",
     "admin.dashboard.activityAction": "Action",
     "admin.dashboard.activityEntity": "Entity",
+    "admin.dashboard.whatsapp.title": "WhatsApp setup",
+    "admin.dashboard.whatsapp.description":
+      "Enter the bot number for this salon and the operator number used for confirmations and human handoff.",
+    "admin.dashboard.whatsapp.currentStatus": "WhatsApp status",
+    "admin.dashboard.whatsapp.connectedNumber": "Connected salon number",
+    "admin.dashboard.whatsapp.botNumber": "Bot number",
+    "admin.dashboard.whatsapp.operatorNumber": "Operator / confirmation number",
+    "admin.dashboard.whatsapp.hint":
+      "Use a new WhatsApp number for the bot. The operator number is used for booking confirmations and human handoff.",
+    "admin.dashboard.whatsapp.saved": "WhatsApp numbers saved. Administration can now connect the bot number.",
+    "admin.dashboard.whatsapp.saveFailed": "Failed to save WhatsApp numbers",
+    "admin.dashboard.whatsapp.openSettings": "Open settings",
+    "admin.dashboard.whatsapp.status.not_started": "Not started",
+    "admin.dashboard.whatsapp.status.incomplete": "Incomplete",
+    "admin.dashboard.whatsapp.status.numbers_provided": "Waiting for administration",
+    "admin.dashboard.whatsapp.status.pending_meta_connection": "Meta connection in progress",
+    "admin.dashboard.whatsapp.status.connected": "Connected",
+    "admin.dashboard.whatsapp.status.action_required": "Action required",
+    "admin.dashboard.whatsapp.reason.missing_numbers": "Add both numbers to start WhatsApp setup.",
+    "admin.dashboard.whatsapp.reason.missing_bot_number": "Add the salon bot number to continue.",
+    "admin.dashboard.whatsapp.reason.missing_operator_number": "Add the operator number to continue.",
+    "admin.dashboard.whatsapp.reason.numbers_saved":
+      "Numbers are saved. Administration can now connect this salon in Meta.",
+    "admin.dashboard.whatsapp.reason.pending_meta_connection":
+      "The number is being connected in Meta. Wait for administration to complete verification.",
+    "admin.dashboard.whatsapp.reason.connected": "The salon bot is connected and ready to receive WhatsApp messages.",
+    "admin.dashboard.whatsapp.reason.bot_number_conflict":
+      "This bot number is already assigned to another salon and must be changed.",
+    "admin.dashboard.whatsapp.reason.connected_endpoint_disabled":
+      "The connected WhatsApp endpoint is disabled and needs administrative action.",
+    "admin.dashboard.whatsapp.reason.connected_endpoint_token_missing":
+      "The connected number is missing an access token mapping.",
+    "admin.dashboard.whatsapp.reason.connected_endpoint_token_error":
+      "The connected number has a token or delivery health problem.",
     "admin.staff.title": "Staff",
     "admin.staff.loading": "Loading staff...",
     "admin.staff.loadFailed": "Failed to load staff",
@@ -512,6 +546,34 @@ export const dictionary: Record<Locale, Dict> = {
     "settings.operational.parkingAvailable": "Parking available",
     "settings.operational.parkingNote": "Parking note",
     "settings.operational.businessHoursNote": "Business hours note",
+    "settings.operational.whatsapp.botNumber": "Bot number",
+    "settings.operational.whatsapp.operatorNumber": "Operator / confirmation number",
+    "settings.operational.whatsapp.currentStatus": "WhatsApp status",
+    "settings.operational.whatsapp.connectedNumber": "Connected salon number",
+    "settings.operational.whatsapp.hint":
+      "The bot number must be new and dedicated to the salon bot. The operator number is used for confirmations and human handoff.",
+    "settings.operational.whatsapp.status.not_started": "Not started",
+    "settings.operational.whatsapp.status.incomplete": "Incomplete",
+    "settings.operational.whatsapp.status.numbers_provided": "Waiting for administration",
+    "settings.operational.whatsapp.status.pending_meta_connection": "Meta connection in progress",
+    "settings.operational.whatsapp.status.connected": "Connected",
+    "settings.operational.whatsapp.status.action_required": "Action required",
+    "settings.operational.whatsapp.reason.missing_numbers": "Add both numbers to start WhatsApp setup.",
+    "settings.operational.whatsapp.reason.missing_bot_number": "Add the salon bot number to continue.",
+    "settings.operational.whatsapp.reason.missing_operator_number": "Add the operator number to continue.",
+    "settings.operational.whatsapp.reason.numbers_saved":
+      "Numbers are saved. Administration can now connect this salon in Meta.",
+    "settings.operational.whatsapp.reason.pending_meta_connection":
+      "The number is being connected in Meta. Wait for administration to complete verification.",
+    "settings.operational.whatsapp.reason.connected": "The salon bot is connected and ready to receive WhatsApp messages.",
+    "settings.operational.whatsapp.reason.bot_number_conflict":
+      "This bot number is already assigned to another salon and must be changed.",
+    "settings.operational.whatsapp.reason.connected_endpoint_disabled":
+      "The connected WhatsApp endpoint is disabled and needs administrative action.",
+    "settings.operational.whatsapp.reason.connected_endpoint_token_missing":
+      "The connected number is missing an access token mapping.",
+    "settings.operational.whatsapp.reason.connected_endpoint_token_error":
+      "The connected number has a token or delivery health problem.",
     "common.col.id": "ID",
     "common.col.actions": "Actions",
     "common.action.edit": "Edit",
@@ -672,6 +734,45 @@ export const dictionary: Record<Locale, Dict> = {
     "admin.dashboard.activityEmpty": "Nessuna attività recente",
     "admin.dashboard.activityAction": "Azione",
     "admin.dashboard.activityEntity": "Entità",
+    "admin.dashboard.whatsapp.title": "Configurazione WhatsApp",
+    "admin.dashboard.whatsapp.description":
+      "Inserisci il numero bot del salone e il numero operatore usato per conferme e passaggio a un umano.",
+    "admin.dashboard.whatsapp.currentStatus": "Stato WhatsApp",
+    "admin.dashboard.whatsapp.connectedNumber": "Numero salone collegato",
+    "admin.dashboard.whatsapp.botNumber": "Numero bot",
+    "admin.dashboard.whatsapp.operatorNumber": "Numero operatore / conferme",
+    "admin.dashboard.whatsapp.hint":
+      "Usa un nuovo numero WhatsApp per il bot. Il numero operatore viene usato per conferme prenotazioni e handoff umano.",
+    "admin.dashboard.whatsapp.saved":
+      "Numeri WhatsApp salvati. L'amministrazione può ora collegare il numero bot.",
+    "admin.dashboard.whatsapp.saveFailed": "Impossibile salvare i numeri WhatsApp",
+    "admin.dashboard.whatsapp.openSettings": "Apri impostazioni",
+    "admin.dashboard.whatsapp.status.not_started": "Non iniziato",
+    "admin.dashboard.whatsapp.status.incomplete": "Incompleto",
+    "admin.dashboard.whatsapp.status.numbers_provided": "In attesa amministrazione",
+    "admin.dashboard.whatsapp.status.pending_meta_connection": "Connessione Meta in corso",
+    "admin.dashboard.whatsapp.status.connected": "Collegato",
+    "admin.dashboard.whatsapp.status.action_required": "Azione richiesta",
+    "admin.dashboard.whatsapp.reason.missing_numbers":
+      "Aggiungi entrambi i numeri per iniziare la configurazione WhatsApp.",
+    "admin.dashboard.whatsapp.reason.missing_bot_number":
+      "Aggiungi il numero bot del salone per continuare.",
+    "admin.dashboard.whatsapp.reason.missing_operator_number":
+      "Aggiungi il numero operatore per continuare.",
+    "admin.dashboard.whatsapp.reason.numbers_saved":
+      "I numeri sono salvati. L'amministrazione può ora collegare questo salone in Meta.",
+    "admin.dashboard.whatsapp.reason.pending_meta_connection":
+      "Il numero è in collegamento su Meta. Attendi che l'amministrazione completi la verifica.",
+    "admin.dashboard.whatsapp.reason.connected":
+      "Il bot del salone è collegato e pronto a ricevere messaggi WhatsApp.",
+    "admin.dashboard.whatsapp.reason.bot_number_conflict":
+      "Questo numero bot è già assegnato a un altro salone e deve essere cambiato.",
+    "admin.dashboard.whatsapp.reason.connected_endpoint_disabled":
+      "L'endpoint WhatsApp collegato è disabilitato e richiede un intervento amministrativo.",
+    "admin.dashboard.whatsapp.reason.connected_endpoint_token_missing":
+      "Al numero collegato manca una mappatura del token di accesso.",
+    "admin.dashboard.whatsapp.reason.connected_endpoint_token_error":
+      "Il numero collegato ha un problema di token o di salute consegna.",
     "admin.staff.title": "Staff",
     "admin.staff.loading": "Caricamento staff...",
     "admin.staff.loadFailed": "Impossibile caricare lo staff",
@@ -1030,6 +1131,38 @@ export const dictionary: Record<Locale, Dict> = {
     "settings.operational.parkingAvailable": "Parcheggio disponibile",
     "settings.operational.parkingNote": "Nota parcheggio",
     "settings.operational.businessHoursNote": "Nota orari",
+    "settings.operational.whatsapp.botNumber": "Numero bot",
+    "settings.operational.whatsapp.operatorNumber": "Numero operatore / conferme",
+    "settings.operational.whatsapp.currentStatus": "Stato WhatsApp",
+    "settings.operational.whatsapp.connectedNumber": "Numero salone collegato",
+    "settings.operational.whatsapp.hint":
+      "Il numero bot deve essere nuovo e dedicato al bot del salone. Il numero operatore viene usato per conferme e handoff umano.",
+    "settings.operational.whatsapp.status.not_started": "Non iniziato",
+    "settings.operational.whatsapp.status.incomplete": "Incompleto",
+    "settings.operational.whatsapp.status.numbers_provided": "In attesa amministrazione",
+    "settings.operational.whatsapp.status.pending_meta_connection": "Connessione Meta in corso",
+    "settings.operational.whatsapp.status.connected": "Collegato",
+    "settings.operational.whatsapp.status.action_required": "Azione richiesta",
+    "settings.operational.whatsapp.reason.missing_numbers":
+      "Aggiungi entrambi i numeri per iniziare la configurazione WhatsApp.",
+    "settings.operational.whatsapp.reason.missing_bot_number":
+      "Aggiungi il numero bot del salone per continuare.",
+    "settings.operational.whatsapp.reason.missing_operator_number":
+      "Aggiungi il numero operatore per continuare.",
+    "settings.operational.whatsapp.reason.numbers_saved":
+      "I numeri sono salvati. L'amministrazione può ora collegare questo salone in Meta.",
+    "settings.operational.whatsapp.reason.pending_meta_connection":
+      "Il numero è in collegamento su Meta. Attendi che l'amministrazione completi la verifica.",
+    "settings.operational.whatsapp.reason.connected":
+      "Il bot del salone è collegato e pronto a ricevere messaggi WhatsApp.",
+    "settings.operational.whatsapp.reason.bot_number_conflict":
+      "Questo numero bot è già assegnato a un altro salone e deve essere cambiato.",
+    "settings.operational.whatsapp.reason.connected_endpoint_disabled":
+      "L'endpoint WhatsApp collegato è disabilitato e richiede un intervento amministrativo.",
+    "settings.operational.whatsapp.reason.connected_endpoint_token_missing":
+      "Al numero collegato manca una mappatura del token di accesso.",
+    "settings.operational.whatsapp.reason.connected_endpoint_token_error":
+      "Il numero collegato ha un problema di token o di salute consegna.",
     "common.col.id": "ID",
     "common.col.actions": "Azioni",
     "common.action.edit": "Modifica",

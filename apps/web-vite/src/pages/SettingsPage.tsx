@@ -38,7 +38,19 @@ export function SettingsPage() {
     postalCode: "",
     parkingAvailable: "unknown" as "unknown" | "yes" | "no",
     parkingNote: "",
-    businessHoursNote: ""
+    businessHoursNote: "",
+    desiredBotNumber: "",
+    operatorNumber: "",
+    whatsappStatus:
+      "not_started" as
+        | "not_started"
+        | "incomplete"
+        | "numbers_provided"
+        | "pending_meta_connection"
+        | "connected"
+        | "action_required",
+    whatsappStatusReason: "missing_numbers",
+    connectedDisplayPhoneNumber: ""
   });
 
   const isOwner = role === "owner";
@@ -95,7 +107,12 @@ export function SettingsPage() {
           parkingAvailable:
             payload.parking.available === true ? "yes" : payload.parking.available === false ? "no" : "unknown",
           parkingNote: payload.parking.note ?? "",
-          businessHoursNote: payload.businessHoursNote ?? ""
+          businessHoursNote: payload.businessHoursNote ?? "",
+          desiredBotNumber: payload.whatsapp.desiredBotNumber ?? "",
+          operatorNumber: payload.whatsapp.operatorNumber ?? "",
+          whatsappStatus: payload.whatsapp.status,
+          whatsappStatusReason: payload.whatsapp.statusReason,
+          connectedDisplayPhoneNumber: payload.whatsapp.connectedDisplayPhoneNumber ?? ""
         });
       })
       .catch((error) => {
@@ -181,7 +198,7 @@ export function SettingsPage() {
     setOperationalError(null);
     setOperationalInfo(null);
     try {
-      await updateOperationalSettings({
+      const payload = await updateOperationalSettings({
         timezone: operationalForm.timezone.trim(),
         address: {
           country: operationalForm.country,
@@ -197,8 +214,30 @@ export function SettingsPage() {
               : operationalForm.parkingAvailable === "yes",
           note: operationalForm.parkingNote
         },
-        businessHoursNote: operationalForm.businessHoursNote
+        businessHoursNote: operationalForm.businessHoursNote,
+        whatsapp: {
+          desiredBotNumber: operationalForm.desiredBotNumber,
+          operatorNumber: operationalForm.operatorNumber
+        }
       });
+      setOperationalForm((current) => ({
+        ...current,
+        timezone: payload.timezone || current.timezone,
+        country: payload.address.country ?? "",
+        city: payload.address.city ?? "",
+        line1: payload.address.line1 ?? "",
+        line2: payload.address.line2 ?? "",
+        postalCode: payload.address.postalCode ?? "",
+        parkingAvailable:
+          payload.parking.available === true ? "yes" : payload.parking.available === false ? "no" : "unknown",
+        parkingNote: payload.parking.note ?? "",
+        businessHoursNote: payload.businessHoursNote ?? "",
+        desiredBotNumber: payload.whatsapp.desiredBotNumber ?? "",
+        operatorNumber: payload.whatsapp.operatorNumber ?? "",
+        whatsappStatus: payload.whatsapp.status,
+        whatsappStatusReason: payload.whatsapp.statusReason,
+        connectedDisplayPhoneNumber: payload.whatsapp.connectedDisplayPhoneNumber ?? ""
+      }));
       setOperationalInfo(t("settings.operational.saved"));
     } catch (error) {
       setOperationalError(formatApiError(error, t("settings.operational.saveFailed")));
@@ -210,6 +249,8 @@ export function SettingsPage() {
   const billingStateLabel = billingSubscription
     ? t(`settings.subscription.state.${billingSubscription.billingState}`)
     : t("common.value.na");
+  const whatsappStatusLabel = t(`settings.operational.whatsapp.status.${operationalForm.whatsappStatus}`);
+  const whatsappStatusReason = t(`settings.operational.whatsapp.reason.${operationalForm.whatsappStatusReason}`);
 
   return (
     <section className="page-shell">
@@ -286,6 +327,33 @@ export function SettingsPage() {
                   onChange={(event) => setOperationalForm((prev) => ({ ...prev, businessHoursNote: event.target.value }))}
                 />
               </label>
+              <label>
+                {t("settings.operational.whatsapp.botNumber")}
+                <input
+                  placeholder="+393331234567"
+                  value={operationalForm.desiredBotNumber}
+                  onChange={(event) => setOperationalForm((prev) => ({ ...prev, desiredBotNumber: event.target.value }))}
+                />
+              </label>
+              <label>
+                {t("settings.operational.whatsapp.operatorNumber")}
+                <input
+                  placeholder="+393339876543"
+                  value={operationalForm.operatorNumber}
+                  onChange={(event) => setOperationalForm((prev) => ({ ...prev, operatorNumber: event.target.value }))}
+                />
+              </label>
+              <p className="status-muted">
+                {t("settings.operational.whatsapp.currentStatus")}: <strong>{whatsappStatusLabel}</strong>
+              </p>
+              {operationalForm.connectedDisplayPhoneNumber ? (
+                <p className="status-muted">
+                  {t("settings.operational.whatsapp.connectedNumber")}:{" "}
+                  <strong>{operationalForm.connectedDisplayPhoneNumber}</strong>
+                </p>
+              ) : null}
+              <p className="status-muted">{whatsappStatusReason}</p>
+              <p className="status-muted">{t("settings.operational.whatsapp.hint")}</p>
               <button className="btn btn-primary" type="button" disabled={operationalSaving} onClick={() => void handleOperationalSave()}>
                 {operationalSaving ? t("settings.operational.saving") : t("common.action.save")}
               </button>

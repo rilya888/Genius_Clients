@@ -24,6 +24,23 @@ type TenantOverview = {
   tenantName: string;
   planCode: string | null;
   pendingPlanCode: string | null;
+  desiredWhatsappBotE164: string | null;
+  operatorWhatsappE164: string | null;
+  whatsappSetup: {
+    desiredBotNumber: string | null;
+    operatorNumber: string | null;
+    status:
+      | "not_started"
+      | "incomplete"
+      | "numbers_provided"
+      | "pending_meta_connection"
+      | "connected"
+      | "action_required";
+    connectedEndpointId: string | null;
+    connectedDisplayPhoneNumber: string | null;
+    requiresAction: boolean;
+    statusReason: string;
+  };
 };
 
 type PlanFeature = {
@@ -672,10 +689,19 @@ export function SuperAdminPage() {
           </button>
         </div>
         {tenants.map((tenant) => (
-          <p key={tenant.tenantId}>
-            {tenant.tenantSlug} ({tenant.tenantName}) - current: {tenant.planCode ?? "none"} - pending:{" "}
-            {tenant.pendingPlanCode ?? "none"}
-          </p>
+          <div key={tenant.tenantId} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid rgba(26,56,56,0.08)" }}>
+            <p style={{ margin: 0 }}>
+              {tenant.tenantSlug} ({tenant.tenantName}) - current: {tenant.planCode ?? "none"} - pending:{" "}
+              {tenant.pendingPlanCode ?? "none"}
+            </p>
+            <p style={{ margin: "4px 0 0 0", color: "var(--text-muted)" }}>
+              bot: {tenant.desiredWhatsappBotE164 ?? "n/a"} | operator: {tenant.operatorWhatsappE164 ?? "n/a"} |
+              setup: {tenant.whatsappSetup.status}
+              {tenant.whatsappSetup.connectedDisplayPhoneNumber
+                ? ` | connected: ${tenant.whatsappSetup.connectedDisplayPhoneNumber}`
+                : ""}
+            </p>
+          </div>
         ))}
       </div>
 
