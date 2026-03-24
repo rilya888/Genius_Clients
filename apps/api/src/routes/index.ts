@@ -4,6 +4,7 @@ import { publicRoutes } from "./public";
 import { marketingRoutes } from "./marketing";
 import { adminRoutes } from "./admin";
 import { superAdminRoutes } from "./super-admin";
+import { enterpriseV2Routes } from "./enterprise-v2";
 import { webhookRoutes } from "./webhooks";
 import { tenantContextMiddleware } from "../middleware/tenant-context";
 import { tenantHostResolverMiddleware } from "../middleware/tenant-host-resolver";
@@ -83,6 +84,9 @@ export function createApiV1Routes() {
 
   apiV1.use("/super-admin/*", rateLimitMiddleware);
   apiV1.route("/super-admin", superAdminRoutes);
+
+  apiV1.use("/enterprise-v2/*", rateLimitMiddleware);
+  apiV1.route("/enterprise-v2", enterpriseV2Routes);
 
   apiV1.use("/webhooks/*", rateLimitMiddleware);
   apiV1.route("/webhooks", webhookRoutes);

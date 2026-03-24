@@ -482,3 +482,83 @@ export const notificationDeliveries = pgTable(
     index("idx_notification_delivery_dispatch").on(t.status, t.nextAttemptAt, t.createdAt)
   ]
 );
+
+export const channelEndpointsV2 = pgTable(
+  "channel_endpoints_v2",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    provider: varchar("provider", { length: 32 }).notNull(),
+    externalEndpointId: varchar("external_endpoint_id", { length: 80 }).notNull(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    salonId: varchar("salon_id", { length: 80 }).notNull(),
+    environment: varchar("environment", { length: 16 }).notNull().default("production"),
+    bindingStatus: varchar("binding_status", { length: 32 }).notNull().default("draft"),
+    displayName: varchar("display_name", { length: 140 }),
+    displayPhoneNumber: varchar("display_phone_number", { length: 32 }),
+    e164: varchar("e164", { length: 32 }),
+    verifiedName: varchar("verified_name", { length: 140 }),
+    wabaId: varchar("waba_id", { length: 64 }),
+    businessId: varchar("business_id", { length: 64 }),
+    tokenSource: varchar("token_source", { length: 24 }).notNull().default("unknown"),
+    templateStatus: varchar("template_status", { length: 24 }).notNull().default("unknown"),
+    profileStatus: varchar("profile_status", { length: 24 }).notNull().default("unknown"),
+    qualityRating: varchar("quality_rating", { length: 32 }),
+    metaStatus: varchar("meta_status", { length: 32 }),
+    codeVerificationStatus: varchar("code_verification_status", { length: 32 }),
+    notes: text("notes"),
+    isActive: boolean("is_active").notNull().default(true),
+    connectedAt: timestamp("connected_at", { withTimezone: true }),
+    disconnectedAt: timestamp("disconnected_at", { withTimezone: true }),
+    lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }),
+    lastOutboundAt: timestamp("last_outbound_at", { withTimezone: true }),
+    createdBy: varchar("created_by", { length: 120 }),
+    updatedBy: varchar("updated_by", { length: 120 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [
+    unique("uq_channel_endpoints_v2_provider_external").on(t.provider, t.externalEndpointId),
+    index("idx_channel_endpoints_v2_tenant_provider").on(t.tenantId, t.provider, t.isActive),
+    index("idx_channel_endpoints_v2_provider_status").on(t.provider, t.bindingStatus, t.isActive),
+    check(
+      "ck_channel_endpoints_v2_environment",
+      sql`${t.environment} in ('sandbox', 'production')`
+    ),
+    check(
+      "ck_channel_endpoints_v2_binding_status",
+      sql`${t.bindingStatus} in ('draft', 'pending_verification', 'connected', 'disabled')`
+    ),
+    check(
+      "ck_channel_endpoints_v2_token_source",
+      sql`${t.tokenSource} in ('unknown', 'map', 'fallback')`
+    ),
+    check(
+      "ck_channel_endpoints_v2_template_status",
+      sql`${t.templateStatus} in ('unknown', 'not_ready', 'ready')`
+    ),
+    check(
+      "ck_channel_endpoints_v2_profile_status",
+      sql`${t.profileStatus} in ('unknown', 'incomplete', 'ready')`
+    )
+  ]
+);
+
+export const channelEndpointEvents = pgTable(
+  "channel_endpoint_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    endpointId: uuid("endpoint_id")
+      .notNull()
+      .references(() => channelEndpointsV2.id, { onDelete: "cascade" }),
+    action: varchar("action", { length: 80 }).notNull(),
+    actor: varchar("actor", { length: 120 }),
+    payloadJson: jsonb("payload_json"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("idx_channel_endpoint_events_endpoint_created").on(t.endpointId, t.createdAt)]
+);

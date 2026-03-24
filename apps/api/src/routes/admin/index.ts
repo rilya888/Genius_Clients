@@ -2,10 +2,31 @@ import { Hono } from "hono";
 import type { ApiAppEnv } from "../../lib/hono-env";
 import { appError } from "../../lib/http";
 import { AdminService, BillingService, BookingService } from "../../services";
+import { SuperAdminChannelEndpointRepository } from "../../repositories/super-admin/channel-endpoint-repository";
 
 const adminService = new AdminService();
 const bookingService = new BookingService();
 const billingService = new BillingService();
+const channelEndpointRepository = new SuperAdminChannelEndpointRepository();
+
+function parseConfiguredWhatsAppTokenCount() {
+  const raw = process.env.WA_ACCESS_TOKEN_BY_PHONE_JSON?.trim() ?? "";
+  if (!raw) {
+    return 0;
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      return 0;
+    }
+    return Object.entries(parsed as Record<string, unknown>).filter(
+      ([phoneNumberId, token]) =>
+        phoneNumberId.trim().length > 0 && typeof token === "string" && token.trim().length > 0
+    ).length;
+  } catch {
+    return 0;
+  }
+}
 
 export const adminRoutes = new Hono<ApiAppEnv>()
   .get("/dashboard", async (c) => {
@@ -86,6 +107,11 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       throw appError("AUTH_FORBIDDEN", { reason: "owner_role_required" });
     }
 
+    const activeWhatsAppEndpoints = await channelEndpointRepository.countActiveWhatsAppEndpoints().catch(() => 0);
+    const configuredWhatsAppTokenCount = parseConfiguredWhatsAppTokenCount();
+    const hasLegacyWhatsAppFallback =
+      Boolean(process.env.WA_PHONE_NUMBER_ID) && Boolean(process.env.WA_ACCESS_TOKEN);
+
     return c.json({
       data: {
         redis: Boolean(process.env.REDIS_URL),
@@ -93,9 +119,8 @@ export const adminRoutes = new Hono<ApiAppEnv>()
         stripe: Boolean(process.env.STRIPE_SECRET_KEY),
         openai: Boolean(process.env.OPENAI_API_KEY),
         whatsapp:
-          Boolean(process.env.WA_PHONE_NUMBER_ID) &&
-          Boolean(process.env.WA_ACCESS_TOKEN) &&
-          Boolean(process.env.WA_WEBHOOK_SECRET),
+          Boolean(process.env.WA_WEBHOOK_SECRET) &&
+          ((configuredWhatsAppTokenCount > 0 && activeWhatsAppEndpoints > 0) || hasLegacyWhatsAppFallback),
         telegram: Boolean(process.env.TG_BOT_TOKEN),
         email: Boolean(process.env.EMAIL_API_KEY && process.env.EMAIL_FROM)
       }

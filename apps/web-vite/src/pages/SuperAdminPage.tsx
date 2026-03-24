@@ -54,6 +54,92 @@ type SystemSettings = {
   updatedAt: string | null;
 };
 
+type WhatsAppEndpoint = {
+  id: string;
+  tenantId: string;
+  tenantSlug: string;
+  tenantName: string;
+  accountId: string;
+  salonId: string;
+  externalEndpointId: string;
+  environment: "sandbox" | "production";
+  bindingStatus: "draft" | "pending_verification" | "connected" | "disabled";
+  displayName: string | null;
+  displayPhoneNumber: string | null;
+  e164: string | null;
+  verifiedName: string | null;
+  wabaId: string | null;
+  businessId: string | null;
+  tokenSource: "unknown" | "map" | "fallback";
+  templateStatus: "unknown" | "not_ready" | "ready";
+  profileStatus: "unknown" | "incomplete" | "ready";
+  qualityRating: string | null;
+  metaStatus: string | null;
+  codeVerificationStatus: string | null;
+  notes: string | null;
+  isActive: boolean;
+  connectedAt: string | null;
+  disconnectedAt: string | null;
+  lastInboundAt: string | null;
+  lastOutboundAt: string | null;
+  tokenConfigured: boolean;
+  tokenSourceResolved: "unknown" | "map" | "fallback";
+  tokenHealthStatus: "ok" | "error" | "unknown" | "missing";
+  tokenHealthHttpStatus: number | null;
+};
+
+type WhatsAppEndpointSummary = {
+  total: number;
+  connected: number;
+  sandbox: number;
+  production: number;
+  tokenMissing: number;
+};
+
+type WhatsAppEndpointDraft = {
+  id: string;
+  tenantId: string;
+  externalEndpointId: string;
+  environment: "sandbox" | "production";
+  bindingStatus: "draft" | "pending_verification" | "connected" | "disabled";
+  displayName: string;
+  displayPhoneNumber: string;
+  e164: string;
+  verifiedName: string;
+  wabaId: string;
+  businessId: string;
+  tokenSource: "unknown" | "map" | "fallback";
+  templateStatus: "unknown" | "not_ready" | "ready";
+  profileStatus: "unknown" | "incomplete" | "ready";
+  qualityRating: string;
+  metaStatus: string;
+  codeVerificationStatus: string;
+  notes: string;
+  isActive: boolean;
+};
+
+const EMPTY_WHATSAPP_ENDPOINT_DRAFT: WhatsAppEndpointDraft = {
+  id: "",
+  tenantId: "",
+  externalEndpointId: "",
+  environment: "production",
+  bindingStatus: "draft",
+  displayName: "",
+  displayPhoneNumber: "",
+  e164: "",
+  verifiedName: "",
+  wabaId: "",
+  businessId: "",
+  tokenSource: "unknown",
+  templateStatus: "unknown",
+  profileStatus: "unknown",
+  qualityRating: "",
+  metaStatus: "",
+  codeVerificationStatus: "",
+  notes: "",
+  isActive: true
+};
+
 export function SuperAdminPage() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<string>("");
@@ -77,6 +163,9 @@ export function SuperAdminPage() {
   const [publishConfirmed, setPublishConfirmed] = useState(false);
   const [systemSettings, setSystemSettings] = useState<SystemSettings | null>(null);
   const [emailVerificationRequiredDraft, setEmailVerificationRequiredDraft] = useState(true);
+  const [whatsAppEndpoints, setWhatsAppEndpoints] = useState<WhatsAppEndpoint[]>([]);
+  const [whatsAppSummary, setWhatsAppSummary] = useState<WhatsAppEndpointSummary | null>(null);
+  const [whatsAppDraft, setWhatsAppDraft] = useState<WhatsAppEndpointDraft>(EMPTY_WHATSAPP_ENDPOINT_DRAFT);
 
   const sortedPlans = useMemo(
     () => [...plans].sort((a, b) => a.sortOrder - b.sortOrder),
@@ -97,7 +186,7 @@ export function SuperAdminPage() {
       tenantParams.set("planCode", tenantPlanFilter);
     }
 
-    const [plansResult, versionsResult, tenantsResult, auditResult, diffResult, settingsResult] =
+    const [plansResult, versionsResult, tenantsResult, auditResult, diffResult, settingsResult, endpointsResult] =
       await Promise.all([
       superAdminRequest<{ items: Plan[] }>("/api/v1/super-admin/plans"),
       superAdminRequest<{ items: PlanVersion[] }>("/api/v1/super-admin/plan-versions"),
@@ -106,7 +195,10 @@ export function SuperAdminPage() {
       superAdminRequest<{ baselineVersion: number | null; items: PlanDiffItem[] }>(
         "/api/v1/super-admin/plans/diff"
       ),
-      superAdminRequest<SystemSettings>("/api/v1/super-admin/system-settings")
+      superAdminRequest<SystemSettings>("/api/v1/super-admin/system-settings"),
+      superAdminRequest<{ items: WhatsAppEndpoint[]; summary: WhatsAppEndpointSummary }>(
+        "/api/v1/super-admin/whatsapp/endpoints"
+      )
     ]);
 
     if (!plansResult.ok) {
@@ -135,6 +227,8 @@ export function SuperAdminPage() {
     const loadedSystemSettings = settingsResult.data ?? null;
     setSystemSettings(loadedSystemSettings);
     setEmailVerificationRequiredDraft(loadedSystemSettings?.authEmailVerificationRequired ?? true);
+    setWhatsAppEndpoints(endpointsResult.data?.items ?? []);
+    setWhatsAppSummary(endpointsResult.data?.summary ?? null);
     setPublishConfirmed(false);
     setStatus("Data loaded");
   }
@@ -142,6 +236,30 @@ export function SuperAdminPage() {
   useEffect(() => {
     void loadAll();
   }, []);
+
+  function loadWhatsAppDraft(endpoint: WhatsAppEndpoint) {
+    setWhatsAppDraft({
+      id: endpoint.id,
+      tenantId: endpoint.tenantId,
+      externalEndpointId: endpoint.externalEndpointId,
+      environment: endpoint.environment,
+      bindingStatus: endpoint.bindingStatus,
+      displayName: endpoint.displayName ?? "",
+      displayPhoneNumber: endpoint.displayPhoneNumber ?? "",
+      e164: endpoint.e164 ?? "",
+      verifiedName: endpoint.verifiedName ?? "",
+      wabaId: endpoint.wabaId ?? "",
+      businessId: endpoint.businessId ?? "",
+      tokenSource: endpoint.tokenSource,
+      templateStatus: endpoint.templateStatus,
+      profileStatus: endpoint.profileStatus,
+      qualityRating: endpoint.qualityRating ?? "",
+      metaStatus: endpoint.metaStatus ?? "",
+      codeVerificationStatus: endpoint.codeVerificationStatus ?? "",
+      notes: endpoint.notes ?? "",
+      isActive: endpoint.isActive
+    });
+  }
 
   return (
     <section className="section">
@@ -559,6 +677,312 @@ export function SuperAdminPage() {
             {tenant.pendingPlanCode ?? "none"}
           </p>
         ))}
+      </div>
+
+      <div className="settings-card" style={{ marginBottom: 12 }}>
+        <h2 style={{ marginTop: 0 }}>WhatsApp Numbers</h2>
+        <p style={{ marginTop: 0, color: "var(--text-muted)" }}>
+          Registry for salon numbers, routing bindings, token coverage, and operational readiness.
+        </p>
+        <p style={{ marginTop: 0 }}>
+          total: {whatsAppSummary?.total ?? 0} | connected: {whatsAppSummary?.connected ?? 0} | production:{" "}
+          {whatsAppSummary?.production ?? 0} | sandbox: {whatsAppSummary?.sandbox ?? 0} | token missing:{" "}
+          {whatsAppSummary?.tokenMissing ?? 0}
+        </p>
+        <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+          <label>
+            Tenant
+            <select
+              value={whatsAppDraft.tenantId}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({ ...prev, tenantId: event.target.value }))
+              }
+            >
+              <option value="">select tenant</option>
+              {tenants.map((tenant) => (
+                <option key={`wa-tenant-${tenant.tenantId}`} value={tenant.tenantId}>
+                  {tenant.tenantSlug} ({tenant.tenantName})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Phone Number ID
+            <input
+              value={whatsAppDraft.externalEndpointId}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({ ...prev, externalEndpointId: event.target.value }))
+              }
+            />
+          </label>
+          <label>
+            Display phone
+            <input
+              value={whatsAppDraft.displayPhoneNumber}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({ ...prev, displayPhoneNumber: event.target.value }))
+              }
+            />
+          </label>
+          <label>
+            E.164
+            <input
+              value={whatsAppDraft.e164}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({ ...prev, e164: event.target.value }))
+              }
+            />
+          </label>
+          <label>
+            Display name
+            <input
+              value={whatsAppDraft.displayName}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({ ...prev, displayName: event.target.value }))
+              }
+            />
+          </label>
+          <label>
+            Verified name
+            <input
+              value={whatsAppDraft.verifiedName}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({ ...prev, verifiedName: event.target.value }))
+              }
+            />
+          </label>
+          <label>
+            WABA ID
+            <input
+              value={whatsAppDraft.wabaId}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({ ...prev, wabaId: event.target.value }))
+              }
+            />
+          </label>
+          <label>
+            Business ID
+            <input
+              value={whatsAppDraft.businessId}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({ ...prev, businessId: event.target.value }))
+              }
+            />
+          </label>
+          <label>
+            Environment
+            <select
+              value={whatsAppDraft.environment}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({
+                  ...prev,
+                  environment: event.target.value as WhatsAppEndpointDraft["environment"]
+                }))
+              }
+            >
+              <option value="production">production</option>
+              <option value="sandbox">sandbox</option>
+            </select>
+          </label>
+          <label>
+            Binding status
+            <select
+              value={whatsAppDraft.bindingStatus}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({
+                  ...prev,
+                  bindingStatus: event.target.value as WhatsAppEndpointDraft["bindingStatus"]
+                }))
+              }
+            >
+              <option value="draft">draft</option>
+              <option value="pending_verification">pending_verification</option>
+              <option value="connected">connected</option>
+              <option value="disabled">disabled</option>
+            </select>
+          </label>
+          <label>
+            Token source
+            <select
+              value={whatsAppDraft.tokenSource}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({
+                  ...prev,
+                  tokenSource: event.target.value as WhatsAppEndpointDraft["tokenSource"]
+                }))
+              }
+            >
+              <option value="unknown">unknown</option>
+              <option value="map">map</option>
+              <option value="fallback">fallback</option>
+            </select>
+          </label>
+          <label>
+            Template status
+            <select
+              value={whatsAppDraft.templateStatus}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({
+                  ...prev,
+                  templateStatus: event.target.value as WhatsAppEndpointDraft["templateStatus"]
+                }))
+              }
+            >
+              <option value="unknown">unknown</option>
+              <option value="not_ready">not_ready</option>
+              <option value="ready">ready</option>
+            </select>
+          </label>
+          <label>
+            Profile status
+            <select
+              value={whatsAppDraft.profileStatus}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({
+                  ...prev,
+                  profileStatus: event.target.value as WhatsAppEndpointDraft["profileStatus"]
+                }))
+              }
+            >
+              <option value="unknown">unknown</option>
+              <option value="incomplete">incomplete</option>
+              <option value="ready">ready</option>
+            </select>
+          </label>
+          <label>
+            Quality rating
+            <input
+              value={whatsAppDraft.qualityRating}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({ ...prev, qualityRating: event.target.value }))
+              }
+            />
+          </label>
+          <label>
+            Meta status
+            <input
+              value={whatsAppDraft.metaStatus}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({ ...prev, metaStatus: event.target.value }))
+              }
+            />
+          </label>
+          <label>
+            Code verification
+            <input
+              value={whatsAppDraft.codeVerificationStatus}
+              onChange={(event) =>
+                setWhatsAppDraft((prev) => ({
+                  ...prev,
+                  codeVerificationStatus: event.target.value
+                }))
+              }
+            />
+          </label>
+        </div>
+        <label style={{ display: "block", marginTop: 8 }}>
+          Notes
+          <textarea
+            rows={4}
+            value={whatsAppDraft.notes}
+            onChange={(event) =>
+              setWhatsAppDraft((prev) => ({ ...prev, notes: event.target.value }))
+            }
+            style={{ width: "100%" }}
+          />
+        </label>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+          <input
+            type="checkbox"
+            checked={whatsAppDraft.isActive}
+            onChange={(event) =>
+              setWhatsAppDraft((prev) => ({ ...prev, isActive: event.target.checked }))
+            }
+          />
+          active endpoint
+        </label>
+        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+          <button
+            className="btn btn-ghost"
+            onClick={() => {
+              setWhatsAppDraft(EMPTY_WHATSAPP_ENDPOINT_DRAFT);
+            }}
+          >
+            New Draft
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              if (!whatsAppDraft.tenantId.trim() || !whatsAppDraft.externalEndpointId.trim()) {
+                setStatus("Tenant and Phone Number ID are required");
+                return;
+              }
+              const path = whatsAppDraft.id
+                ? `/api/v1/super-admin/whatsapp/endpoints/${whatsAppDraft.id}`
+                : "/api/v1/super-admin/whatsapp/endpoints";
+              const method = whatsAppDraft.id ? "PUT" : "POST";
+              void superAdminRequest<WhatsAppEndpoint>(path, {
+                method,
+                body: JSON.stringify({
+                  tenantId: whatsAppDraft.tenantId.trim(),
+                  externalEndpointId: whatsAppDraft.externalEndpointId.trim(),
+                  environment: whatsAppDraft.environment,
+                  bindingStatus: whatsAppDraft.bindingStatus,
+                  displayName: whatsAppDraft.displayName,
+                  displayPhoneNumber: whatsAppDraft.displayPhoneNumber,
+                  e164: whatsAppDraft.e164,
+                  verifiedName: whatsAppDraft.verifiedName,
+                  wabaId: whatsAppDraft.wabaId,
+                  businessId: whatsAppDraft.businessId,
+                  tokenSource: whatsAppDraft.tokenSource,
+                  templateStatus: whatsAppDraft.templateStatus,
+                  profileStatus: whatsAppDraft.profileStatus,
+                  qualityRating: whatsAppDraft.qualityRating,
+                  metaStatus: whatsAppDraft.metaStatus,
+                  codeVerificationStatus: whatsAppDraft.codeVerificationStatus,
+                  notes: whatsAppDraft.notes,
+                  isActive: whatsAppDraft.isActive,
+                  actor
+                })
+              }).then(async (result) => {
+                if (!result.ok) {
+                  setStatus(result.error?.message ?? "WhatsApp endpoint save failed");
+                  return;
+                }
+                setStatus(whatsAppDraft.id ? "WhatsApp endpoint updated" : "WhatsApp endpoint created");
+                setWhatsAppDraft(EMPTY_WHATSAPP_ENDPOINT_DRAFT);
+                await loadAll();
+              });
+            }}
+          >
+            Save Endpoint
+          </button>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          {whatsAppEndpoints.length === 0 ? <p>No WhatsApp numbers registered yet.</p> : null}
+          {whatsAppEndpoints.map((item) => (
+            <div key={item.id} style={{ borderTop: "1px solid var(--border-color)", paddingTop: 8, marginTop: 8 }}>
+              <p style={{ margin: 0 }}>
+                <strong>{item.displayPhoneNumber ?? item.e164 ?? item.externalEndpointId}</strong> | {item.tenantSlug} |{" "}
+                {item.bindingStatus} | token: {item.tokenSourceResolved} / {item.tokenHealthStatus}
+                {item.tokenHealthHttpStatus ? ` (${item.tokenHealthHttpStatus})` : ""}
+              </p>
+              <p style={{ margin: "4px 0" }}>
+                phone_number_id: {item.externalEndpointId} | verified: {item.verifiedName ?? "-"} | env:{" "}
+                {item.environment} | templates: {item.templateStatus} | profile: {item.profileStatus}
+              </p>
+              <p style={{ margin: "4px 0" }}>
+                WABA: {item.wabaId ?? "-"} | business: {item.businessId ?? "-"} | quality: {item.qualityRating ?? "-"} | meta:{" "}
+                {item.metaStatus ?? "-"}
+              </p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button className="btn btn-ghost" onClick={() => loadWhatsAppDraft(item)}>
+                  Edit
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="settings-card">
