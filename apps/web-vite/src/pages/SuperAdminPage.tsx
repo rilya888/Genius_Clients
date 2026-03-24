@@ -192,6 +192,10 @@ export function SuperAdminPage() {
     () => sortedPlans.find((plan) => plan.id === selectedPlanId) ?? null,
     [sortedPlans, selectedPlanId]
   );
+  const selectedWhatsAppTenant = useMemo(
+    () => tenants.find((tenant) => tenant.tenantId === whatsAppDraft.tenantId) ?? null,
+    [tenants, whatsAppDraft.tenantId]
+  );
 
   async function loadAll() {
     const tenantParams = new URLSearchParams({ limit: "500" });
@@ -276,6 +280,44 @@ export function SuperAdminPage() {
       notes: endpoint.notes ?? "",
       isActive: endpoint.isActive
     });
+  }
+
+  function buildWhatsAppNotesFromTenant(tenant: TenantOverview, currentNotes: string) {
+    const trimmedCurrent = currentNotes.trim();
+    if (trimmedCurrent.length > 0) {
+      return currentNotes;
+    }
+
+    const lines = [
+      `Tenant slug: ${tenant.tenantSlug}`,
+      `Tenant name: ${tenant.tenantName}`,
+      `Requested operator number: ${tenant.operatorWhatsappE164 ?? "n/a"}`,
+      `Requested setup status: ${tenant.whatsappSetup.status}`
+    ];
+    return lines.join("\n");
+  }
+
+  function prefillWhatsAppDraftFromTenant(tenant: TenantOverview) {
+    setWhatsAppDraft((prev) => ({
+      ...prev,
+      id: prev.id && prev.tenantId === tenant.tenantId ? prev.id : "",
+      tenantId: tenant.tenantId,
+      e164: tenant.desiredWhatsappBotE164 ?? prev.e164,
+      displayPhoneNumber:
+        prev.displayPhoneNumber.trim().length > 0
+          ? prev.displayPhoneNumber
+          : tenant.desiredWhatsappBotE164 ?? "",
+      displayName:
+        prev.displayName.trim().length > 0
+          ? prev.displayName
+          : tenant.tenantName.slice(0, 80),
+      verifiedName:
+        prev.verifiedName.trim().length > 0
+          ? prev.verifiedName
+          : tenant.tenantName.slice(0, 80),
+      notes: buildWhatsAppNotesFromTenant(tenant, prev.notes)
+    }));
+    setStatus(`WhatsApp draft prefilled from tenant ${tenant.tenantSlug}`);
   }
 
   return (
@@ -701,6 +743,16 @@ export function SuperAdminPage() {
                 ? ` | connected: ${tenant.whatsappSetup.connectedDisplayPhoneNumber}`
                 : ""}
             </p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  prefillWhatsAppDraftFromTenant(tenant);
+                }}
+              >
+                Use for WhatsApp draft
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -720,9 +772,27 @@ export function SuperAdminPage() {
             Tenant
             <select
               value={whatsAppDraft.tenantId}
-              onChange={(event) =>
-                setWhatsAppDraft((prev) => ({ ...prev, tenantId: event.target.value }))
-              }
+              onChange={(event) => {
+                const tenantId = event.target.value;
+                const tenant = tenants.find((item) => item.tenantId === tenantId) ?? null;
+                if (!tenant) {
+                  setWhatsAppDraft((prev) => ({ ...prev, tenantId }));
+                  return;
+                }
+                setWhatsAppDraft((prev) => ({
+                  ...prev,
+                  tenantId,
+                  e164:
+                    prev.e164.trim().length > 0 && prev.tenantId === tenantId
+                      ? prev.e164
+                      : tenant.desiredWhatsappBotE164 ?? prev.e164,
+                  displayPhoneNumber:
+                    prev.displayPhoneNumber.trim().length > 0 && prev.tenantId === tenantId
+                      ? prev.displayPhoneNumber
+                      : tenant.desiredWhatsappBotE164 ?? prev.displayPhoneNumber,
+                  notes: buildWhatsAppNotesFromTenant(tenant, prev.notes)
+                }));
+              }}
             >
               <option value="">select tenant</option>
               {tenants.map((tenant) => (
@@ -732,6 +802,22 @@ export function SuperAdminPage() {
               ))}
             </select>
           </label>
+          {selectedWhatsAppTenant ? (
+            <div
+              style={{
+                gridColumn: "1 / -1",
+                padding: "10px 12px",
+                borderRadius: 18,
+                background: "rgba(16, 185, 129, 0.08)",
+                color: "var(--text-color)"
+              }}
+            >
+              selected tenant: <strong>{selectedWhatsAppTenant.tenantSlug}</strong> | requested bot:{" "}
+              <strong>{selectedWhatsAppTenant.desiredWhatsappBotE164 ?? "n/a"}</strong> | operator:{" "}
+              <strong>{selectedWhatsAppTenant.operatorWhatsappE164 ?? "n/a"}</strong> | setup:{" "}
+              <strong>{selectedWhatsAppTenant.whatsappSetup.status}</strong>
+            </div>
+          ) : null}
           <label>
             Phone Number ID
             <input
@@ -935,6 +1021,18 @@ export function SuperAdminPage() {
             }}
           >
             New Draft
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => {
+              if (!selectedWhatsAppTenant) {
+                setStatus("Select tenant first");
+                return;
+              }
+              prefillWhatsAppDraftFromTenant(selectedWhatsAppTenant);
+            }}
+          >
+            Prefill From Tenant
           </button>
           <button
             className="btn btn-primary"
