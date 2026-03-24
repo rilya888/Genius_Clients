@@ -23,8 +23,8 @@ export function ProtectedAppRoute() {
         const currentSlug = resolveCurrentTenantSlug();
         if (profile.slug) {
           const targetUrl = buildTenantAppUrl(profile.slug);
-          const isAbsoluteTarget = targetUrl.startsWith("http://") || targetUrl.startsWith("https://");
-          if (isAbsoluteTarget && currentSlug !== profile.slug) {
+          const currentAbsoluteUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+          if (targetUrl !== currentAbsoluteUrl && currentSlug !== profile.slug) {
             window.location.assign(targetUrl);
             return;
           }

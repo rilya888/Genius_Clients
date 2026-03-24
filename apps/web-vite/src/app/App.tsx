@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { MainLayout } from "../components/MainLayout";
 import { AppLayout } from "../components/AppLayout";
 import { I18nProvider } from "../shared/i18n/I18nProvider";
@@ -27,13 +27,19 @@ import { SuperAdminLoginPage } from "../pages/SuperAdminLoginPage";
 import { SuperAdminPage } from "../pages/SuperAdminPage";
 import { resolveCurrentTenantSlug } from "../shared/routing/tenant-host";
 import { ContactPage } from "../pages/ContactPage";
+import { PublicTenantLandingPage } from "../pages/PublicTenantLandingPage";
 
 function RootEntryPage() {
   const tenantSlug = resolveCurrentTenantSlug();
   if (tenantSlug) {
-    return <PublicBookingPage />;
+    return <PublicTenantLandingPage />;
   }
   return <LandingPage />;
+}
+
+function TenantBookingRedirect() {
+  const { tenantSlug } = useParams<{ tenantSlug: string }>();
+  return <Navigate to={`/t/${tenantSlug ?? ""}#booking`} replace />;
 }
 
 export function App() {
@@ -47,6 +53,8 @@ export function App() {
             <Route path="/contact" element={<ContactPage />} />
             <Route path="/faq" element={<FaqPage />} />
             <Route path="/book" element={<PublicBookingPage />} />
+            <Route path="/t/:tenantSlug" element={<PublicTenantLandingPage />} />
+            <Route path="/t/:tenantSlug/book" element={<TenantBookingRedirect />} />
             <Route path="/booking" element={<Navigate to="/book" replace />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
@@ -64,6 +72,17 @@ export function App() {
 
           <Route element={<ProtectedAppRoute />}>
             <Route path="/app" element={<AppLayout />}>
+              <Route index element={<DashboardPage />} />
+              <Route path="bookings" element={<BookingsPage />} />
+              <Route path="services" element={<ServicesPage />} />
+              <Route path="staff" element={<StaffPage />} />
+              <Route path="schedule" element={<SchedulePage />} />
+              <Route path="settings" element={<SettingsPage />} />
+              <Route path="settings/faq" element={<FaqSettingsPage />} />
+              <Route path="settings/privacy" element={<PrivacyPage />} />
+              <Route path="settings/notifications" element={<NotificationsPage />} />
+            </Route>
+            <Route path="/t/:tenantSlug/app" element={<AppLayout />}>
               <Route index element={<DashboardPage />} />
               <Route path="bookings" element={<BookingsPage />} />
               <Route path="services" element={<ServicesPage />} />

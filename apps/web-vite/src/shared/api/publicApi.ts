@@ -1,5 +1,19 @@
 import { httpJson } from "./http";
 
+export type PublicTenantProfile = {
+  id: string;
+  slug: string;
+  name: string;
+  defaultLocale: "en" | "it";
+  timezone: string;
+  botConfig: {
+    openaiEnabled: boolean;
+    openaiModel: string | null;
+    humanHandoffEnabled: boolean;
+    adminNotificationWhatsappE164: string | null;
+  };
+};
+
 export type PublicService = {
   id: string;
   displayName: string;
@@ -23,6 +37,15 @@ type ListEnvelope<T> = {
     items: T[];
   };
 };
+
+export async function getPublicTenantProfile(slug: string) {
+  const payload = await httpJson<{
+    data: PublicTenantProfile;
+  }>(`/api/v1/public/tenants/${slug}`, {
+    method: "GET"
+  });
+  return payload.data;
+}
 
 export async function listPublicServices(locale: "en" | "it") {
   const payload = await httpJson<ListEnvelope<PublicService>>("/api/v1/public/services", {

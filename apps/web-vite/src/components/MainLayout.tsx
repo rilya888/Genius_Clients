@@ -2,11 +2,15 @@ import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { MarketingFooter } from "./MarketingFooter";
+import { buildTenantScopedPath, resolveCurrentTenantSlug } from "../shared/routing/tenant-host";
 
 export function MainLayout() {
   const { locale, setLocale, t } = useI18n();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const currentTenantSlug = resolveCurrentTenantSlug();
+  const productHref = currentTenantSlug ? buildTenantScopedPath(currentTenantSlug, "/") : "/";
+  const bookingHref = currentTenantSlug ? `${buildTenantScopedPath(currentTenantSlug, "/")}#booking` : "/book";
 
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 20);
@@ -20,7 +24,7 @@ export function MainLayout() {
   return (
     <div className="site-shell">
       <header className={`site-header ${isScrolled ? "is-scrolled" : ""}`}>
-        <Link className="brand" to="/">
+        <Link className="brand" to={productHref}>
           <img className="brand-logo" src="/branding/logo-horizontal.svg" alt={t("app.brand")} />
         </Link>
         <button
@@ -33,10 +37,10 @@ export function MainLayout() {
           {mobileNavOpen ? "×" : "☰"}
         </button>
         <nav className="site-nav" data-open={mobileNavOpen}>
-          <NavLink to="/" onClick={closeMobileMenu}>
+          <NavLink to={productHref} onClick={closeMobileMenu}>
             {t("nav.product")}
           </NavLink>
-          <NavLink to="/book" onClick={closeMobileMenu}>
+          <NavLink to={bookingHref} onClick={closeMobileMenu}>
             {t("nav.booking")}
           </NavLink>
           <NavLink to="/pricing" onClick={closeMobileMenu}>

@@ -6,6 +6,7 @@ import { logout, requestEmailVerification } from "../shared/api/authApi";
 import { getBillingSubscription, listAdminBookings } from "../shared/api/adminApi";
 import { clearSession, getRefreshToken, isEmailVerifiedFlagSet } from "../shared/auth/session";
 import { formatApiError } from "../shared/api/formatApiError";
+import { buildTenantScopedPath, resolveCurrentTenantSlug } from "../shared/routing/tenant-host";
 
 export function AppLayout() {
   const navigate = useNavigate();
@@ -27,6 +28,8 @@ export function AppLayout() {
   const [billingDaysPastDue, setBillingDaysPastDue] = useState(0);
   const knownPendingBookingIdsRef = useRef<Set<string>>(new Set());
   const isPendingPollInitializedRef = useRef(false);
+  const currentTenantSlug = resolveCurrentTenantSlug();
+  const appHref = (path = "/app") => (currentTenantSlug ? buildTenantScopedPath(currentTenantSlug, path) : path);
 
   async function handleLogout() {
     try {
@@ -163,15 +166,15 @@ export function AppLayout() {
           </label>
         </div>
         <nav>
-          <NavLink to="/app">{t("app.dashboard")}</NavLink>
-          <NavLink to="/app/bookings">{t("app.bookings")}</NavLink>
-          <NavLink to="/app/services">{t("app.services")}</NavLink>
-          <NavLink to="/app/staff">{t("app.staff")}</NavLink>
-          <NavLink to="/app/schedule">{t("app.schedule")}</NavLink>
-          <NavLink to="/app/settings">{t("app.settings")}</NavLink>
-          <NavLink to="/app/settings/faq">{t("app.faqSettings")}</NavLink>
-          <NavLink to="/app/settings/privacy">{t("app.privacy")}</NavLink>
-          <NavLink to="/app/settings/notifications">{t("app.notifications")}</NavLink>
+          <NavLink to={appHref("/app")}>{t("app.dashboard")}</NavLink>
+          <NavLink to={appHref("/app/bookings")}>{t("app.bookings")}</NavLink>
+          <NavLink to={appHref("/app/services")}>{t("app.services")}</NavLink>
+          <NavLink to={appHref("/app/staff")}>{t("app.staff")}</NavLink>
+          <NavLink to={appHref("/app/schedule")}>{t("app.schedule")}</NavLink>
+          <NavLink to={appHref("/app/settings")}>{t("app.settings")}</NavLink>
+          <NavLink to={appHref("/app/settings/faq")}>{t("app.faqSettings")}</NavLink>
+          <NavLink to={appHref("/app/settings/privacy")}>{t("app.privacy")}</NavLink>
+          <NavLink to={appHref("/app/settings/notifications")}>{t("app.notifications")}</NavLink>
         </nav>
         <button className="btn btn-secondary" type="button" onClick={handleLogout}>
           {t("app.logout")}
@@ -227,7 +230,7 @@ export function AppLayout() {
               className="btn btn-ghost"
               onClick={() => {
                 setNewBookingToastCount(0);
-                navigate("/app/bookings");
+                navigate(appHref("/app/bookings"));
               }}
             >
               {t("admin.notifications.newBookingsToastAction")}

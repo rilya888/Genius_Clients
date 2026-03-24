@@ -75,6 +75,7 @@ app.use(
     allowHeaders: [
       "authorization",
       "content-type",
+      "idempotency-key",
       "x-csrf-token",
       "x-internal-tenant-id",
       "x-internal-tenant-slug",

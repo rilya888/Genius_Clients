@@ -8,6 +8,7 @@ import {
 } from "../shared/api/publicApi";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/AsyncState";
 import { useI18n } from "../shared/i18n/I18nProvider";
+import { resolveBrowserTenantContext } from "../shared/routing/tenant-host";
 
 type LoadState<T> = {
   pending: boolean;
@@ -22,8 +23,10 @@ function slotLabel(slot: PublicSlot, locale: string) {
   }).format(new Date(slot.startAt));
 }
 
-export function PublicBookingPage() {
+export function PublicBookingPage({ embedded = false }: { embedded?: boolean }) {
   const { locale, t } = useI18n();
+  const tenantContext = resolveBrowserTenantContext();
+  const hasTenantContext = tenantContext.slug !== null;
   const [services, setServices] = useState<LoadState<{ id: string; displayName: string }[]>>({
     pending: true,
     error: null,
@@ -50,6 +53,11 @@ export function PublicBookingPage() {
   const [bookingHasError, setBookingHasError] = useState(false);
 
   useEffect(() => {
+    if (!hasTenantContext) {
+      setServices({ pending: false, error: null, data: [] });
+      return;
+    }
+
     let cancelled = false;
     setServices({ pending: true, error: null, data: [] });
 
@@ -74,10 +82,10 @@ export function PublicBookingPage() {
     return () => {
       cancelled = true;
     };
-  }, [locale]);
+  }, [hasTenantContext, locale, t]);
 
   useEffect(() => {
-    if (!serviceId) {
+    if (!hasTenantContext || !serviceId) {
       setMasters({ pending: false, error: null, data: [] });
       return;
     }
@@ -103,7 +111,7 @@ export function PublicBookingPage() {
     return () => {
       cancelled = true;
     };
-  }, [locale, serviceId]);
+  }, [hasTenantContext, locale, serviceId, t]);
 
   const canSearchSlots = useMemo(() => Boolean(serviceId && date), [serviceId, date]);
   const masterNameById = useMemo(
@@ -138,9 +146,14 @@ export function PublicBookingPage() {
   }
 
   return (
-    <section className="section page-shell">
-      <h1>{t("booking.title")}</h1>
-      <p>{t("booking.subtitle")}</p>
+    <section className={embedded ? "page-shell" : "section page-shell"}>
+      {!embedded ? <h1>{t("booking.title")}</h1> : null}
+      <p>{embedded ? t("public.tenant.bookingSubtitle") : t("booking.subtitle")}</p>
+      {!hasTenantContext ? (
+        <EmptyState title={t("public.tenant.notLinkedTitle")} description={t("public.tenant.notLinkedDescription")} />
+      ) : null}
+      {hasTenantContext ? (
+        <>
       <div className="stepper">
         <div className={`stepper-item ${stepState.hasSelection ? "done" : "active"}`}>
           <span>1</span>
@@ -289,6 +302,8 @@ export function PublicBookingPage() {
         </form>
         {bookingMessage ? <p className={bookingHasError ? "status-error" : "status-success"}>{bookingMessage}</p> : null}
       </section>
+        </>
+      ) : null}
     </section>
   );
 }

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from "react";
+import { useLocation } from "react-router-dom";
 import { me } from "../api/authApi";
 import { getAdminScope } from "../api/adminApi";
 import { ApiHttpError } from "../api/http";
@@ -26,6 +27,7 @@ type ScopeContextValue = {
 const ScopeContext = createContext<ScopeContextValue | null>(null);
 
 export function ScopeProvider({ children }: PropsWithChildren) {
+  const location = useLocation();
   const [accountId, setAccountId] = useState("current");
   const [salonId, setSalonId] = useState("default");
   const [accounts, setAccounts] = useState<Array<{ id: string; name: string; slug?: string }>>([]);
@@ -81,7 +83,7 @@ export function ScopeProvider({ children }: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [location.pathname]);
 
   const value = useMemo(
     () => ({
