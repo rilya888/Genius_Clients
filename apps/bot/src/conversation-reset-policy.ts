@@ -282,7 +282,7 @@ export async function applyConversationResetPolicy(
     }
     return {
       session: resetSession,
-      decision: "hard_reset_to_menu",
+      decision: "hard_reset_to_new_intent",
       reason: "non_continuation_message",
       detectedIntent,
       idleMinutes,
@@ -310,14 +310,6 @@ export function detectIntentForReset(text: string): ResetDetectedIntent {
   }
 
   if (
-    /\b(my bookings|my booking|my appointments|my appointment|show my bookings|show my appointments|what bookings do i have|what appointments do i have|do i have bookings|do i have appointments|le mie prenotazioni|mie prenotazioni|quali prenotazioni ho|quali appuntamenti ho|le mie visite|i miei appuntamenti|mostra le mie prenotazioni|mostra i miei appuntamenti|мои записи|какие у меня записи|мои брони)\b/.test(
-      text
-    )
-  ) {
-    return "booking_list";
-  }
-
-  if (
     /\b(human|operator|person|admin|assistenza|operatore|umano|amministratore|support)\b/.test(
       text
     )
@@ -341,6 +333,14 @@ export function detectIntentForReset(text: string): ResetDetectedIntent {
     )
   ) {
     return "new_booking";
+  }
+
+  if (
+    /\b(my bookings|my booking|my appointments|my appointment|show my bookings|show my appointments|what bookings do i have|what appointments do i have|do i have bookings|do i have appointments|le mie prenotazioni|mie prenotazioni|quali prenotazioni ho|quali appuntamenti ho|le mie visite|i miei appuntamenti|mostra le mie prenotazioni|mostra i miei appuntamenti|мои записи|какие у меня записи|мои брони)\b/.test(
+      text
+    )
+  ) {
+    return "booking_list";
   }
 
   return "unknown";

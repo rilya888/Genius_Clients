@@ -9,10 +9,9 @@ import {
 } from "./whatsapp-conversation";
 import {
   OPENAI_PARSER_SCHEMA_VERSION,
-  OPENAI_PROMPT_VERSION,
   buildBookingParserInput,
   buildBookingParserInstructions,
-  resolvePromptVersion
+  resolvePromptVersionDetails
 } from "./openai-prompts";
 import { OpenAIResponsesClient, OpenAIResponsesError } from "./openai-responses-client";
 import { resolveConversationLocale } from "./conversation-locale";
@@ -262,7 +261,8 @@ export async function processAiWhatsAppMessage(
   const traceId = randomUUID();
   const session = existingSession ?? createInitialSession(detectedLocale);
   const nowIso = new Date().toISOString();
-  const promptVersion = resolvePromptVersion(tenantConfig.promptVariant);
+  const promptVersionDetails = resolvePromptVersionDetails(tenantConfig.promptVariant);
+  const promptVersion = promptVersionDetails.effectiveVersion;
   session.locale = detectedLocale;
   session.lastUserMessageAt = nowIso;
   session.currentMode = session.currentMode === "human_handoff" ? "human_handoff" : "ai_assisted";
@@ -282,16 +282,30 @@ export async function processAiWhatsAppMessage(
     return { handled: true };
   }
 
+  const socialReply = detectSocialReply(userText, detectedLocale);
+  if (socialReply) {
+    session.lastResolvedIntent = "unknown";
+    session.lastAiSummary = `social_message:${detectedLocale}`;
+    await deps.saveSession(input.from, session);
+    await deps.sendText(input.from, socialReply);
+    return { handled: true };
+  }
+
   console.info("[bot][ai] inbound normalize", {
     traceId,
     from: maskPhone(input.from),
     locale: detectedLocale,
     localeReason: localeResolution.localeReason,
+    localeMarkerScores: localeResolution.markerScores,
+    localeInferenceScores: localeResolution.inferenceScores,
+    localeUsedSessionHold: localeResolution.usedSessionHold,
     inputLength: userText.length,
     inputTruncated,
     state: session.state,
     intent: session.intent ?? "unknown",
     promptVersion,
+    requestedPromptVariant: promptVersionDetails.requestedVariant,
+    promptResolutionReason: promptVersionDetails.resolutionReason,
     policyVersion: POLICY_VERSION,
     fastPathVersion: FAST_PATH_VERSION
   });
@@ -536,6 +550,7 @@ export async function processAiWhatsAppMessage(
       traceId,
       error: error instanceof Error ? error.message : "unknown_error",
       errorClass,
+      errorCode: error instanceof OpenAIResponsesError ? error.code : null,
       failures: session.aiFailureCount
     });
     await deps.emitOpsAlert?.({
@@ -548,7 +563,12 @@ export async function processAiWhatsAppMessage(
       }
     });
 
-    if (errorClass === "openai_transport_error" && isOpenAiQuotaError(error)) {
+    const canUseLocalIntentFallback =
+      errorClass === "openai_transport_error" ||
+      errorClass === "openai_timeout_error" ||
+      errorClass === "openai_chain_error";
+
+    if (canUseLocalIntentFallback) {
       const fallbackParsed = detectTransportFallbackIntent(userText, detectedLocale);
       if (fallbackParsed) {
         try {
@@ -606,13 +626,15 @@ export async function processAiWhatsAppMessage(
         }
       }
 
-      await deps.sendText(
-        input.from,
-        detectedLocale === "it"
-          ? "Ho un ritardo temporaneo. Puoi scrivere: prenotare, annullare o spostare."
-          : "I have a temporary delay. You can type: book, cancel, or reschedule."
-      );
-      return { handled: true };
+      if (isOpenAiQuotaError(error) || errorClass === "openai_timeout_error" || errorClass === "openai_chain_error") {
+        await deps.sendText(
+          input.from,
+          detectedLocale === "it"
+            ? "Ho un ritardo temporaneo. Puoi scrivere: prenotare, annullare o spostare."
+            : "I have a temporary delay. You can type: book, cancel, or reschedule."
+        );
+        return { handled: true };
+      }
     }
 
     if (tenantConfig.humanHandoffEnabled && (session.aiFailureCount ?? 0) >= input.aiFailureHandoffThreshold) {
@@ -2594,7 +2616,13 @@ function selectReplyPrompt(defaultPrompt: string, replyText: string | undefined)
 }
 
 function normalizeInboundUserText(value: string) {
-  return value.replace(/\s+/g, " ").trim();
+  return value
+    .slice(0, 500)
+    .replace(/```/g, "")
+    .replace(/[{}]/g, "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function asOptionalString(value: unknown) {
@@ -2603,12 +2631,30 @@ function asOptionalString(value: unknown) {
 
 function classifyAiError(error: unknown) {
   if (error instanceof OpenAIResponsesError) {
+    if (error.code === "openai_tool_chain_invalid") {
+      return "openai_chain_error";
+    }
+    if (error.code === "openai_previous_response_not_found") {
+      return "openai_chain_error";
+    }
     return "openai_transport_error";
+  }
+  if (isAbortTimeoutError(error)) {
+    return "openai_timeout_error";
   }
   if (error instanceof Error && error.message === "ai_parse_invalid_json") {
     return "ai_parse_error";
   }
   return "tool_domain_error";
+}
+
+function isAbortTimeoutError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const text = `${error.name} ${error.message}`.toLowerCase();
+  return text.includes("timeout") || text.includes("aborted");
 }
 
 function isOpenAiQuotaError(error: unknown) {
@@ -2617,4 +2663,33 @@ function isOpenAiQuotaError(error: unknown) {
   }
   const message = String(error.message || "").toLowerCase();
   return message.includes("insufficient_quota") || message.includes("exceeded your current quota");
+}
+
+function detectSocialReply(text: string, locale: SupportedLocale): string | undefined {
+  const normalized = normalizeSearch(text);
+  if (!normalized) {
+    return undefined;
+  }
+  const itThanks = /\b(grazie|grazie mille|perfetto|ottimo|benissimo)\b/;
+  const itBye = /\b(arrivederci|a presto|ciao ciao|buona giornata|buonasera)\b/;
+  const enThanks = /\b(thanks|thank you|perfect|great|awesome)\b/;
+  const enBye = /\b(bye|goodbye|see you|have a nice day|good night)\b/;
+
+  if (locale === "it") {
+    if (itThanks.test(normalized)) {
+      return "Prego! Se vuoi, posso aiutarti anche con una nuova prenotazione.";
+    }
+    if (itBye.test(normalized)) {
+      return "A presto! Quando vuoi, sono qui per aiutarti.";
+    }
+    return undefined;
+  }
+
+  if (enThanks.test(normalized)) {
+    return "You are welcome. I can also help you with a new booking anytime.";
+  }
+  if (enBye.test(normalized)) {
+    return "See you soon. I am here whenever you need help.";
+  }
+  return undefined;
 }

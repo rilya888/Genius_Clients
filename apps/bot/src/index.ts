@@ -53,9 +53,42 @@ const openAiMaxCallsPerSession = Math.max(1, Number.parseInt(process.env.OPENAI_
 const openAiMaxCallsPerDay = Math.max(1, Number.parseInt(process.env.OPENAI_MAX_CALLS_PER_DAY_PER_TENANT ?? "500", 10) || 500);
 const aiFailureHandoffThreshold = Math.max(1, Number.parseInt(process.env.AI_FAILURE_HANDOFF_THRESHOLD ?? "3", 10) || 3);
 const unknownTurnHandoffThreshold = Math.max(1, Number.parseInt(process.env.UNKNOWN_TURN_HANDOFF_THRESHOLD ?? "3", 10) || 3);
+const unknownTenantAlertWindowSeconds = Math.max(
+  60,
+  Number.parseInt(process.env.UNKNOWN_TENANT_ALERT_WINDOW_SECONDS ?? "3600", 10) || 3600
+);
+const unknownTenantAlertThreshold = Math.max(
+  1,
+  Number.parseInt(process.env.UNKNOWN_TENANT_ALERT_THRESHOLD ?? "50", 10) || 50
+);
 const rateLimitWindowSeconds = Math.max(10, Number.parseInt(process.env.RATE_LIMIT_WINDOW_SECONDS ?? "60", 10) || 60);
 const rateLimitMaxMessages = Math.max(1, Number.parseInt(process.env.RATE_LIMIT_MAX_MESSAGES ?? "20", 10) || 20);
+const tenantRateLimitWindowSeconds = Math.max(
+  10,
+  Number.parseInt(process.env.TENANT_RATE_LIMIT_WINDOW_SECONDS ?? "60", 10) || 60
+);
+const tenantRateLimitMaxMessages = Math.max(
+  1,
+  Number.parseInt(process.env.TENANT_RATE_LIMIT_MAX_MESSAGES ?? "500", 10) || 500
+);
+const waOutboundRetryAttempts = Math.max(
+  0,
+  Number.parseInt(process.env.WA_OUTBOUND_RETRY_ATTEMPTS ?? "3", 10) || 3
+);
+const waOutboundRetryBaseDelayMs = Math.max(
+  100,
+  Number.parseInt(process.env.WA_OUTBOUND_RETRY_BASE_DELAY_MS ?? "500", 10) || 500
+);
+const waOutboundStateTtlSeconds = Math.max(
+  1800,
+  Number.parseInt(process.env.WA_OUTBOUND_STATE_TTL_SECONDS ?? "21600", 10) || 21600
+);
 const sessionIdleResetMinutes = Math.max(1, Number.parseInt(process.env.SESSION_IDLE_RESET_MINUTES ?? "45", 10) || 45);
+const sessionRedisTtlSeconds = Math.max(
+  60 * 60,
+  Number.parseInt(process.env.SESSION_REDIS_TTL_SECONDS ?? String((sessionIdleResetMinutes + 60) * 60), 10) ||
+    (sessionIdleResetMinutes + 60) * 60
+);
 const botLateCancelWarnHours = Math.max(0, Number.parseInt(process.env.BOT_LATE_CANCEL_WARN_HOURS ?? "24", 10) || 24);
 const botLateCancelBlockHours = Math.max(0, Number.parseInt(process.env.BOT_LATE_CANCEL_BLOCK_HOURS ?? "0", 10) || 0);
 const opsAlertWebhookUrl = process.env.OPS_ALERT_WEBHOOK_URL ?? "";
@@ -133,6 +166,28 @@ const buildInfo = {
   branch: process.env.RAILWAY_GIT_BRANCH ?? process.env.VERCEL_GIT_COMMIT_REF ?? null,
   startedAt: runtimeStats.startedAt
 };
+let inflightRequests = 0;
+let isShuttingDown = false;
+
+app.use("*", async (c, next) => {
+  if (isShuttingDown) {
+    return c.json(
+      {
+        error: {
+          code: "SERVICE_UNAVAILABLE",
+          message: "Service is shutting down"
+        }
+      },
+      503
+    );
+  }
+  inflightRequests += 1;
+  try {
+    await next();
+  } finally {
+    inflightRequests = Math.max(0, inflightRequests - 1);
+  }
+});
 
 function getUtcDayKey() {
   return new Date().toISOString().slice(0, 10);
@@ -223,6 +278,16 @@ type OpsAlertSeverity = "warning" | "critical";
 const routingCache = new Map<string, { context: BotRoutingContext; expiresAtMs: number }>();
 const routingCacheTtlMs = 5 * 60 * 1000;
 const waAccessTokenByPhone = parseWhatsAppAccessTokenMap(waAccessTokenByPhoneRaw);
+const waTokenHealthRequired = process.env.WA_TOKEN_HEALTH_REQUIRED === "true";
+const waTokenHealthCacheTtlMs = Math.max(
+  10_000,
+  Number.parseInt(process.env.WA_TOKEN_HEALTH_CACHE_TTL_MS ?? "300000", 10) || 300000
+);
+let waTokenHealthCache: {
+  checkedAtMs: number;
+  status: "ok" | "error" | "disabled";
+  details: Array<{ phoneNumberId: string; status: "ok" | "error"; httpStatus?: number }>;
+} | null = null;
 
 function parseWhatsAppAccessTokenMap(raw: string) {
   if (!raw.trim()) {
@@ -261,6 +326,14 @@ function parseNonNegativeNumber(value: unknown, fallback: number) {
     }
   }
   return fallback;
+}
+
+function asNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 }
 
 async function emitOpsAlert(input: {
@@ -380,6 +453,70 @@ function resolveOutgoingWhatsAppAccessToken(phoneNumberId: string) {
 }
 
 async function sendWhatsAppPayload(input: {
+  to: string;
+  payload: Record<string, unknown>;
+  routeContext?: BotRoutingContext | null;
+  trackOutboundState?: boolean;
+}) {
+  const trackOutboundState = input.trackOutboundState !== false;
+  const kind = String(input.payload.type ?? "unknown");
+  const routeContext = input.routeContext ?? getLegacyRouteContext();
+  const maxAttempts = waOutboundRetryAttempts + 1;
+  let lastFailureReason:
+    | "missing_whatsapp_config"
+    | "whatsapp_network_error"
+    | "whatsapp_api_failed"
+    | undefined;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const result = await sendWhatsAppPayloadOnce({
+      to: input.to,
+      payload: input.payload,
+      routeContext
+    });
+    if (result.sent) {
+      if (trackOutboundState) {
+        await updateOutboundReplayState(input.to, routeContext, {
+          failed: false,
+          payload: input.payload,
+          updatedAt: new Date().toISOString(),
+          failureCount: 0,
+          lastFailureReason: null
+        });
+      }
+      return { sent: true as const };
+    }
+    lastFailureReason = result.reason;
+    if (attempt < maxAttempts) {
+      await sleepMs(waOutboundRetryBaseDelayMs * Math.pow(2, attempt - 1));
+    }
+  }
+
+  if (trackOutboundState) {
+    await updateOutboundReplayState(input.to, routeContext, {
+      failed: true,
+      payload: input.payload,
+      updatedAt: new Date().toISOString(),
+      failureCount: 1,
+      lastFailureReason: lastFailureReason ?? "whatsapp_network_error"
+    });
+  }
+  await emitOpsAlert({
+    event: "whatsapp_send_failed_all_retries",
+    severity: "critical",
+    context: {
+      to: maskPhone(input.to),
+      type: kind,
+      attempts: maxAttempts,
+      reason: lastFailureReason ?? "unknown"
+    }
+  });
+  return {
+    sent: false as const,
+    reason: lastFailureReason ?? "whatsapp_network_error"
+  };
+}
+
+async function sendWhatsAppPayloadOnce(input: {
   to: string;
   payload: Record<string, unknown>;
   routeContext?: BotRoutingContext | null;
@@ -563,6 +700,36 @@ async function sendWhatsAppList(input: {
   });
 }
 
+async function markWhatsAppMessageAsRead(input: {
+  incomingPhoneNumberId?: string;
+  messageId: string;
+}) {
+  const phoneNumberId = input.incomingPhoneNumberId?.trim();
+  if (!phoneNumberId || !input.messageId) {
+    return;
+  }
+  const token = resolveOutgoingWhatsAppAccessToken(phoneNumberId);
+  if (!token) {
+    return;
+  }
+  try {
+    await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        status: "read",
+        message_id: input.messageId
+      })
+    });
+  } catch {
+    // Best-effort signal for the client UI; failures must not interrupt the message pipeline.
+  }
+}
+
 function resolveLocaleFromTelegram(update: TelegramUpdate): SupportedLocale {
   const languageCode = update.message?.from?.language_code?.toLowerCase();
   return resolveLocale({
@@ -626,6 +793,28 @@ function isStructuredControlMessage(value: string) {
     normalized === "cancel" ||
     normalized === "annulla"
   );
+}
+
+function mapConfirmEmojiReplyId(
+  session: WhatsAppConversationSession | null,
+  text: string | undefined
+): string | undefined {
+  if (!session || session.state !== "confirm" || !text) {
+    return undefined;
+  }
+  const normalized = text.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  const confirmEmoji = new Set(["👍", "✅", "👌", "🙏", "💯", "✔️", "☑️"]);
+  const cancelEmoji = new Set(["👎", "❌", "🚫", "🙅"]);
+  if (confirmEmoji.has(normalized)) {
+    return "confirm:yes";
+  }
+  if (cancelEmoji.has(normalized)) {
+    return "confirm:cancel";
+  }
+  return undefined;
 }
 
 function getLegacyRouteContext() {
@@ -776,8 +965,65 @@ async function checkInboundRateLimit(input: {
   };
 }
 
+async function checkTenantInboundRateLimit(input: {
+  tenantKey: string;
+  windowSeconds: number;
+  maxMessages: number;
+}) {
+  if (!redis) {
+    return { allowed: true, used: 0 };
+  }
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+  const key = `bot:rl:tenant:${input.tenantKey}`;
+  const used = await redis.incr(key);
+  if (used === 1) {
+    await redis.expire(key, input.windowSeconds);
+  }
+  return {
+    allowed: used <= input.maxMessages,
+    used
+  };
+}
+
+async function recordTenantUnknownIntentAndAlert(input: {
+  tenantKey: string;
+  windowSeconds: number;
+  threshold: number;
+}) {
+  if (!redis) {
+    return { used: 0, alerted: false };
+  }
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+
+  const baseKey = `bot:unknown:tenant:${input.tenantKey}`;
+  const counterKey = `${baseKey}:count`;
+  const alertOnceKey = `${baseKey}:alerted`;
+  const used = await redis.incr(counterKey);
+  if (used === 1) {
+    await redis.expire(counterKey, input.windowSeconds);
+  }
+
+  let alerted = false;
+  if (used >= input.threshold) {
+    const alertSet = await redis.set(alertOnceKey, "1", "EX", input.windowSeconds, "NX");
+    alerted = alertSet === "OK";
+  }
+  return { used, alerted };
+}
+
 async function sleepMs(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForInflightRequests(timeoutMs: number) {
+  const startedAt = Date.now();
+  while (inflightRequests > 0 && Date.now() - startedAt < timeoutMs) {
+    await sleepMs(200);
+  }
 }
 
 async function fetchWithApiRetry(
@@ -975,12 +1221,23 @@ async function fetchSlotsFromApi(input: {
     return [] as Array<{ startAt: string; displayTime: string }>;
   }
 
-  return payload.data.items
-    .map((item: Record<string, unknown>) => ({
-      startAt: String(item.startAt ?? ""),
-      displayTime: String(item.displayTime ?? "")
-    }))
-    .filter((item: { startAt: string; displayTime: string }) => item.startAt && item.displayTime);
+  const rawItems = payload.data.items as Array<Record<string, unknown>>;
+  const validItems: Array<{ startAt: string; displayTime: string }> = [];
+  for (const item of rawItems) {
+    const startAt = asNonEmptyString(item.startAt);
+    const displayTime = asNonEmptyString(item.displayTime);
+    if (!startAt || !displayTime) {
+      continue;
+    }
+    validItems.push({ startAt, displayTime });
+  }
+  if (validItems.length !== rawItems.length) {
+    console.warn("[bot] invalid slots filtered from api response", {
+      total: rawItems.length,
+      valid: validItems.length
+    });
+  }
+  return validItems;
 }
 
 function buildInternalHeaders(
@@ -1020,8 +1277,127 @@ function getSessionKey(phone: string, routeContext: BotRoutingContext | null = g
   });
 }
 
+function getOutboundReplayKey(
+  phone: string,
+  routeContext: BotRoutingContext | null = getLegacyRouteContext()
+) {
+  if (!routeContext) {
+    return `wa:outbound:unknown:${phone}`;
+  }
+  return buildScopedSessionKey({
+    context: routeContext,
+    provider: "whatsapp_outbound",
+    identity: phone
+  });
+}
+
 function getInboundDedupKey(messageId: string) {
   return `wa:inbound:${messageId}`;
+}
+
+function getSessionProcessingLockKey(
+  phone: string,
+  routeContext: BotRoutingContext | null = getLegacyRouteContext()
+) {
+  return `${getSessionKey(phone, routeContext)}:lock`;
+}
+
+type OutboundReplayState = {
+  failed: boolean;
+  payload?: Record<string, unknown>;
+  updatedAt: string;
+  failureCount: number;
+  lastFailureReason?: string | null;
+};
+
+async function loadOutboundReplayState(
+  phone: string,
+  routeContext: BotRoutingContext | null = getLegacyRouteContext()
+): Promise<OutboundReplayState | null> {
+  if (!redis) {
+    return null;
+  }
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+  const raw = await redis.get(getOutboundReplayKey(phone, routeContext));
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<OutboundReplayState>;
+    return {
+      failed: parsed.failed === true,
+      payload:
+        typeof parsed.payload === "object" && parsed.payload
+          ? (parsed.payload as Record<string, unknown>)
+          : undefined,
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : new Date().toISOString(),
+      failureCount:
+        typeof parsed.failureCount === "number" && Number.isFinite(parsed.failureCount)
+          ? Math.max(0, Math.trunc(parsed.failureCount))
+          : 0,
+      lastFailureReason:
+        typeof parsed.lastFailureReason === "string" ? parsed.lastFailureReason : null
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function updateOutboundReplayState(
+  phone: string,
+  routeContext: BotRoutingContext | null,
+  update: OutboundReplayState
+) {
+  if (!redis) {
+    return;
+  }
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+  let failureCount = update.failureCount;
+  if (update.failed) {
+    const existing = await loadOutboundReplayState(phone, routeContext);
+    failureCount = Math.max(1, (existing?.failureCount ?? 0) + 1);
+  }
+  const next: OutboundReplayState = {
+    ...update,
+    failureCount
+  };
+  await redis.set(
+    getOutboundReplayKey(phone, routeContext),
+    JSON.stringify(next),
+    "EX",
+    waOutboundStateTtlSeconds
+  );
+}
+
+async function replayPendingOutboundIfNeeded(
+  phone: string,
+  routeContext: BotRoutingContext | null
+): Promise<{ replayed: boolean; delivered: boolean }> {
+  const state = await loadOutboundReplayState(phone, routeContext);
+  if (!state?.failed || !state.payload) {
+    return { replayed: false, delivered: false };
+  }
+  const result = await sendWhatsAppPayload({
+    to: phone,
+    payload: state.payload,
+    routeContext,
+    trackOutboundState: false
+  });
+  await updateOutboundReplayState(phone, routeContext, {
+    failed: !result.sent,
+    payload: state.payload,
+    updatedAt: new Date().toISOString(),
+    failureCount: state.failureCount,
+    lastFailureReason: result.sent ? null : result.reason
+  });
+  return {
+    replayed: true,
+    delivered: result.sent
+  };
 }
 
 async function loadWhatsAppSession(
@@ -1060,7 +1436,12 @@ async function saveWhatsAppSession(
     await redis.connect();
   }
   const safeSession = migrateWhatsAppSession(session, session.locale);
-  await redis.set(getSessionKey(phone, routeContext), JSON.stringify(safeSession), "EX", 60 * 60);
+  await redis.set(
+    getSessionKey(phone, routeContext),
+    JSON.stringify(safeSession),
+    "EX",
+    sessionRedisTtlSeconds
+  );
 }
 
 async function clearWhatsAppSession(
@@ -1087,6 +1468,61 @@ async function dedupInboundMessage(messageId: string): Promise<boolean> {
   return created === "OK";
 }
 
+async function acquireSessionProcessingLock(input: {
+  phone: string;
+  routeContext: BotRoutingContext | null;
+  ttlMs?: number;
+  attempts?: number;
+  delayMs?: number;
+}) {
+  if (!redis) {
+    return { acquired: true as const, token: "no-redis-lock" };
+  }
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+  const lockKey = getSessionProcessingLockKey(input.phone, input.routeContext);
+  const token = randomUUID();
+  const ttlMs = Math.max(1000, input.ttlMs ?? 15000);
+  const attempts = Math.max(1, input.attempts ?? 8);
+  const delayMs = Math.max(25, input.delayMs ?? 80);
+  for (let index = 0; index < attempts; index += 1) {
+    const result = await redis.set(lockKey, token, "PX", ttlMs, "NX");
+    if (result === "OK") {
+      return { acquired: true as const, token };
+    }
+    if (index < attempts - 1) {
+      await sleepMs(delayMs);
+    }
+  }
+  return { acquired: false as const, token };
+}
+
+async function releaseSessionProcessingLock(input: {
+  phone: string;
+  routeContext: BotRoutingContext | null;
+  token: string;
+}) {
+  if (!redis || input.token === "no-redis-lock") {
+    return;
+  }
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+  const lockKey = getSessionProcessingLockKey(input.phone, input.routeContext);
+  await redis.eval(
+    `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("del", KEYS[1])
+end
+return 0
+`,
+    1,
+    lockKey,
+    input.token
+  );
+}
+
 async function fetchServicesForConversation(
   locale: SupportedLocale,
   routeContext: BotRoutingContext | null = getLegacyRouteContext()
@@ -1102,12 +1538,28 @@ async function fetchServicesForConversation(
   if (!response.ok || !Array.isArray(payload?.data?.items)) {
     return [] as Array<{ id: string; displayName: string; durationMinutes?: number }>;
   }
-  return payload.data.items.map((item: Record<string, unknown>) => ({
-    id: String(item.id ?? ""),
-    displayName: String(item.displayName ?? ""),
-    durationMinutes:
-      typeof item.durationMinutes === "number" ? Number(item.durationMinutes) : undefined
-  }));
+  const rawItems = payload.data.items as Array<Record<string, unknown>>;
+  const validItems: Array<{ id: string; displayName: string; durationMinutes?: number }> = [];
+  for (const item of rawItems) {
+    const id = asNonEmptyString(item.id);
+    const displayName = asNonEmptyString(item.displayName);
+    if (!id || !displayName) {
+      continue;
+    }
+    validItems.push({
+      id,
+      displayName,
+      durationMinutes:
+        typeof item.durationMinutes === "number" ? Number(item.durationMinutes) : undefined
+    });
+  }
+  if (validItems.length !== rawItems.length) {
+    console.warn("[bot] invalid services filtered from api response", {
+      total: rawItems.length,
+      valid: validItems.length
+    });
+  }
+  return validItems;
 }
 
 async function fetchMastersForConversation(
@@ -1130,10 +1582,23 @@ async function fetchMastersForConversation(
   if (!response.ok || !Array.isArray(payload?.data?.items)) {
     return [] as Array<{ id: string; displayName: string }>;
   }
-  return payload.data.items.map((item: Record<string, unknown>) => ({
-    id: String(item.id ?? ""),
-    displayName: String(item.displayName ?? "")
-  }));
+  const rawItems = payload.data.items as Array<Record<string, unknown>>;
+  const validItems: Array<{ id: string; displayName: string }> = [];
+  for (const item of rawItems) {
+    const id = asNonEmptyString(item.id);
+    const displayName = asNonEmptyString(item.displayName);
+    if (!id || !displayName) {
+      continue;
+    }
+    validItems.push({ id, displayName });
+  }
+  if (validItems.length !== rawItems.length) {
+    console.warn("[bot] invalid masters filtered from api response", {
+      total: rawItems.length,
+      valid: validItems.length
+    });
+  }
+  return validItems;
 }
 
 async function getTenantTimezoneForConversation(
@@ -1543,23 +2008,44 @@ async function listBookingsByPhoneFromBot(input: {
       clientLocale?: SupportedLocale;
     }>;
   }
-  return payload.data.items
-    .map((item: Record<string, unknown>) => ({
-      id: String(item.id ?? ""),
-      startAt: String(item.startAt ?? ""),
-      status: String(item.status ?? ""),
-      clientName: typeof item.clientName === "string" ? item.clientName : undefined,
-      serviceId: String(item.serviceId ?? ""),
-      masterId: item.masterId ? String(item.masterId) : undefined,
+  const rawItems = payload.data.items as Array<Record<string, unknown>>;
+  const validItems: Array<{
+    id: string;
+    startAt: string;
+    status: string;
+    clientName?: string;
+    serviceId: string;
+    masterId?: string;
+    clientLocale?: SupportedLocale;
+  }> = [];
+  for (const item of rawItems) {
+    const id = asNonEmptyString(item.id);
+    const startAt = asNonEmptyString(item.startAt);
+    const status = asNonEmptyString(item.status);
+    const serviceId = asNonEmptyString(item.serviceId);
+    if (!id || !startAt || !status || !serviceId) {
+      continue;
+    }
+    validItems.push({
+      id,
+      startAt,
+      status,
+      clientName: asNonEmptyString(item.clientName) ?? undefined,
+      serviceId,
+      masterId: asNonEmptyString(item.masterId) ?? undefined,
       clientLocale:
         item.clientLocale === "it" || item.clientLocale === "en"
           ? (item.clientLocale as SupportedLocale)
           : undefined
-    }))
-    .filter(
-      (item: { id: string; startAt: string; status: string; serviceId: string }) =>
-        item.id && item.startAt && item.serviceId
-    );
+    });
+  }
+  if (validItems.length !== rawItems.length) {
+    console.warn("[bot] invalid bookings filtered from api response", {
+      total: rawItems.length,
+      valid: validItems.length
+    });
+  }
+  return validItems;
 }
 
 function parseCtaToken(replyId?: string) {
@@ -2362,6 +2848,110 @@ async function checkRedisHealth() {
   }
 }
 
+async function checkWhatsAppTokenHealth() {
+  if (!waPhoneNumberId && waAccessTokenByPhone.size === 0) {
+    return {
+      status: "disabled" as const,
+      details: [] as Array<{ phoneNumberId: string; status: "ok" | "error"; httpStatus?: number }>
+    };
+  }
+  const now = Date.now();
+  if (waTokenHealthCache && now - waTokenHealthCache.checkedAtMs < waTokenHealthCacheTtlMs) {
+    return {
+      status: waTokenHealthCache.status,
+      details: waTokenHealthCache.details
+    };
+  }
+
+  const phoneIds = Array.from(
+    new Set([waPhoneNumberId, ...waAccessTokenByPhone.keys()].map((item) => item.trim()).filter(Boolean))
+  );
+  const details: Array<{ phoneNumberId: string; status: "ok" | "error"; httpStatus?: number }> = [];
+  let hasError = false;
+
+  for (const phoneNumberId of phoneIds) {
+    const token = resolveOutgoingWhatsAppAccessToken(phoneNumberId);
+    if (!token) {
+      details.push({ phoneNumberId, status: "error" });
+      hasError = true;
+      continue;
+    }
+    try {
+      const response = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}?fields=id`, {
+        method: "GET",
+        headers: {
+          authorization: `Bearer ${token}`
+        }
+      });
+      if (!response.ok) {
+        hasError = true;
+        details.push({ phoneNumberId, status: "error", httpStatus: response.status });
+      } else {
+        details.push({ phoneNumberId, status: "ok", httpStatus: response.status });
+      }
+    } catch {
+      hasError = true;
+      details.push({ phoneNumberId, status: "error" });
+    }
+  }
+
+  const previousStatus = waTokenHealthCache?.status ?? null;
+  waTokenHealthCache = {
+    checkedAtMs: now,
+    status: hasError ? "error" : "ok",
+    details
+  };
+  if (hasError && previousStatus !== "error") {
+    await emitOpsAlert({
+      event: "wa_token_health_error",
+      severity: "critical",
+      context: {
+        details: details
+          .filter((item) => item.status === "error")
+          .map((item) => ({
+            phoneNumberId: item.phoneNumberId,
+            httpStatus: item.httpStatus ?? null
+          }))
+      }
+    });
+  }
+  return {
+    status: waTokenHealthCache.status,
+    details
+  };
+}
+
+function renderPrometheusMetrics() {
+  const startedAtMs = Date.parse(runtimeStats.startedAt);
+  const uptimeSeconds = Number.isFinite(startedAtMs)
+    ? Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000))
+    : 0;
+  const lines = [
+    "# HELP bot_uptime_seconds Bot process uptime in seconds.",
+    "# TYPE bot_uptime_seconds gauge",
+    `bot_uptime_seconds ${uptimeSeconds}`,
+    "# HELP bot_inbound_messages_total Total inbound messages processed by bot runtime.",
+    "# TYPE bot_inbound_messages_total counter",
+    `bot_inbound_messages_total ${runtimeStats.inboundMessages}`,
+    "# HELP bot_ai_handled_total Total inbound messages handled by AI orchestration.",
+    "# TYPE bot_ai_handled_total counter",
+    `bot_ai_handled_total ${runtimeStats.aiHandled}`,
+    "# HELP bot_deterministic_handled_total Total inbound messages handled by deterministic flow.",
+    "# TYPE bot_deterministic_handled_total counter",
+    `bot_deterministic_handled_total ${runtimeStats.deterministicHandled}`,
+    "# HELP bot_handoff_escalations_total Total handoff escalations triggered by bot runtime.",
+    "# TYPE bot_handoff_escalations_total counter",
+    `bot_handoff_escalations_total ${runtimeStats.handoffEscalations}`,
+    "# HELP bot_processing_errors_total Total message-processing errors in bot runtime.",
+    "# TYPE bot_processing_errors_total counter",
+    `bot_processing_errors_total ${runtimeStats.processingErrors}`,
+    "# HELP bot_unknown_intent_total Total messages resolved as unknown intent.",
+    "# TYPE bot_unknown_intent_total counter",
+    `bot_unknown_intent_total ${runtimeStats.unknownIntentHandled}`
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
 app.get("/health", (c) => {
   return c.json({
     data: {
@@ -2373,9 +2963,23 @@ app.get("/health", (c) => {
   });
 });
 
+app.get("/metrics", (c) => {
+  return c.text(renderPrometheusMetrics(), 200, {
+    "content-type": "text/plain; version=0.0.4; charset=utf-8"
+  });
+});
+
 app.get("/ready", async (c) => {
-  const [apiStatus, redisStatus] = await Promise.all([checkApiHealth(), checkRedisHealth()]);
-  const ready = apiStatus !== "error" && redisStatus !== "error";
+  const [apiStatus, redisStatus, waTokenHealth] = await Promise.all([
+    checkApiHealth(),
+    checkRedisHealth(),
+    checkWhatsAppTokenHealth()
+  ]);
+  const waStatus = waTokenHealth.status === "disabled" ? "disabled" : waTokenHealth.status;
+  const ready =
+    apiStatus !== "error" &&
+    redisStatus !== "error" &&
+    (!waTokenHealthRequired || waStatus !== "error");
 
   return c.json(
     {
@@ -2384,12 +2988,38 @@ app.get("/ready", async (c) => {
         service: "bot",
         checks: {
           redis: redisStatus,
-          api: apiStatus
-        }
+          api: apiStatus,
+          waToken: waStatus
+        },
+        waTokenDetails: waTokenHealth.details
+          .filter((item) => item.status === "error")
+          .map((item) => ({
+            phoneNumberId: item.phoneNumberId,
+            status: item.status,
+            httpStatus: item.httpStatus ?? null
+          }))
       }
     },
     ready ? 200 : 503
   );
+});
+
+app.get("/internal/health/wa-token", async (c) => {
+  if (!internalApiSecret) {
+    return c.json({ error: { code: "CONFIG_ERROR", message: "INTERNAL_API_SECRET is not configured" } }, 503);
+  }
+  const providedSecret = c.req.header("x-internal-secret");
+  if (providedSecret !== internalApiSecret) {
+    return c.json({ error: { code: "AUTH_FORBIDDEN", message: "Invalid internal secret" } }, 403);
+  }
+  const health = await checkWhatsAppTokenHealth();
+  return c.json({
+    data: {
+      status: health.status,
+      required: waTokenHealthRequired,
+      details: health.details
+    }
+  });
 });
 
 app.post("/internal/smoke/ai-failover", async (c) => {
@@ -2494,6 +3124,7 @@ app.post("/webhooks/whatsapp", async (c) => {
 
     for (const item of inbound) {
       let routeContext: BotRoutingContext | null = null;
+      let sessionLockToken: string | null = null;
       try {
         const notDuplicate = await dedupInboundMessage(item.messageId);
         if (!notDuplicate) {
@@ -2504,6 +3135,10 @@ app.post("/webhooks/whatsapp", async (c) => {
           continue;
         }
         bumpRuntimeCounter("inboundMessages");
+        await markWhatsAppMessageAsRead({
+          incomingPhoneNumberId: item.phoneNumberId,
+          messageId: item.messageId
+        });
 
       routeContext = await resolveWhatsAppRouteContext(item);
       if (!routeContext || (!routeContext.tenantSlug && !routeContext.tenantId)) {
@@ -2523,8 +3158,41 @@ app.post("/webhooks/whatsapp", async (c) => {
         });
         continue;
       }
+      const lock = await acquireSessionProcessingLock({
+        phone: item.from,
+        routeContext
+      });
+      if (!lock.acquired) {
+        await sendWhatsAppMessage({
+          to: item.from,
+          text:
+            item.locale === "it"
+              ? "Sto ancora elaborando il messaggio precedente. Riprova tra pochi secondi."
+              : "I am still processing your previous message. Please retry in a few seconds.",
+          routeContext
+        });
+        console.warn("[bot] session lock not acquired", {
+          messageId: item.messageId,
+          from: maskPhone(item.from),
+          tenantKey: getTenantQuotaKey(routeContext)
+        });
+        continue;
+      }
+      sessionLockToken = lock.token;
+
+      const replayResult = await replayPendingOutboundIfNeeded(item.from, routeContext);
+      if (replayResult.replayed) {
+        console.info("[bot] outbound replay attempted", {
+          messageId: item.messageId,
+          from: maskPhone(item.from),
+          delivered: replayResult.delivered
+        });
+      }
 
       const existingSession = await loadWhatsAppSession(item.from, routeContext);
+      const emojiReplyId = mapConfirmEmojiReplyId(existingSession, item.text);
+      const effectiveReplyId = item.replyId ?? emojiReplyId;
+      const effectiveText = emojiReplyId ? undefined : item.text;
       await recordEnterpriseUsageEvent({
         routeContext,
         metric: "messages_inbound",
@@ -2532,7 +3200,7 @@ app.post("/webhooks/whatsapp", async (c) => {
         context: { source: "whatsapp_webhook" }
       });
       const localeResolution = resolveConversationLocale({
-        text: item.text,
+        text: effectiveText ?? item.text,
         rawInboundLocale: item.locale,
         sessionLocale: existingSession?.locale,
         tenantDefaultLocale: "it"
@@ -2544,12 +3212,15 @@ app.post("/webhooks/whatsapp", async (c) => {
         from: maskPhone(item.from),
         messageType: item.messageType,
         hasText: Boolean(item.text),
-        hasReplyId: Boolean(item.replyId),
+        hasReplyId: Boolean(effectiveReplyId),
         locale: effectiveLocale,
-        localeReason: localeResolution.localeReason
+        localeReason: localeResolution.localeReason,
+        localeMarkerScores: localeResolution.markerScores,
+        localeInferenceScores: localeResolution.inferenceScores,
+        localeUsedSessionHold: localeResolution.usedSessionHold
       });
 
-        if (!item.text && !item.replyId && item.messageType !== "text") {
+        if (!effectiveText && !effectiveReplyId && item.messageType !== "text") {
         await sendWhatsAppButtons({
           to: item.from,
           bodyText:
@@ -2619,10 +3290,47 @@ app.post("/webhooks/whatsapp", async (c) => {
         continue;
       }
 
-      if (item.replyId?.startsWith("cta:")) {
+      const tenantRateLimit = await checkTenantInboundRateLimit({
+        tenantKey: getTenantQuotaKey(routeContext),
+        windowSeconds: tenantRateLimitWindowSeconds,
+        maxMessages: tenantRateLimitMaxMessages
+      });
+      if (!tenantRateLimit.allowed) {
+        await sendWhatsAppMessage({
+          to: item.from,
+          text:
+            effectiveLocale === "it"
+              ? "C'e molto traffico in questo momento. Riprova tra poco."
+              : "There is high traffic right now. Please try again shortly.",
+          routeContext
+        });
+        console.warn("[bot] tenant rate limit exceeded", {
+          messageId: item.messageId,
+          tenantKey: getTenantQuotaKey(routeContext),
+          from: maskPhone(item.from),
+          used: tenantRateLimit.used,
+          maxMessages: tenantRateLimitMaxMessages,
+          windowSeconds: tenantRateLimitWindowSeconds
+        });
+        if (tenantRateLimit.used === tenantRateLimitMaxMessages + 1) {
+          await emitOpsAlert({
+            event: "tenant_inbound_rate_limit_exceeded",
+            severity: "warning",
+            context: {
+              tenantKey: getTenantQuotaKey(routeContext),
+              used: tenantRateLimit.used,
+              maxMessages: tenantRateLimitMaxMessages,
+              windowSeconds: tenantRateLimitWindowSeconds
+            }
+          });
+        }
+        continue;
+      }
+
+      if (effectiveReplyId?.startsWith("cta:")) {
         const handledCta = await handleWhatsAppCtaReply({
           from: item.from,
-          replyId: item.replyId,
+          replyId: effectiveReplyId,
           locale: effectiveLocale,
           routeContext
         });
@@ -2636,8 +3344,8 @@ app.post("/webhooks/whatsapp", async (c) => {
         {
           session: existingSession,
           locale: effectiveLocale,
-          text: item.text,
-          replyId: item.replyId,
+          text: effectiveText,
+          replyId: effectiveReplyId,
           now: new Date(),
           idleResetMinutes: sessionIdleResetMinutes
         },
@@ -2659,8 +3367,11 @@ app.post("/webhooks/whatsapp", async (c) => {
         hadPreviousResponseId: Boolean(existingSession?.lastOpenaiResponseId),
         idleMinutes: resetResult.idleMinutes ?? null,
         detectedIntent: resetResult.detectedIntent,
-        hasReplyId: Boolean(item.replyId),
+        hasReplyId: Boolean(effectiveReplyId),
         localeReason: localeResolution.localeReason,
+        localeMarkerScores: localeResolution.markerScores,
+        localeInferenceScores: localeResolution.inferenceScores,
+        localeUsedSessionHold: localeResolution.usedSessionHold,
         resetApplied: resetResult.shouldResetSession,
         rerouteAfterReset: resetResult.shouldRerouteCurrentMessage,
         currentStepContinuationMatched: resetResult.currentStepContinuationMatched,
@@ -2668,6 +3379,21 @@ app.post("/webhooks/whatsapp", async (c) => {
         matchedCandidateCount: resetResult.matchedCandidateCount,
         matchedCandidateType: resetResult.matchedCandidateType
       });
+      if (
+        resetResult.reason === "idle_timeout" &&
+        resetResult.shouldRerouteCurrentMessage &&
+        effectiveText &&
+        !effectiveReplyId
+      ) {
+        await sendWhatsAppMessage({
+          to: item.from,
+          text:
+            effectiveLocale === "it"
+              ? "Sessione scaduta per inattivita. Ripartiamo da qui."
+              : "Your session expired after inactivity. Let us continue from here.",
+          routeContext
+        });
+      }
 
       const conversationDeps = {
         dedupInboundMessage,
@@ -2760,9 +3486,9 @@ app.post("/webhooks/whatsapp", async (c) => {
 
       if (
         !resetResult.shouldFallbackToMenuImmediately &&
-        !item.replyId &&
-        item.text &&
-        !isStructuredControlMessage(item.text) &&
+        !effectiveReplyId &&
+        effectiveText &&
+        !isStructuredControlMessage(effectiveText) &&
         (resetResult.shouldRerouteCurrentMessage || shouldAttemptAiFromChooseIntent)
       ) {
         const aiEnabledForTenant = openAiResponsesEnabled && isAiCanaryEnabledForTenant(routeContext);
@@ -2785,7 +3511,7 @@ app.post("/webhooks/whatsapp", async (c) => {
         const aiResult = await processAiWhatsAppMessage(
           {
             from: item.from,
-            text: item.text,
+            text: effectiveText,
             locale: effectiveLocale,
             openAiApiKey,
             globalModel: openAiModel,
@@ -2844,13 +3570,13 @@ app.post("/webhooks/whatsapp", async (c) => {
             from: item.from,
             locale: effectiveLocale,
             text:
-              !item.replyId && resetResult.decision === "hard_reset_to_new_intent"
-                ? toDeterministicIntentToken(resetResult.detectedIntent) ?? item.text
-                : item.text,
+              !effectiveReplyId && resetResult.decision === "hard_reset_to_new_intent"
+                ? toDeterministicIntentToken(resetResult.detectedIntent) ?? effectiveText
+                : effectiveText,
             replyId:
-              !item.replyId && resetResult.decision === "hard_reset_to_new_intent"
+              !effectiveReplyId && resetResult.decision === "hard_reset_to_new_intent"
                 ? toDeterministicIntentToken(resetResult.detectedIntent)
-                : item.replyId
+                : effectiveReplyId
           },
           conversationDeps,
           { skipDedup: true }
@@ -2882,6 +3608,23 @@ app.post("/webhooks/whatsapp", async (c) => {
             }
             if (aiSession?.lastResolvedIntent === "unknown") {
               bumpRuntimeCounter("unknownIntentHandled");
+              const unknownAlert = await recordTenantUnknownIntentAndAlert({
+                tenantKey: getTenantQuotaKey(routeContext),
+                windowSeconds: unknownTenantAlertWindowSeconds,
+                threshold: unknownTenantAlertThreshold
+              });
+              if (unknownAlert.alerted) {
+                await emitOpsAlert({
+                  event: "tenant_unknown_intent_spike",
+                  severity: "warning",
+                  context: {
+                    tenantKey: getTenantQuotaKey(routeContext),
+                    used: unknownAlert.used,
+                    threshold: unknownTenantAlertThreshold,
+                    windowSeconds: unknownTenantAlertWindowSeconds
+                  }
+                });
+              }
             }
             if (
               aiSession?.currentMode === "human_handoff" ||
@@ -2917,9 +3660,9 @@ app.post("/webhooks/whatsapp", async (c) => {
         }
       }
 
-        if (!flowResult.handled && item.text) {
+        if (!flowResult.handled && effectiveText) {
           const replyText = await processIncomingText({
-            text: item.text,
+            text: effectiveText,
             locale: effectiveLocale,
             source: "whatsapp",
             senderPhoneE164: item.from,
@@ -2970,6 +3713,22 @@ app.post("/webhooks/whatsapp", async (c) => {
           });
         }
         continue;
+      } finally {
+        if (sessionLockToken && routeContext) {
+          try {
+            await releaseSessionProcessingLock({
+              phone: item.from,
+              routeContext,
+              token: sessionLockToken
+            });
+          } catch (releaseError) {
+            console.warn("[bot] session lock release failed", {
+              messageId: item.messageId,
+              from: maskPhone(item.from),
+              error: toLogError(releaseError)
+            });
+          }
+        }
       }
     }
 
@@ -3013,9 +3772,44 @@ process.on("uncaughtException", (error) => {
   });
 });
 
-serve({
+const server = serve({
   fetch: app.fetch,
   port
+});
+
+async function shutdown(signal: "SIGTERM" | "SIGINT") {
+  if (isShuttingDown) {
+    return;
+  }
+  isShuttingDown = true;
+  console.info("[bot] shutdown started", {
+    signal,
+    inflightRequests
+  });
+  server.close();
+  await waitForInflightRequests(15_000);
+  if (redis) {
+    try {
+      await redis.quit();
+    } catch (error) {
+      console.warn("[bot] redis quit failed", {
+        error: toLogError(error)
+      });
+    }
+  }
+  console.info("[bot] shutdown completed", {
+    signal,
+    inflightRequests
+  });
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => {
+  void shutdown("SIGTERM");
+});
+
+process.on("SIGINT", () => {
+  void shutdown("SIGINT");
 });
 
 console.log(`[bot] listening on :${port}`);

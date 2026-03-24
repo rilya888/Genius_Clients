@@ -5,11 +5,42 @@ export const OPENAI_PROMPT_VERSION = "2026-03-18.1";
 export const OPENAI_PARSER_SCHEMA_VERSION = "v2";
 const SUPPORTED_PROMPT_VERSIONS = new Set([OPENAI_PROMPT_VERSION]);
 
+export type PromptVersionResolution = {
+  requestedVariant: string | null;
+  effectiveVersion: string;
+  resolutionReason: "default" | "supported_variant" | "unsupported_variant";
+};
+
 export function resolvePromptVersion(variant?: string | null) {
   if (!variant) {
     return OPENAI_PROMPT_VERSION;
   }
   return SUPPORTED_PROMPT_VERSIONS.has(variant) ? variant : OPENAI_PROMPT_VERSION;
+}
+
+export function resolvePromptVersionDetails(variant?: string | null): PromptVersionResolution {
+  const requestedVariant = typeof variant === "string" && variant.trim() ? variant.trim() : null;
+  if (!requestedVariant) {
+    return {
+      requestedVariant: null,
+      effectiveVersion: OPENAI_PROMPT_VERSION,
+      resolutionReason: "default"
+    };
+  }
+
+  if (SUPPORTED_PROMPT_VERSIONS.has(requestedVariant)) {
+    return {
+      requestedVariant,
+      effectiveVersion: requestedVariant,
+      resolutionReason: "supported_variant"
+    };
+  }
+
+  return {
+    requestedVariant,
+    effectiveVersion: OPENAI_PROMPT_VERSION,
+    resolutionReason: "unsupported_variant"
+  };
 }
 
 export function buildBookingParserInstructions(input: {

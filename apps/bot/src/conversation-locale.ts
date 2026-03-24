@@ -17,32 +17,72 @@ export function resolveConversationLocale(input: {
 }): {
   resolvedLocale: SupportedLocale;
   localeReason: ConversationLocaleReason;
+  markerScores: { it: number; en: number };
+  inferenceScores: { it: number; en: number };
+  usedSessionHold: boolean;
 } {
   const normalized = input.text?.trim().toLowerCase() ?? "";
   if (!normalized) {
     if (input.sessionLocale) {
-      return { resolvedLocale: input.sessionLocale, localeReason: "session_locale" };
+      return {
+        resolvedLocale: input.sessionLocale,
+        localeReason: "session_locale",
+        markerScores: { it: 0, en: 0 },
+        inferenceScores: { it: 0, en: 0 },
+        usedSessionHold: false
+      };
     }
     if (input.rawInboundLocale) {
-      return { resolvedLocale: input.rawInboundLocale, localeReason: "raw_inbound" };
+      return {
+        resolvedLocale: input.rawInboundLocale,
+        localeReason: "raw_inbound",
+        markerScores: { it: 0, en: 0 },
+        inferenceScores: { it: 0, en: 0 },
+        usedSessionHold: false
+      };
     }
-    return { resolvedLocale: input.tenantDefaultLocale, localeReason: "tenant_default" };
+    return {
+      resolvedLocale: input.tenantDefaultLocale,
+      localeReason: "tenant_default",
+      markerScores: { it: 0, en: 0 },
+      inferenceScores: { it: 0, en: 0 },
+      usedSessionHold: false
+    };
   }
 
   const words = tokenize(normalized);
   if (input.sessionLocale && isNeutralShortFollowup(words, normalized)) {
-    return { resolvedLocale: input.sessionLocale, localeReason: "session_locale" };
+    return {
+      resolvedLocale: input.sessionLocale,
+      localeReason: "session_locale",
+      markerScores: { it: 0, en: 0 },
+      inferenceScores: { it: 0, en: 0 },
+      usedSessionHold: true
+    };
   }
 
   const italianMarkerScore = countMatches(normalized, words, ITALIAN_MARKERS, ITALIAN_PHRASES);
   const englishMarkerScore = countMatches(normalized, words, ENGLISH_MARKERS, ENGLISH_PHRASES);
+  const markerScores = { it: italianMarkerScore, en: englishMarkerScore };
 
   if (italianMarkerScore > englishMarkerScore && italianMarkerScore > 0) {
-    return { resolvedLocale: "it", localeReason: "text_marker_it" };
+    return {
+      resolvedLocale: "it",
+      localeReason: "text_marker_it",
+      markerScores,
+      inferenceScores: { it: 0, en: 0 },
+      usedSessionHold: false
+    };
   }
 
   if (englishMarkerScore > italianMarkerScore && englishMarkerScore > 0) {
-    return { resolvedLocale: "en", localeReason: "text_marker_en" };
+    return {
+      resolvedLocale: "en",
+      localeReason: "text_marker_en",
+      markerScores,
+      inferenceScores: { it: 0, en: 0 },
+      usedSessionHold: false
+    };
   }
 
   const italianScore = scoreLanguage(words, [
@@ -86,24 +126,55 @@ export function resolveConversationLocale(input: {
     "show",
     "my"
   ]);
+  const inferenceScores = { it: italianScore, en: englishScore };
 
   if (italianScore > englishScore && italianScore > 0) {
-    return { resolvedLocale: "it", localeReason: "text_inferred_it" };
+    return {
+      resolvedLocale: "it",
+      localeReason: "text_inferred_it",
+      markerScores,
+      inferenceScores,
+      usedSessionHold: false
+    };
   }
   if (englishScore > italianScore && englishScore > 0) {
-    return { resolvedLocale: "en", localeReason: "text_inferred_en" };
+    return {
+      resolvedLocale: "en",
+      localeReason: "text_inferred_en",
+      markerScores,
+      inferenceScores,
+      usedSessionHold: false
+    };
   }
 
   // Keep active conversation language for neutral/ambiguous short replies.
   if (input.sessionLocale) {
-    return { resolvedLocale: input.sessionLocale, localeReason: "session_locale" };
+    return {
+      resolvedLocale: input.sessionLocale,
+      localeReason: "session_locale",
+      markerScores,
+      inferenceScores,
+      usedSessionHold: false
+    };
   }
 
   if (input.rawInboundLocale) {
-    return { resolvedLocale: input.rawInboundLocale, localeReason: "raw_inbound" };
+    return {
+      resolvedLocale: input.rawInboundLocale,
+      localeReason: "raw_inbound",
+      markerScores,
+      inferenceScores,
+      usedSessionHold: false
+    };
   }
 
-  return { resolvedLocale: input.tenantDefaultLocale, localeReason: "tenant_default" };
+  return {
+    resolvedLocale: input.tenantDefaultLocale,
+    localeReason: "tenant_default",
+    markerScores,
+    inferenceScores,
+    usedSessionHold: false
+  };
 }
 
 function tokenize(text: string) {
@@ -186,6 +257,14 @@ const ITALIAN_MARKERS = [
   "appuntamento",
   "appuntamenti",
   "voglio",
+  "mostra",
+  "mostrami",
+  "con",
+  "mia",
+  "mio",
+  "mie",
+  "miei",
+  "ho",
   "posso",
   "aiutami"
 ];
@@ -196,10 +275,20 @@ const ENGLISH_MARKERS = [
   "hey",
   "booking",
   "book",
+  "bookings",
   "cancel",
+  "delete",
+  "remove",
   "reschedule",
+  "move",
+  "change",
   "service",
   "services",
+  "with",
+  "show",
+  "my",
+  "need",
+  "want",
   "tomorrow",
   "today",
   "evening",
@@ -223,8 +312,27 @@ const ENGLISH_MARKERS = [
   "appointments"
 ];
 
-const ITALIAN_PHRASES = ["per favore", "mie prenotazioni", "i miei appuntamenti", "le mie prenotazioni"];
-const ENGLISH_PHRASES = ["thank you", "my bookings", "my booking", "can you", "i want", "i need"];
+const ITALIAN_PHRASES = [
+  "per favore",
+  "mie prenotazioni",
+  "i miei appuntamenti",
+  "le mie prenotazioni",
+  "voglio prenotare",
+  "vorrei prenotare",
+  "mostra i servizi",
+  "con anna"
+];
+const ENGLISH_PHRASES = [
+  "thank you",
+  "my bookings",
+  "my booking",
+  "can you",
+  "i want",
+  "i need",
+  "show services",
+  "book me",
+  "with anna"
+];
 
 function isNeutralShortFollowup(words: string[], normalized: string) {
   if (!normalized) {
