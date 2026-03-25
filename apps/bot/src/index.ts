@@ -2050,8 +2050,20 @@ async function applyAdminBookingActionFromBot(input: {
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
+    console.warn("[bot][admin-action] request failed", {
+      bookingId: input.bookingId,
+      action: input.action,
+      status: response.status,
+      reason: payload?.error?.details?.reason ?? null
+    });
     throw new Error(payload?.error?.message ?? "booking_admin_action_failed");
   }
+  console.log("[bot][admin-action] request completed", {
+    bookingId: input.bookingId,
+    action: input.action,
+    applied: payload?.data?.applied !== false,
+    resultingStatus: payload?.data?.status ?? null
+  });
   return {
     bookingId: String(payload?.data?.bookingId ?? input.bookingId),
     status: String(payload?.data?.status ?? ""),
@@ -2700,6 +2712,7 @@ async function handleWhatsAppCtaReply(input: {
   }
 
   if (action === "admin_confirm") {
+    console.log("[bot][admin-action] confirm clicked", { bookingId, from: input.from });
     try {
       const result = await applyAdminBookingActionFromBot({
         bookingId,
@@ -2732,6 +2745,7 @@ async function handleWhatsAppCtaReply(input: {
   }
 
   if (action === "admin_cancel" || action === "admin_reject") {
+    console.log("[bot][admin-action] reject clicked", { bookingId, from: input.from });
     const expiresAtUnix = Math.floor(Date.now() / 1000) + adminRejectReasonTtlSeconds;
     await saveAdminRejectPending(
       input.from,
@@ -2750,6 +2764,11 @@ async function handleWhatsAppCtaReply(input: {
           ? "Invia ora la motivazione del rifiuto con il prossimo messaggio."
           : "Please send the rejection reason in your next message.",
       routeContext
+    });
+    console.log("[bot][admin-action] awaiting rejection reason", {
+      bookingId,
+      from: input.from,
+      expiresAtUnix
     });
     return true;
   }
@@ -2787,6 +2806,11 @@ async function handlePendingAdminRejectReason(input: {
   }
 
   const reason = input.text.trim();
+  console.log("[bot][admin-action] rejection reason received", {
+    bookingId: pending.bookingId,
+    from: input.from,
+    reasonLength: reason.length
+  });
   if (reason.length < 3) {
     await sendWhatsAppMessage({
       to: input.from,
@@ -2819,6 +2843,12 @@ async function handlePendingAdminRejectReason(input: {
             ? "Prenotazione rifiutata e cliente avvisato."
             : "Booking rejected and client notified.",
       routeContext
+    });
+    console.log("[bot][admin-action] rejection applied", {
+      bookingId: pending.bookingId,
+      from: input.from,
+      applied: result.applied,
+      resultingStatus: result.status
     });
   } catch {
     await sendWhatsAppMessage({

@@ -106,3 +106,19 @@
 4. Bot: CTA + ожидание причины + submit reject.
 5. Web-vite: статус `rejected` и UI-отображение.
 6. Smoke-тесты на `alex-salon`.
+
+## 12. Статус выполнения
+Статус: 100% (реализация завершена).
+
+Закрыто:
+1. Миграции БД и типы (`rejected`, `rejection_reason`, `booking_rejected_client`) внедрены.
+2. Public admin-action endpoint (`confirm/reject`) внедрен с проверкой номера администратора и обязательной причиной для reject.
+3. Worker отправляет admin CTA (Confirm/Reject), клиенту уходят `confirmed/rejected` уведомления.
+4. Bot обрабатывает CTA, поддерживает шаг "введите причину" для reject и корректные ответы при `already processed`/`expired`.
+5. Админка поддерживает статус `rejected` в фильтрах и отображении.
+6. Добавлены структурные логи для ключевых событий (CTA send/click, reject reason flow, apply result, concurrency/already-processed).
+7. Добавлены автотесты для action-token (в т.ч. `token_expired`).
+
+Проверки:
+1. Typecheck: `@genius/api`, `@genius/bot`, `@genius/worker`, `@genius/shared` — успешно.
+2. Tests: `@genius/shared` — успешно, включая новый тест истечения action-token.

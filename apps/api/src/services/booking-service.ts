@@ -422,6 +422,12 @@ export class BookingService {
       throw appError("TENANT_NOT_FOUND", { reason: "booking_not_found_in_tenant" });
     }
     if (current.status !== "pending") {
+      console.log("[api][booking-admin-action] already processed", {
+        tenantId: input.tenantId,
+        bookingId: input.bookingId,
+        action: input.action,
+        currentStatus: current.status
+      });
       return {
         bookingId: current.id,
         status: current.status,
@@ -440,6 +446,12 @@ export class BookingService {
     });
     if (!updated) {
       const latest = await this.bookingRepository.findById(input.tenantId, input.bookingId);
+      console.log("[api][booking-admin-action] concurrent change", {
+        tenantId: input.tenantId,
+        bookingId: input.bookingId,
+        action: input.action,
+        latestStatus: latest?.status ?? null
+      });
       return {
         bookingId: input.bookingId,
         status: (latest?.status ?? "pending") as BookingStatus,
@@ -495,6 +507,13 @@ export class BookingService {
         idempotencyKey: `${updated.id}:booking_rejected_client`
       });
     }
+
+    console.log("[api][booking-admin-action] applied", {
+      tenantId: input.tenantId,
+      bookingId: updated.id,
+      action: input.action,
+      resultingStatus: updated.status
+    });
 
     return {
       bookingId: updated.id,

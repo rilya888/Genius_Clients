@@ -539,6 +539,11 @@ async function sendByChannel(input: {
         recipient: input.recipient
       });
       if (approvalPayload) {
+        console.log("[worker][whatsapp-admin-cta] sending", {
+          tenantId: input.tenantId,
+          bookingId: input.bookingId,
+          recipient: input.recipient
+        });
         const response = await fetch(`https://graph.facebook.com/v21.0/${credentials.phoneNumberId}/messages`, {
           method: "POST",
           headers: {
@@ -585,6 +590,12 @@ async function sendByChannel(input: {
         }
 
         const messageId = payload?.messages?.[0]?.id;
+        console.log("[worker][whatsapp-admin-cta] sent", {
+          tenantId: input.tenantId,
+          bookingId: input.bookingId,
+          recipient: input.recipient,
+          providerMessageId: messageId ?? null
+        });
         return String(messageId ?? `wa_sent_${Date.now()}`);
       }
     }
