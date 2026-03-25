@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../../lib/client-api";
 
-type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled";
+type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled" | "rejected";
 
 type BookingItem = {
   id: string;
@@ -95,6 +95,7 @@ export default function BookingsPage() {
             <option value="confirmed">confirmed</option>
             <option value="completed">completed</option>
             <option value="cancelled">cancelled</option>
+            <option value="rejected">rejected</option>
           </select>
         </div>
         <div className="gc-field">

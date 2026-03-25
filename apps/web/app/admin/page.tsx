@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchJsonWithSessionRetry } from "../../lib/client-api";
 
-type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled";
+type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled" | "rejected";
 type Booking = { status: BookingStatus };
 type IntegrationsStatus = {
   redis: boolean;
@@ -52,7 +52,8 @@ export default function AdminPage() {
     const confirmed = bookings.filter((item) => item.status === "confirmed").length;
     const completed = bookings.filter((item) => item.status === "completed").length;
     const cancelled = bookings.filter((item) => item.status === "cancelled").length;
-    return { pending, confirmed, completed, cancelled };
+    const rejected = bookings.filter((item) => item.status === "rejected").length;
+    return { pending, confirmed, completed, cancelled, rejected };
   }, [bookings]);
 
   return (
@@ -95,6 +96,10 @@ export default function AdminPage() {
         <div className="gc-card gc-admin-stat">
           <div className="gc-admin-stat-label">Cancelled</div>
           <div className="gc-admin-stat-value">{stats.cancelled}</div>
+        </div>
+        <div className="gc-card gc-admin-stat">
+          <div className="gc-admin-stat-label">Rejected</div>
+          <div className="gc-admin-stat-value">{stats.rejected}</div>
         </div>
       </div>
 

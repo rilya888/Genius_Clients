@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { ApiAppEnv } from "../../lib/hono-env";
 import { appError } from "../../lib/http";
+import { getApiEnv } from "../../lib/env";
 import { BookingService, CatalogService, SlotService } from "../../services";
 import { TenantRepository } from "../../repositories";
 
@@ -201,6 +202,34 @@ export const publicRoutes = new Hono<ApiAppEnv>()
       startAtIso: body.startAt,
       endAtIso: body.endAt,
       idempotencyKey
+    });
+
+    return c.json({ data });
+  })
+  .post("/bookings/:id/admin-action", async (c) => {
+    const internalSecret = c.req.header("x-internal-secret");
+    if (!internalSecret || internalSecret !== getApiEnv().internalApiSecret) {
+      throw appError("AUTH_FORBIDDEN", { reason: "internal_secret_required" });
+    }
+    const body = await c.req.json<{
+      adminPhoneE164?: string;
+      action?: "confirm" | "reject";
+      rejectionReason?: string;
+    }>();
+
+    if (!body.adminPhoneE164 || !body.action) {
+      throw appError("VALIDATION_ERROR", { required: ["adminPhoneE164", "action"] });
+    }
+
+    const tenantId = c.get("tenantId");
+    const bookingId = c.req.param("id");
+    const data = await bookingService.applyPublicAdminAction({
+      tenantId,
+      bookingId,
+      adminPhoneE164: body.adminPhoneE164,
+      action: body.action,
+      rejectionReason: body.rejectionReason,
+      requestId: c.get("requestId")
     });
 
     return c.json({ data });

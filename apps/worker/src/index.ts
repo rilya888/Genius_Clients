@@ -6,13 +6,14 @@ import {
   createDbClient,
   emailVerificationTokens,
   idempotencyKeys,
+  masters,
   notificationDeliveries,
   passwordResetTokens,
   refreshTokens,
   services,
   tenants
 } from "@genius/db";
-import { captureException } from "@genius/shared";
+import { captureException, createBookingActionToken } from "@genius/shared";
 import Redis from "ioredis";
 
 const heartbeatIntervalMs = Number(process.env.WORKER_HEARTBEAT_MS ?? 15000);
@@ -42,6 +43,8 @@ const telegramBotToken = process.env.TG_BOT_TOKEN ?? "";
 const waPhoneNumberId = process.env.WA_PHONE_NUMBER_ID ?? "";
 const waAccessToken = process.env.WA_ACCESS_TOKEN ?? "";
 const waAccessTokenByPhoneRaw = process.env.WA_ACCESS_TOKEN_BY_PHONE_JSON ?? "";
+const waActionTokenSecret = process.env.WA_ACTION_TOKEN_SECRET ?? "";
+const waAdminActionTtlHours = Math.max(1, Number.parseInt(process.env.WA_ADMIN_ACTION_TTL_HOURS ?? "24", 10) || 24);
 const workerAdminSecret = process.env.WORKER_ADMIN_SECRET ?? "";
 
 let isSweepRunning = false;
@@ -362,10 +365,12 @@ async function buildBookingDetailsText(input: { bookingId: string; notificationT
       startAt: bookings.startAt,
       clientLocale: bookings.clientLocale,
       serviceName: services.displayName,
+      rejectionReason: bookings.rejectionReason,
       timezone: tenants.timezone
     })
     .from(bookings)
     .innerJoin(services, eq(services.id, bookings.serviceId))
+    .leftJoin(masters, eq(masters.id, bookings.masterId))
     .innerJoin(tenants, eq(tenants.id, bookings.tenantId))
     .where(eq(bookings.id, input.bookingId))
     .limit(1);
@@ -404,7 +409,91 @@ async function buildBookingDetailsText(input: { bookingId: string; notificationT
       : `Service completed: ${details.serviceName}, ${when}.`;
   }
 
+  if (input.notificationType === "booking_rejected_client") {
+    const reason = details.rejectionReason?.trim();
+    if (details.clientLocale === "it") {
+      return reason
+        ? `Prenotazione rifiutata: ${details.serviceName}, ${when}. Motivo: ${reason}`
+        : `Prenotazione rifiutata: ${details.serviceName}, ${when}.`;
+    }
+    return reason
+      ? `Booking rejected: ${details.serviceName}, ${when}. Reason: ${reason}`
+      : `Booking rejected: ${details.serviceName}, ${when}.`;
+  }
+
   return null;
+}
+
+async function buildAdminApprovalPayload(input: { bookingId: string; recipient: string }) {
+  if (!db || !waActionTokenSecret) {
+    return null;
+  }
+
+  const row = await db
+    .select({
+      bookingId: bookings.id,
+      serviceName: services.displayName,
+      masterName: masters.displayName,
+      clientName: bookings.clientName,
+      startAt: bookings.startAt,
+      tenantLocale: tenants.defaultLocale,
+      timezone: tenants.timezone
+    })
+    .from(bookings)
+    .innerJoin(services, eq(services.id, bookings.serviceId))
+    .leftJoin(masters, eq(masters.id, bookings.masterId))
+    .innerJoin(tenants, eq(tenants.id, bookings.tenantId))
+    .where(eq(bookings.id, input.bookingId))
+    .limit(1);
+  const details = row[0];
+  if (!details) {
+    return null;
+  }
+
+  const locale = details.tenantLocale === "en" ? "en" : "it";
+  const when = new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: details.timezone || "Europe/Rome"
+  }).format(details.startAt);
+
+  const expiresAtUnix = Math.floor(Date.now() / 1000) + waAdminActionTtlHours * 60 * 60;
+  const confirmToken = createBookingActionToken(
+    {
+      action: "admin_confirm",
+      bookingId: details.bookingId,
+      phoneE164: input.recipient,
+      expiresAtUnix
+    },
+    waActionTokenSecret
+  );
+  const rejectToken = createBookingActionToken(
+    {
+      action: "admin_reject",
+      bookingId: details.bookingId,
+      phoneE164: input.recipient,
+      expiresAtUnix
+    },
+    waActionTokenSecret
+  );
+
+  const shortId = details.bookingId.slice(0, 8);
+  const masterName = details.masterName || (locale === "it" ? "Non assegnato" : "Unassigned");
+  const text =
+    locale === "it"
+      ? `Nuova prenotazione #${shortId}\nCliente: ${details.clientName}\nServizio: ${details.serviceName}\nMaster: ${masterName}\nQuando: ${when}\nConfermi questa prenotazione?`
+      : `New booking #${shortId}\nClient: ${details.clientName}\nService: ${details.serviceName}\nSpecialist: ${masterName}\nWhen: ${when}\nDo you confirm this booking?`;
+
+  return {
+    text,
+    confirmToken,
+    rejectToken,
+    locale
+  };
 }
 
 async function sendByChannel(input: {
@@ -418,14 +507,17 @@ async function sendByChannel(input: {
     input.bookingId &&
     (input.notificationType === "booking_confirmed_client" ||
       input.notificationType === "booking_cancelled" ||
-      input.notificationType === "booking_completed_client")
+      input.notificationType === "booking_completed_client" ||
+      input.notificationType === "booking_rejected_client")
       ? await buildBookingDetailsText({ bookingId: input.bookingId, notificationType: input.notificationType })
       : null;
 
   const textByType: Record<string, string> = {
+    booking_created_admin: `New booking created.`,
     booking_confirmed_client: `Booking confirmed.`,
     booking_completed_client: `Booking completed.`,
     booking_cancelled: `Booking cancelled.`,
+    booking_rejected_client: `Booking rejected.`,
     booking_reminder_24h: `Reminder: your booking is in 24 hours.`,
     booking_reminder_2h: `Reminder: your booking is in 2 hours.`
   };
@@ -439,6 +531,62 @@ async function sendByChannel(input: {
     const credentials = await resolveWhatsAppCredentials(input.tenantId);
     if (!credentials) {
       return `wa_mock_${Date.now()}`;
+    }
+
+    if (input.notificationType === "booking_created_admin" && input.bookingId) {
+      const approvalPayload = await buildAdminApprovalPayload({
+        bookingId: input.bookingId,
+        recipient: input.recipient
+      });
+      if (approvalPayload) {
+        const response = await fetch(`https://graph.facebook.com/v21.0/${credentials.phoneNumberId}/messages`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${credentials.accessToken}`
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: input.recipient,
+            type: "interactive",
+            interactive: {
+              type: "button",
+              body: { text: approvalPayload.text.slice(0, 1024) },
+              action: {
+                buttons: [
+                  {
+                    type: "reply",
+                    reply: {
+                      id: `cta:${approvalPayload.confirmToken}`,
+                      title: approvalPayload.locale === "it" ? "Conferma" : "Confirm"
+                    }
+                  },
+                  {
+                    type: "reply",
+                    reply: {
+                      id: `cta:${approvalPayload.rejectToken}`,
+                      title: approvalPayload.locale === "it" ? "Rifiuta" : "Reject"
+                    }
+                  }
+                ]
+              }
+            }
+          })
+        });
+
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          const code = payload && typeof payload === "object" ? (payload as { error?: { code?: number } }).error?.code : null;
+          const message =
+            payload && typeof payload === "object"
+              ? (payload as { error?: { message?: string } }).error?.message
+              : null;
+          throw new Error(`whatsapp_send_failed:${response.status}${code ? `:${code}` : ""}${message ? `:${message}` : ""}`);
+        }
+
+        const messageId = payload?.messages?.[0]?.id;
+        return String(messageId ?? `wa_sent_${Date.now()}`);
+      }
     }
 
     const response = await fetch(`https://graph.facebook.com/v21.0/${credentials.phoneNumberId}/messages`, {

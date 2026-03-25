@@ -8,7 +8,8 @@ export type BookingActionType =
   | "flow_confirm_booking"
   | "flow_confirm_cancel"
   | "admin_confirm"
-  | "admin_cancel";
+  | "admin_cancel"
+  | "admin_reject";
 
 export type BookingActionTokenPayload = {
   action: BookingActionType;
@@ -57,7 +58,8 @@ function isBookingActionType(value: string): value is BookingActionType {
     "flow_confirm_booking",
     "flow_confirm_cancel",
     "admin_confirm",
-    "admin_cancel"
+    "admin_cancel",
+    "admin_reject"
   ].includes(value);
 }
 

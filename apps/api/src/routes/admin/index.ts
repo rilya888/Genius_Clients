@@ -607,7 +607,7 @@ export const adminRoutes = new Hono<ApiAppEnv>()
     const to = c.req.query("to");
     const limit = c.req.query("limit");
     const offset = c.req.query("offset");
-    const allowedStatuses = new Set(["pending", "confirmed", "completed", "cancelled"]);
+    const allowedStatuses = new Set(["pending", "confirmed", "completed", "cancelled", "rejected"]);
 
     if (statusRaw && !allowedStatuses.has(statusRaw)) {
       throw appError("VALIDATION_ERROR", { reason: "booking_status_invalid" });
@@ -615,7 +615,7 @@ export const adminRoutes = new Hono<ApiAppEnv>()
 
     const items = await bookingService.listAdminBookings({
       tenantId,
-      status: statusRaw as "pending" | "confirmed" | "completed" | "cancelled" | undefined,
+      status: statusRaw as "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | undefined,
       fromIso: from,
       toIso: to,
       limit: limit ? Number(limit) : undefined,
@@ -630,8 +630,9 @@ export const adminRoutes = new Hono<ApiAppEnv>()
     const requestId = c.get("requestId");
     const bookingId = c.req.param("id");
     const body = await c.req.json<{
-      status?: "pending" | "confirmed" | "completed" | "cancelled";
+      status?: "pending" | "confirmed" | "completed" | "cancelled" | "rejected";
       cancellationReason?: string;
+      rejectionReason?: string;
     }>();
 
     if (!body.status) {
@@ -643,6 +644,7 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       bookingId,
       nextStatus: body.status,
       cancellationReason: body.cancellationReason,
+      rejectionReason: body.rejectionReason,
       requestId,
       actorUserId
     });

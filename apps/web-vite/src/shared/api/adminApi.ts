@@ -23,8 +23,9 @@ type BookingsEnvelope = {
       masterId: string | null;
       masterDisplayName: string | null;
       clientName: string;
-      status: "pending" | "confirmed" | "completed" | "cancelled";
+      status: "pending" | "confirmed" | "completed" | "cancelled" | "rejected";
       startAt: string;
+      rejectionReason?: string | null;
     }>;
   };
 };
@@ -424,7 +425,7 @@ export async function updateServiceMasterMappings(input: { serviceId: string; ma
 }
 
 export async function listAdminBookings(input?: {
-  status?: "pending" | "confirmed" | "completed" | "cancelled";
+  status?: "pending" | "confirmed" | "completed" | "cancelled" | "rejected";
   from?: string;
   to?: string;
 }) {
@@ -444,7 +445,7 @@ export async function confirmAdminBooking(bookingId: string) {
   const payload = await adminJson<{
     data: {
       id: string;
-      status: "pending" | "confirmed" | "completed" | "cancelled";
+      status: "pending" | "confirmed" | "completed" | "cancelled" | "rejected";
       updatedAt: string;
     };
   }>(`/api/v1/admin/bookings/${bookingId}`, {

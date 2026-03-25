@@ -12,7 +12,8 @@ export class NotificationRepository {
       | "booking_completed_client"
       | "booking_reminder_24h"
       | "booking_reminder_2h"
-      | "booking_cancelled";
+      | "booking_cancelled"
+      | "booking_rejected_client";
     channel: string;
     recipient: string;
     idempotencyKey: string;

@@ -9,12 +9,12 @@ type BookingRow = {
   id: string;
   clientName: string;
   serviceName: string;
-  status: "pending" | "confirmed" | "completed" | "cancelled";
+  status: "pending" | "confirmed" | "completed" | "cancelled" | "rejected";
 };
 
 export function BookingsPage() {
   const { t } = useI18n();
-  const [status, setStatus] = useState<"" | "pending" | "confirmed" | "completed" | "cancelled">("");
+  const [status, setStatus] = useState<"" | "pending" | "confirmed" | "completed" | "cancelled" | "rejected">("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
@@ -102,6 +102,7 @@ export function BookingsPage() {
             <option value="confirmed">{t("common.bookingStatus.confirmed")}</option>
             <option value="completed">{t("common.bookingStatus.completed")}</option>
             <option value="cancelled">{t("common.bookingStatus.cancelled")}</option>
+            <option value="rejected">{t("common.bookingStatus.rejected")}</option>
           </select>
         </label>
         <label>

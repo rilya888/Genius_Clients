@@ -984,6 +984,11 @@ th {
   color: #8a2742;
 }
 
+.status-rejected {
+  background: #ffe7d6;
+  color: #8a3f00;
+}
+
 .notification-status-pending {
   background: #fff5da;
   color: #7a5800;

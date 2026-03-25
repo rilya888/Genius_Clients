@@ -22,7 +22,8 @@ export const bookingStatusEnum = pgEnum("booking_status", [
   "pending",
   "confirmed",
   "completed",
-  "cancelled"
+  "cancelled",
+  "rejected"
 ]);
 export const notificationTypeEnum = pgEnum("notification_type", [
   "booking_created_admin",
@@ -30,7 +31,8 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "booking_completed_client",
   "booking_reminder_24h",
   "booking_reminder_2h",
-  "booking_cancelled"
+  "booking_cancelled",
+  "booking_rejected_client"
 ]);
 
 export const tenants = pgTable(
@@ -362,6 +364,7 @@ export const bookings = pgTable(
     reminder24hSentAt: timestamp("reminder24h_sent_at", { withTimezone: true }),
     reminder2hSentAt: timestamp("reminder2h_sent_at", { withTimezone: true }),
     cancellationReason: text("cancellation_reason"),
+    rejectionReason: text("rejection_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },

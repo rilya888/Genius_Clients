@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gte, inArray, lt, lte, min, sql } from "drizzle-orm
 import { bookings, masterServices, masters, services } from "@genius/db";
 import { getDb } from "../lib/db";
 
-export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled";
+export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled" | "rejected";
 
 export class BookingRepository {
   async hasActiveMasterMappingsForService(input: { tenantId: string; serviceId: string }) {
@@ -134,6 +134,7 @@ export class BookingRepository {
         startAt: bookings.startAt,
         endAt: bookings.endAt,
         cancellationReason: bookings.cancellationReason,
+        rejectionReason: bookings.rejectionReason,
         createdAt: bookings.createdAt,
         updatedAt: bookings.updatedAt
       })
@@ -165,6 +166,7 @@ export class BookingRepository {
     expectedCurrentStatuses: BookingStatus[];
     nextStatus: BookingStatus;
     cancellationReason?: string | null;
+    rejectionReason?: string | null;
   }) {
     const db = getDb();
     const [item] = await db
@@ -172,6 +174,7 @@ export class BookingRepository {
       .set({
         status: input.nextStatus,
         cancellationReason: input.cancellationReason,
+        rejectionReason: input.rejectionReason,
         updatedAt: new Date()
       })
       .where(

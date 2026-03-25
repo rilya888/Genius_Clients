@@ -87,6 +87,10 @@ const waOutboundStateTtlSeconds = Math.max(
   1800,
   Number.parseInt(process.env.WA_OUTBOUND_STATE_TTL_SECONDS ?? "21600", 10) || 21600
 );
+const adminRejectReasonTtlSeconds = Math.max(
+  120,
+  Number.parseInt(process.env.WA_ADMIN_REJECT_REASON_TTL_SECONDS ?? "600", 10) || 600
+);
 const sessionIdleResetMinutes = Math.max(1, Number.parseInt(process.env.SESSION_IDLE_RESET_MINUTES ?? "45", 10) || 45);
 const sessionRedisTtlSeconds = Math.max(
   60 * 60,
@@ -1303,6 +1307,16 @@ function getInboundDedupKey(messageId: string) {
   return `wa:inbound:${messageId}`;
 }
 
+function getAdminRejectPendingKey(
+  phone: string,
+  routeContext: BotRoutingContext | null = getLegacyRouteContext()
+) {
+  if (!routeContext) {
+    return `wa:admin-reject:unknown:${phone}`;
+  }
+  return `wa:admin-reject:${getRoutingScopeSegment(routeContext)}:${phone}`;
+}
+
 function getSessionProcessingLockKey(
   phone: string,
   routeContext: BotRoutingContext | null = getLegacyRouteContext()
@@ -1316,6 +1330,13 @@ type OutboundReplayState = {
   updatedAt: string;
   failureCount: number;
   lastFailureReason?: string | null;
+};
+
+type AdminRejectPendingState = {
+  bookingId: string;
+  adminPhoneE164: string;
+  locale: SupportedLocale;
+  expiresAtUnix: number;
 };
 
 async function loadOutboundReplayState(
@@ -1474,6 +1495,71 @@ async function dedupInboundMessage(messageId: string): Promise<boolean> {
   }
   const created = await redis.set(getInboundDedupKey(messageId), "1", "EX", 24 * 60 * 60, "NX");
   return created === "OK";
+}
+
+async function loadAdminRejectPending(
+  phone: string,
+  routeContext: BotRoutingContext | null = getLegacyRouteContext()
+): Promise<AdminRejectPendingState | null> {
+  if (!redis) {
+    return null;
+  }
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+  const raw = await redis.get(getAdminRejectPendingKey(phone, routeContext));
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<AdminRejectPendingState>;
+    if (!parsed.bookingId || !parsed.adminPhoneE164) {
+      return null;
+    }
+    return {
+      bookingId: parsed.bookingId,
+      adminPhoneE164: parsed.adminPhoneE164,
+      locale: parsed.locale === "en" ? "en" : "it",
+      expiresAtUnix:
+        typeof parsed.expiresAtUnix === "number" && Number.isFinite(parsed.expiresAtUnix)
+          ? Math.trunc(parsed.expiresAtUnix)
+          : Math.floor(Date.now() / 1000)
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function saveAdminRejectPending(
+  phone: string,
+  state: AdminRejectPendingState,
+  routeContext: BotRoutingContext | null = getLegacyRouteContext()
+) {
+  if (!redis) {
+    return;
+  }
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+  await redis.set(
+    getAdminRejectPendingKey(phone, routeContext),
+    JSON.stringify(state),
+    "EX",
+    adminRejectReasonTtlSeconds
+  );
+}
+
+async function clearAdminRejectPending(
+  phone: string,
+  routeContext: BotRoutingContext | null = getLegacyRouteContext()
+) {
+  if (!redis) {
+    return;
+  }
+  if (redis.status === "wait") {
+    await redis.connect();
+  }
+  await redis.del(getAdminRejectPendingKey(phone, routeContext));
 }
 
 async function acquireSessionProcessingLock(input: {
@@ -1941,7 +2027,8 @@ function buildBotApiErrorCode(fallback: string, payload: unknown): string {
 async function applyAdminBookingActionFromBot(input: {
   bookingId: string;
   adminPhoneE164: string;
-  action: "confirm" | "cancel";
+  action: "confirm" | "reject";
+  rejectionReason?: string;
   routeContext?: BotRoutingContext | null;
 }) {
   const routeContext = input.routeContext ?? getLegacyRouteContext();
@@ -1957,7 +2044,8 @@ async function applyAdminBookingActionFromBot(input: {
     },
     body: JSON.stringify({
       adminPhoneE164: input.adminPhoneE164,
-      action: input.action
+      action: input.action,
+      rejectionReason: input.rejectionReason
     })
   });
   const payload = await response.json().catch(() => null);
@@ -2611,18 +2699,22 @@ async function handleWhatsAppCtaReply(input: {
     return true;
   }
 
-  if (action === "admin_confirm" || action === "admin_cancel") {
+  if (action === "admin_confirm") {
     try {
       const result = await applyAdminBookingActionFromBot({
         bookingId,
         adminPhoneE164: ownerPhone,
-        action: action === "admin_confirm" ? "confirm" : "cancel",
+        action: "confirm",
         routeContext
       });
       await sendWhatsAppMessage({
         to: input.from,
         text:
-          result.status === "confirmed"
+          !result.applied
+            ? input.locale === "it"
+              ? "Questa prenotazione e gia stata gestita."
+              : "This booking has already been processed."
+            : result.status === "confirmed"
             ? "Booking confirmed."
             : result.status === "cancelled"
               ? "Booking cancelled."
@@ -2639,7 +2731,107 @@ async function handleWhatsAppCtaReply(input: {
     return true;
   }
 
+  if (action === "admin_cancel" || action === "admin_reject") {
+    const expiresAtUnix = Math.floor(Date.now() / 1000) + adminRejectReasonTtlSeconds;
+    await saveAdminRejectPending(
+      input.from,
+      {
+        bookingId,
+        adminPhoneE164: ownerPhone,
+        locale: input.locale,
+        expiresAtUnix
+      },
+      routeContext
+    );
+    await sendWhatsAppMessage({
+      to: input.from,
+      text:
+        input.locale === "it"
+          ? "Invia ora la motivazione del rifiuto con il prossimo messaggio."
+          : "Please send the rejection reason in your next message.",
+      routeContext
+    });
+    return true;
+  }
+
   return false;
+}
+
+async function handlePendingAdminRejectReason(input: {
+  from: string;
+  text?: string;
+  locale: SupportedLocale;
+  routeContext?: BotRoutingContext | null;
+}) {
+  const routeContext = input.routeContext ?? getLegacyRouteContext();
+  if (!input.text?.trim()) {
+    return false;
+  }
+
+  const pending = await loadAdminRejectPending(input.from, routeContext);
+  if (!pending) {
+    return false;
+  }
+
+  if (pending.expiresAtUnix < Math.floor(Date.now() / 1000)) {
+    await clearAdminRejectPending(input.from, routeContext);
+    await sendWhatsAppMessage({
+      to: input.from,
+      text:
+        input.locale === "it"
+          ? "Azione scaduta. Apri una nuova richiesta dal messaggio di prenotazione."
+          : "Action expired. Start again from the booking message.",
+      routeContext
+    });
+    return true;
+  }
+
+  const reason = input.text.trim();
+  if (reason.length < 3) {
+    await sendWhatsAppMessage({
+      to: input.from,
+      text:
+        input.locale === "it"
+          ? "Inserisci una motivazione piu dettagliata per il rifiuto."
+          : "Please provide a more detailed rejection reason.",
+      routeContext
+    });
+    return true;
+  }
+
+  try {
+    const result = await applyAdminBookingActionFromBot({
+      bookingId: pending.bookingId,
+      adminPhoneE164: pending.adminPhoneE164,
+      action: "reject",
+      rejectionReason: reason,
+      routeContext
+    });
+    await clearAdminRejectPending(input.from, routeContext);
+    await sendWhatsAppMessage({
+      to: input.from,
+      text:
+        !result.applied
+          ? input.locale === "it"
+            ? "Questa prenotazione e gia stata gestita."
+            : "This booking has already been processed."
+          : input.locale === "it"
+            ? "Prenotazione rifiutata e cliente avvisato."
+            : "Booking rejected and client notified.",
+      routeContext
+    });
+  } catch {
+    await sendWhatsAppMessage({
+      to: input.from,
+      text:
+        input.locale === "it"
+          ? "Impossibile applicare il rifiuto ora. Riprova."
+          : "Unable to apply rejection now. Please retry.",
+      routeContext
+    });
+  }
+
+  return true;
 }
 
 async function buildStaticReply(
@@ -3344,6 +3536,19 @@ app.post("/webhooks/whatsapp", async (c) => {
           routeContext
         });
         if (handledCta) {
+          bumpRuntimeCounter("ctaHandled");
+          continue;
+        }
+      }
+
+      if (!effectiveReplyId && effectiveText) {
+        const handledRejectReason = await handlePendingAdminRejectReason({
+          from: item.from,
+          text: effectiveText,
+          locale: effectiveLocale,
+          routeContext
+        });
+        if (handledRejectReason) {
           bumpRuntimeCounter("ctaHandled");
           continue;
         }

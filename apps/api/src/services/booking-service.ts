@@ -202,6 +202,19 @@ export class BookingService {
         idempotencyKey: `${booking.id}:booking_created_admin`
       });
     }
+    if (
+      (input.source === "whatsapp" || input.source === "web_public") &&
+      tenant?.adminNotificationWhatsappE164
+    ) {
+      await this.notificationRepository.enqueue({
+        tenantId: input.tenantId,
+        bookingId: booking.id,
+        notificationType: "booking_created_admin",
+        channel: "whatsapp",
+        recipient: tenant.adminNotificationWhatsappE164,
+        idempotencyKey: `${booking.id}:booking_created_admin:whatsapp`
+      });
+    }
 
     return responseBody;
   }
@@ -243,6 +256,7 @@ export class BookingService {
     bookingId: string;
     nextStatus: BookingStatus;
     cancellationReason?: string;
+    rejectionReason?: string;
     requestId?: string;
     actorUserId?: string;
   }) {
@@ -253,10 +267,11 @@ export class BookingService {
 
     const now = new Date();
     const transitionMap: Record<BookingStatus, BookingStatus[]> = {
-      pending: ["confirmed", "cancelled"],
+      pending: ["confirmed", "cancelled", "rejected"],
       confirmed: ["completed", "cancelled"],
       completed: [],
-      cancelled: []
+      cancelled: [],
+      rejected: []
     };
     const allowedNextStatuses = transitionMap[current.status];
 
@@ -274,6 +289,9 @@ export class BookingService {
     if (input.nextStatus === "cancelled" && !input.cancellationReason?.trim()) {
       throw appError("VALIDATION_ERROR", { reason: "cancellation_reason_required" });
     }
+    if (input.nextStatus === "rejected" && !input.rejectionReason?.trim()) {
+      throw appError("VALIDATION_ERROR", { reason: "rejection_reason_required" });
+    }
 
     const updated = await this.bookingRepository.updateStatus({
       tenantId: input.tenantId,
@@ -281,7 +299,9 @@ export class BookingService {
       expectedCurrentStatuses: [current.status],
       nextStatus: input.nextStatus,
       cancellationReason:
-        input.nextStatus === "cancelled" ? input.cancellationReason?.trim() : null
+        input.nextStatus === "cancelled" ? input.cancellationReason?.trim() : null,
+      rejectionReason:
+        input.nextStatus === "rejected" ? input.rejectionReason?.trim() : null
     });
 
     if (!updated) {
@@ -348,7 +368,139 @@ export class BookingService {
       });
     }
 
+    if (input.nextStatus === "rejected") {
+      const recipient = updated.clientEmail ?? updated.clientPhoneE164;
+      await this.notificationRepository.enqueue({
+        tenantId: input.tenantId,
+        bookingId: updated.id,
+        notificationType: "booking_rejected_client",
+        channel: this.resolveClientChannel(updated.source),
+        recipient,
+        idempotencyKey: `${updated.id}:booking_rejected_client`
+      });
+    }
+
     return updated;
+  }
+
+  async applyPublicAdminAction(input: {
+    tenantId: string;
+    bookingId: string;
+    adminPhoneE164: string;
+    action: "confirm" | "reject";
+    rejectionReason?: string;
+    requestId?: string;
+  }) {
+    const adminPhone = input.adminPhoneE164.trim();
+    try {
+      assertE164(adminPhone);
+    } catch (error) {
+      throw appError("VALIDATION_ERROR", {
+        reason: "admin_phone_invalid",
+        details: error instanceof Error ? error.message : "invalid_phone"
+      });
+    }
+
+    const tenant = await this.tenantRepository.findById(input.tenantId);
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND");
+    }
+    const allowedPhones = new Set(
+      [tenant.adminNotificationWhatsappE164, tenant.operatorWhatsappE164]
+        .filter(Boolean)
+        .map((phone) => String(phone).trim())
+    );
+    if (!allowedPhones.has(adminPhone)) {
+      throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_not_authorized" });
+    }
+    if (input.action === "reject" && !input.rejectionReason?.trim()) {
+      throw appError("VALIDATION_ERROR", { reason: "rejection_reason_required" });
+    }
+
+    const current = await this.bookingRepository.findById(input.tenantId, input.bookingId);
+    if (!current) {
+      throw appError("TENANT_NOT_FOUND", { reason: "booking_not_found_in_tenant" });
+    }
+    if (current.status !== "pending") {
+      return {
+        bookingId: current.id,
+        status: current.status,
+        applied: false as const
+      };
+    }
+
+    const nextStatus: BookingStatus = input.action === "confirm" ? "confirmed" : "rejected";
+    const updated = await this.bookingRepository.updateStatus({
+      tenantId: input.tenantId,
+      bookingId: input.bookingId,
+      expectedCurrentStatuses: ["pending"],
+      nextStatus,
+      cancellationReason: null,
+      rejectionReason: nextStatus === "rejected" ? input.rejectionReason?.trim() ?? null : null
+    });
+    if (!updated) {
+      const latest = await this.bookingRepository.findById(input.tenantId, input.bookingId);
+      return {
+        bookingId: input.bookingId,
+        status: (latest?.status ?? "pending") as BookingStatus,
+        applied: false as const
+      };
+    }
+
+    await this.auditRepository.create({
+      tenantId: input.tenantId,
+      actorUserId: undefined,
+      action: "booking_status_changed",
+      entity: "booking",
+      entityId: updated.id,
+      meta: {
+        from: "pending",
+        to: nextStatus,
+        requestId: input.requestId,
+        source: "whatsapp_admin_action",
+        adminPhoneE164: adminPhone,
+        rejectionReason: nextStatus === "rejected" ? input.rejectionReason?.trim() ?? null : null
+      }
+    });
+
+    if (nextStatus === "confirmed") {
+      const recipient = updated.clientEmail ?? updated.clientPhoneE164;
+      await this.notificationRepository.enqueue({
+        tenantId: input.tenantId,
+        bookingId: updated.id,
+        notificationType: "booking_confirmed_client",
+        channel: this.resolveClientChannel(updated.source),
+        recipient,
+        idempotencyKey: `${updated.id}:booking_confirmed_client`
+      });
+      const defaultChannel = this.resolveClientChannel(updated.source);
+      if (defaultChannel !== "whatsapp") {
+        await this.notificationRepository.enqueue({
+          tenantId: input.tenantId,
+          bookingId: updated.id,
+          notificationType: "booking_confirmed_client",
+          channel: "whatsapp",
+          recipient: updated.clientPhoneE164,
+          idempotencyKey: `${updated.id}:booking_confirmed_client:whatsapp`
+        });
+      }
+    } else {
+      const recipient = updated.clientEmail ?? updated.clientPhoneE164;
+      await this.notificationRepository.enqueue({
+        tenantId: input.tenantId,
+        bookingId: updated.id,
+        notificationType: "booking_rejected_client",
+        channel: this.resolveClientChannel(updated.source),
+        recipient,
+        idempotencyKey: `${updated.id}:booking_rejected_client`
+      });
+    }
+
+    return {
+      bookingId: updated.id,
+      status: updated.status,
+      applied: true as const
+    };
   }
 
   async cancelPublicBooking(input: {
