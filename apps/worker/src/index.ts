@@ -1,7 +1,8 @@
 import { createServer } from "node:http";
-import { and, asc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
   bookings,
+  channelEndpointsV2,
   createDbClient,
   emailVerificationTokens,
   idempotencyKeys,
@@ -40,6 +41,7 @@ if (redis) {
 const telegramBotToken = process.env.TG_BOT_TOKEN ?? "";
 const waPhoneNumberId = process.env.WA_PHONE_NUMBER_ID ?? "";
 const waAccessToken = process.env.WA_ACCESS_TOKEN ?? "";
+const waAccessTokenByPhoneRaw = process.env.WA_ACCESS_TOKEN_BY_PHONE_JSON ?? "";
 const workerAdminSecret = process.env.WORKER_ADMIN_SECRET ?? "";
 
 let isSweepRunning = false;
@@ -73,6 +75,63 @@ let lastCleanupStats: {
   idempotencyDeleted: 0,
   unverifiedTenantDeleted: 0
 };
+
+function parseWhatsAppAccessTokenMap(raw: string): Map<string, string> {
+  if (!raw.trim()) {
+    return new Map();
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      return new Map();
+    }
+    return new Map(
+      Object.entries(parsed).flatMap(([phoneNumberId, token]) => {
+        if (typeof token !== "string" || !token.trim()) {
+          return [];
+        }
+        return [[phoneNumberId.trim(), token.trim()] as const];
+      })
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+const waAccessTokenByPhone = parseWhatsAppAccessTokenMap(waAccessTokenByPhoneRaw);
+
+async function resolveWhatsAppCredentials(tenantId?: string): Promise<{ phoneNumberId: string; accessToken: string } | null> {
+  if (tenantId && db) {
+    const [endpoint] = await db
+      .select({
+        externalEndpointId: channelEndpointsV2.externalEndpointId
+      })
+      .from(channelEndpointsV2)
+      .where(
+        and(
+          eq(channelEndpointsV2.tenantId, tenantId),
+          eq(channelEndpointsV2.provider, "whatsapp"),
+          eq(channelEndpointsV2.isActive, true),
+          eq(channelEndpointsV2.bindingStatus, "connected")
+        )
+      )
+      .orderBy(desc(channelEndpointsV2.updatedAt))
+      .limit(1);
+
+    const routedPhoneNumberId = endpoint?.externalEndpointId?.trim();
+    if (routedPhoneNumberId) {
+      const routedToken = waAccessTokenByPhone.get(routedPhoneNumberId) ?? waAccessToken;
+      if (routedToken?.trim()) {
+        return { phoneNumberId: routedPhoneNumberId, accessToken: routedToken.trim() };
+      }
+    }
+  }
+
+  if (waPhoneNumberId && waAccessToken) {
+    return { phoneNumberId: waPhoneNumberId, accessToken: waAccessToken };
+  }
+  return null;
+}
 
 async function pingRedis(): Promise<"ok" | "disabled" | "error"> {
   if (!redis) {
@@ -349,6 +408,7 @@ async function buildBookingDetailsText(input: { bookingId: string; notificationT
 }
 
 async function sendByChannel(input: {
+  tenantId?: string;
   channel: string;
   recipient: string;
   notificationType: string;
@@ -376,15 +436,16 @@ async function sendByChannel(input: {
   }
 
   if (input.channel === "whatsapp") {
-    if (!waPhoneNumberId || !waAccessToken) {
+    const credentials = await resolveWhatsAppCredentials(input.tenantId);
+    if (!credentials) {
       return `wa_mock_${Date.now()}`;
     }
 
-    const response = await fetch(`https://graph.facebook.com/v21.0/${waPhoneNumberId}/messages`, {
+    const response = await fetch(`https://graph.facebook.com/v21.0/${credentials.phoneNumberId}/messages`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${waAccessToken}`
+        authorization: `Bearer ${credentials.accessToken}`
       },
       body: JSON.stringify({
         messaging_product: "whatsapp",
@@ -396,7 +457,12 @@ async function sendByChannel(input: {
 
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
-      throw new Error(`whatsapp_send_failed:${response.status}`);
+      const code = payload && typeof payload === "object" ? (payload as { error?: { code?: number } }).error?.code : null;
+      const message =
+        payload && typeof payload === "object"
+          ? (payload as { error?: { message?: string } }).error?.message
+          : null;
+      throw new Error(`whatsapp_send_failed:${response.status}${code ? `:${code}` : ""}${message ? `:${message}` : ""}`);
     }
 
     const messageId = payload?.messages?.[0]?.id;
@@ -422,6 +488,7 @@ async function runDeliverySweep() {
     const queued = await db
       .select({
         id: notificationDeliveries.id,
+        tenantId: notificationDeliveries.tenantId,
         bookingId: notificationDeliveries.bookingId,
         notificationType: notificationDeliveries.notificationType,
         channel: notificationDeliveries.channel,
@@ -445,6 +512,7 @@ async function runDeliverySweep() {
     for (const item of queued) {
       try {
         const providerMessageId = await sendByChannel({
+          tenantId: item.tenantId,
           channel: item.channel,
           recipient: item.recipient,
           notificationType: item.notificationType,
