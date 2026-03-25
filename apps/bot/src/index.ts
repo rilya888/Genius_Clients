@@ -787,6 +787,9 @@ function normalizeWhatsAppPhone(value: string): string {
 
 function isStructuredControlMessage(value: string) {
   const normalized = value.trim().toLowerCase();
+  const cancelPhrase = /\b(annulla(?:re)?|disdici|elimina)\b(?:\s+\w+){0,2}\s+\b(prenotazione|prenotazioni|appuntamento|appuntamenti)\b/.test(
+    normalized
+  );
   return (
     normalized === "/start" ||
     normalized === "start" ||
@@ -795,7 +798,8 @@ function isStructuredControlMessage(value: string) {
     normalized === "restart" ||
     normalized === "/cancel" ||
     normalized === "cancel" ||
-    normalized === "annulla"
+    normalized === "annulla" ||
+    cancelPhrase
   );
 }
 

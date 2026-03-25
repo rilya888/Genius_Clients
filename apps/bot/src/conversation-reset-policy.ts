@@ -304,7 +304,7 @@ export function detectIntentForReset(text: string): ResetDetectedIntent {
     return "human_handoff";
   }
 
-  if (/\b(cancel|annulla|delete booking|remove booking|cancel booking|annullare)\b/.test(text)) {
+  if (hasCancelResetSignal(text)) {
     return "cancel_booking";
   }
 
@@ -323,6 +323,15 @@ export function detectIntentForReset(text: string): ResetDetectedIntent {
   }
 
   return "unknown";
+}
+
+function hasCancelResetSignal(text: string) {
+  if (/\b(cancel|annulla|delete booking|remove booking|cancel booking|annullare|disdici)\b/.test(text)) {
+    return true;
+  }
+  return /\b(annulla(?:re)?|disdici|elimina)\b(?:\s+\w+){0,2}\s+\b(prenotazione|prenotazioni|appuntamento|appuntamenti)\b/.test(
+    text
+  );
 }
 
 export function toDeterministicIntentToken(intent: ResetDetectedIntent): string | undefined {

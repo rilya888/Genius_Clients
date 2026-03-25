@@ -1946,10 +1946,7 @@ function detectFastPathIntent(text: string, locale: SupportedLocale): AiParseRes
     };
   }
 
-  if (
-    /\b(cancel|cancel booking|cancel appointment|annulla|annullare|disdici|elimina prenotazione)\b/.test(normalized) &&
-    !/[0-9a-f]{8}-/i.test(normalized)
-  ) {
+  if (hasCancelSignal(normalized) && !/[0-9a-f]{8}-/i.test(normalized)) {
     return {
       intent: "cancel_booking",
       confidence: "high",
@@ -2098,7 +2095,7 @@ function normalizeParsedIntentWithHeuristics(parsed: AiParseResult, text: string
       handoffSummary: text.trim().slice(0, 240)
     };
   }
-  const hasCancel = /\b(cancel|cancel booking|cancel appointment|annulla|annullare|disdici|elimina prenotazione)\b/.test(normalized);
+  const hasCancel = hasCancelSignal(normalized);
   const hasReschedule =
     /\b(reschedule|move booking|move appointment|change booking|change appointment|sposta|spostare|riprogramma|cambia prenotazione)\b/.test(
       normalized
@@ -2334,6 +2331,15 @@ function hasBookingSignal(normalizedText: string) {
   );
 }
 
+function hasCancelSignal(normalizedText: string) {
+  if (/\b(cancel|cancel booking|cancel appointment|annulla|annullare|disdici|delete booking|remove booking|elimina prenotazione)\b/.test(normalizedText)) {
+    return true;
+  }
+  return /\b(annulla(?:re)?|disdici|elimina)\b(?:\s+\w+){0,2}\s+\b(prenotazione|prenotazioni|appuntamento|appuntamenti)\b/.test(
+    normalizedText
+  );
+}
+
 function hasComplaintSignal(normalizedText: string) {
   return /\b(complaint|angry|upset|bad service|terrible|ridiculous|frustrat|not happy|disappointed|reclamo|arrabbiat|insoddisfatt|servizio pessimo|pessimo|scandaloso|vergogna)\b/.test(
     normalizedText
@@ -2368,7 +2374,7 @@ export function detectTransportFallbackIntent(text: string, locale: SupportedLoc
     };
   }
 
-  if (/\b(cancel|annulla|disdici)\b/.test(normalized)) {
+  if (hasCancelSignal(normalized)) {
     return {
       intent: "cancel_booking",
       confidence: "medium",

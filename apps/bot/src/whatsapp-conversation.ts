@@ -306,6 +306,15 @@ function normalizeToken(input: ConversationInput): string {
   return input.text?.trim() ?? "";
 }
 
+function isCancelCommandToken(normalizedToken: string) {
+  if (normalizedToken === "/cancel" || normalizedToken === "cancel" || normalizedToken === "annulla") {
+    return true;
+  }
+  return /\b(annulla(?:re)?|disdici|elimina)\b(?:\s+\w+){0,2}\s+\b(prenotazione|prenotazioni|appuntamento|appuntamenti)\b/.test(
+    normalizedToken
+  );
+}
+
 function formatDateLabel(dateIso: string, locale: SupportedLocale, timezone: string): string {
   return new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-GB", {
     weekday: "short",
@@ -1520,7 +1529,7 @@ export async function processWhatsAppConversation(
       }
   }
 
-  if (normalizedToken === "/cancel" || normalizedToken === "cancel" || normalizedToken === "annulla") {
+  if (isCancelCommandToken(normalizedToken)) {
     session.intent = "cancel_booking";
     session.state = "cancel_wait_booking_id";
     session.bookingPage = 0;
