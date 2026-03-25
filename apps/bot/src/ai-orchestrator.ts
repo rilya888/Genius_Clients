@@ -2009,7 +2009,7 @@ function detectFastPathIntent(text: string, locale: SupportedLocale): AiParseRes
     };
   }
 
-  if (isCatalogOnlyQuery(normalized) && !hasBookingSignals) {
+  if (hasCatalogSignal(normalized) && !hasBookingSignals) {
     return {
       intent: "catalog",
       confidence: "high",
@@ -2101,6 +2101,7 @@ function normalizeParsedIntentWithHeuristics(parsed: AiParseResult, text: string
       normalized
     );
   const hasBookingList = hasBookingListSignal(normalized);
+  const hasCatalog = hasCatalogSignal(normalized);
   const extractedDate = parsed.dateText ?? extractFastDateText(normalized);
   const extractedTime = parsed.timeText ?? extractFastTimeText(normalized);
   const bookingSignal = hasBookingSignal(normalized);
@@ -2149,6 +2150,15 @@ function normalizeParsedIntentWithHeuristics(parsed: AiParseResult, text: string
     };
   }
 
+  if (hasCatalog && !hasCancel && !hasReschedule && !bookingSignal && !extractedDate && !extractedTime) {
+    return {
+      ...parsed,
+      intent: "catalog",
+      confidence: parsed.confidence === "low" ? "medium" : "high",
+      replyText: locale === "it" ? "Ecco i servizi disponibili." : "Here are the available services."
+    };
+  }
+
   if (
     parsed.intent === "catalog" &&
     (bookingSignal || Boolean(extractedDate) || Boolean(extractedTime) || Boolean(parsed.masterQuery) || Boolean(parsed.serviceQuery))
@@ -2163,7 +2173,7 @@ function normalizeParsedIntentWithHeuristics(parsed: AiParseResult, text: string
     };
   }
 
-  if (parsed.intent === "catalog" && !isCatalogOnlyQuery(normalized)) {
+  if (parsed.intent === "catalog" && !hasCatalog) {
     return {
       ...parsed,
       intent: bookingSignal || extractedDate || extractedTime ? "new_booking" : "unknown",
@@ -2193,6 +2203,14 @@ function normalizeParsedIntentWithHeuristics(parsed: AiParseResult, text: string
         dateText: extractedDate,
         timeText: extractedTime,
         replyText: locale === "it" ? "Perfetto, troviamo uno slot." : "Great, let's find an available slot."
+      };
+    }
+    if (hasCatalog && !hasCancel && !hasReschedule) {
+      return {
+        ...parsed,
+        intent: "catalog",
+        confidence: "medium",
+        replyText: locale === "it" ? "Ecco i servizi disponibili." : "Here are the available services."
       };
     }
   }
@@ -2352,9 +2370,13 @@ function hasBookingListSignal(normalizedText: string) {
   );
 }
 
-function isCatalogOnlyQuery(normalizedText: string) {
-  return /^(what services( do you have)?|show( me)? (services|catalog)|services|service list|catalog|servizi|elenco servizi|catalogo|quali servizi|quali servizi avete|che servizi avete)\??$/.test(
-    normalizedText
+function hasCatalogSignal(normalizedText: string) {
+  const compact = normalizedText.replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return false;
+  }
+  return /\b(services?|catalog|service list|show(?: me)? services?|show(?: me)? catalog|servizi|elenco servizi|lista servizi|catalogo|servizi disponibili|quali servizi(?: avete)?|che servizi(?: avete)?|mostra(?:mi)?(?: i)? servizi|fammi vedere(?: i)? servizi)\b/.test(
+    compact
   );
 }
 
@@ -2388,7 +2410,7 @@ export function detectTransportFallbackIntent(text: string, locale: SupportedLoc
       replyText: locale === "it" ? "Procediamo con lo spostamento." : "Let's continue with rescheduling."
     };
   }
-  if (isCatalogOnlyQuery(normalized)) {
+  if (hasCatalogSignal(normalized)) {
     return {
       intent: "catalog",
       confidence: "medium"
