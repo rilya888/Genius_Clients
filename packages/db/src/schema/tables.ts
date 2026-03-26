@@ -477,6 +477,12 @@ export const notificationDeliveries = pgTable(
     deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
     errorCode: varchar("error_code", { length: 64 }),
     errorMessage: text("error_message"),
+    waDeliveryMode: varchar("wa_delivery_mode", { length: 16 }),
+    waTemplateName: varchar("wa_template_name", { length: 140 }),
+    waTemplateLang: varchar("wa_template_lang", { length: 16 }),
+    waWindowCheckedAt: timestamp("wa_window_checked_at", { withTimezone: true }),
+    waWindowOpen: boolean("wa_window_open"),
+    waPolicyReason: varchar("wa_policy_reason", { length: 80 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
@@ -485,6 +491,30 @@ export const notificationDeliveries = pgTable(
     unique("uq_notification_delivery_idempotency").on(t.tenantId, t.idempotencyKey),
     index("idx_notification_delivery_tenant_created").on(t.tenantId, t.createdAt),
     index("idx_notification_delivery_dispatch").on(t.status, t.nextAttemptAt, t.createdAt)
+  ]
+);
+
+export const whatsappContactWindows = pgTable(
+  "whatsapp_contact_windows",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    senderPhoneNumberId: varchar("sender_phone_number_id", { length: 80 }).notNull(),
+    recipientE164: varchar("recipient_e164", { length: 32 }).notNull(),
+    lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }).notNull(),
+    lastKnownLocale: varchar("last_known_locale", { length: 5 }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [
+    unique("uq_wa_contact_window_tenant_sender_recipient").on(
+      t.tenantId,
+      t.senderPhoneNumberId,
+      t.recipientE164
+    ),
+    index("idx_wa_contact_window_lookup").on(t.tenantId, t.senderPhoneNumberId, t.recipientE164),
+    index("idx_wa_contact_window_inbound").on(t.lastInboundAt)
   ]
 );
 
@@ -511,6 +541,15 @@ export const channelEndpointsV2 = pgTable(
     businessId: varchar("business_id", { length: 64 }),
     tokenSource: varchar("token_source", { length: 24 }).notNull().default("unknown"),
     templateStatus: varchar("template_status", { length: 24 }).notNull().default("unknown"),
+    bookingCreatedAdminTemplateName: varchar("booking_created_admin_template_name", {
+      length: 140
+    }),
+    bookingReminder24hTemplateName: varchar("booking_reminder_24h_template_name", {
+      length: 140
+    }),
+    bookingReminder2hTemplateName: varchar("booking_reminder_2h_template_name", {
+      length: 140
+    }),
     profileStatus: varchar("profile_status", { length: 24 }).notNull().default("unknown"),
     qualityRating: varchar("quality_rating", { length: 32 }),
     metaStatus: varchar("meta_status", { length: 32 }),

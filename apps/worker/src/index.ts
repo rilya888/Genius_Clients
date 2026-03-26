@@ -11,7 +11,8 @@ import {
   passwordResetTokens,
   refreshTokens,
   services,
-  tenants
+  tenants,
+  whatsappContactWindows
 } from "@genius/db";
 import { captureException, createBookingActionToken } from "@genius/shared";
 import Redis from "ioredis";
@@ -45,6 +46,11 @@ const waAccessToken = process.env.WA_ACCESS_TOKEN ?? "";
 const waAccessTokenByPhoneRaw = process.env.WA_ACCESS_TOKEN_BY_PHONE_JSON ?? "";
 const waActionTokenSecret = process.env.WA_ACTION_TOKEN_SECRET ?? "";
 const waAdminActionTtlHours = Math.max(1, Number.parseInt(process.env.WA_ADMIN_ACTION_TTL_HOURS ?? "24", 10) || 24);
+const waTemplateBookingCreatedAdminGlobal = process.env.WA_TEMPLATE_BOOKING_CREATED_ADMIN?.trim() ?? "";
+const waTemplateReminder24hGlobal = process.env.WA_TEMPLATE_BOOKING_REMINDER_24H?.trim() ?? "";
+const waTemplateReminder2hGlobal = process.env.WA_TEMPLATE_BOOKING_REMINDER_2H?.trim() ?? "";
+const waTemplateLangIt = process.env.WA_TEMPLATE_LANG_IT?.trim() || "it";
+const waTemplateLangEn = process.env.WA_TEMPLATE_LANG_EN?.trim() || "en";
 const workerAdminSecret = process.env.WORKER_ADMIN_SECRET ?? "";
 
 let isSweepRunning = false;
@@ -134,6 +140,114 @@ async function resolveWhatsAppCredentials(tenantId?: string): Promise<{ phoneNum
     return { phoneNumberId: waPhoneNumberId, accessToken: waAccessToken };
   }
   return null;
+}
+
+type WhatsAppWindowPolicy = {
+  mode: "session" | "template";
+  templateName: string | null;
+  templateLang: string;
+  windowOpen: boolean;
+  reason: "window_open" | "window_expired" | "no_window_record";
+  checkedAt: Date;
+};
+
+function toTemplateLang(locale: string | null | undefined) {
+  return locale === "en" ? waTemplateLangEn : waTemplateLangIt;
+}
+
+async function resolveTenantTemplateConfig(input: { tenantId: string }) {
+  if (!db) {
+    return {
+      bookingCreatedAdminTemplateName: null,
+      bookingReminder24hTemplateName: null,
+      bookingReminder2hTemplateName: null
+    };
+  }
+  const [endpoint] = await db
+    .select({
+      bookingCreatedAdminTemplateName: channelEndpointsV2.bookingCreatedAdminTemplateName,
+      bookingReminder24hTemplateName: channelEndpointsV2.bookingReminder24hTemplateName,
+      bookingReminder2hTemplateName: channelEndpointsV2.bookingReminder2hTemplateName
+    })
+    .from(channelEndpointsV2)
+    .where(
+      and(
+        eq(channelEndpointsV2.tenantId, input.tenantId),
+        eq(channelEndpointsV2.provider, "whatsapp"),
+        eq(channelEndpointsV2.isActive, true),
+        eq(channelEndpointsV2.bindingStatus, "connected")
+      )
+    )
+    .orderBy(desc(channelEndpointsV2.updatedAt))
+    .limit(1);
+  return {
+    bookingCreatedAdminTemplateName: endpoint?.bookingCreatedAdminTemplateName?.trim() || null,
+    bookingReminder24hTemplateName: endpoint?.bookingReminder24hTemplateName?.trim() || null,
+    bookingReminder2hTemplateName: endpoint?.bookingReminder2hTemplateName?.trim() || null
+  };
+}
+
+async function resolveWhatsAppWindowPolicy(input: {
+  tenantId: string;
+  senderPhoneNumberId: string;
+  recipientE164: string;
+  notificationType: string;
+  fallbackLocale?: string | null;
+}): Promise<WhatsAppWindowPolicy> {
+  const checkedAt = new Date();
+  let lastInboundAt: Date | null = null;
+  let lastKnownLocale: string | null = null;
+
+  if (db) {
+    const [windowRow] = await db
+      .select({
+        lastInboundAt: whatsappContactWindows.lastInboundAt,
+        lastKnownLocale: whatsappContactWindows.lastKnownLocale
+      })
+      .from(whatsappContactWindows)
+      .where(
+        and(
+          eq(whatsappContactWindows.tenantId, input.tenantId),
+          eq(whatsappContactWindows.senderPhoneNumberId, input.senderPhoneNumberId),
+          eq(whatsappContactWindows.recipientE164, input.recipientE164)
+        )
+      )
+      .limit(1);
+    lastInboundAt = windowRow?.lastInboundAt ?? null;
+    lastKnownLocale = windowRow?.lastKnownLocale ?? null;
+  }
+
+  const twentyFourHoursAgo = new Date(checkedAt.getTime() - 24 * 60 * 60 * 1000);
+  const isWindowOpen = !!(lastInboundAt && lastInboundAt >= twentyFourHoursAgo);
+  if (isWindowOpen) {
+    return {
+      mode: "session",
+      templateName: null,
+      templateLang: toTemplateLang(lastKnownLocale ?? input.fallbackLocale),
+      windowOpen: true,
+      reason: "window_open",
+      checkedAt
+    };
+  }
+
+  const templates = await resolveTenantTemplateConfig({ tenantId: input.tenantId });
+  let templateName: string | null = null;
+  if (input.notificationType === "booking_created_admin") {
+    templateName = templates.bookingCreatedAdminTemplateName ?? waTemplateBookingCreatedAdminGlobal;
+  } else if (input.notificationType === "booking_reminder_24h") {
+    templateName = templates.bookingReminder24hTemplateName ?? waTemplateReminder24hGlobal;
+  } else if (input.notificationType === "booking_reminder_2h") {
+    templateName = templates.bookingReminder2hTemplateName ?? waTemplateReminder2hGlobal;
+  }
+
+  return {
+    mode: "template",
+    templateName: templateName?.trim() || null,
+    templateLang: toTemplateLang(lastKnownLocale ?? input.fallbackLocale),
+    windowOpen: false,
+    reason: lastInboundAt ? "window_expired" : "no_window_record",
+    checkedAt
+  };
 }
 
 async function pingRedis(): Promise<"ok" | "disabled" | "error"> {
@@ -496,6 +610,40 @@ async function buildAdminApprovalPayload(input: { bookingId: string; recipient: 
   };
 }
 
+async function resolvePolicyFallbackLocale(input: {
+  bookingId: string | null;
+  notificationType: string;
+}): Promise<"it" | "en" | null> {
+  if (!db || !input.bookingId) {
+    return null;
+  }
+  if (
+    input.notificationType === "booking_reminder_24h" ||
+    input.notificationType === "booking_reminder_2h" ||
+    input.notificationType === "booking_confirmed_client" ||
+    input.notificationType === "booking_cancelled" ||
+    input.notificationType === "booking_completed_client" ||
+    input.notificationType === "booking_rejected_client"
+  ) {
+    const [row] = await db
+      .select({ clientLocale: bookings.clientLocale })
+      .from(bookings)
+      .where(eq(bookings.id, input.bookingId))
+      .limit(1);
+    return row?.clientLocale === "en" ? "en" : "it";
+  }
+  if (input.notificationType === "booking_created_admin") {
+    const [row] = await db
+      .select({ tenantLocale: tenants.defaultLocale })
+      .from(bookings)
+      .innerJoin(tenants, eq(tenants.id, bookings.tenantId))
+      .where(eq(bookings.id, input.bookingId))
+      .limit(1);
+    return row?.tenantLocale === "en" ? "en" : "it";
+  }
+  return null;
+}
+
 async function sendByChannel(input: {
   tenantId?: string;
   channel: string;
@@ -524,13 +672,38 @@ async function sendByChannel(input: {
   const text = detailedText ?? textByType[input.notificationType] ?? `[${input.notificationType}]`;
 
   if (input.channel === "telegram") {
-    return sendTelegramMessage({ chatId: input.recipient, text });
+    const providerMessageId = await sendTelegramMessage({ chatId: input.recipient, text });
+    return { providerMessageId };
   }
 
   if (input.channel === "whatsapp") {
     const credentials = await resolveWhatsAppCredentials(input.tenantId);
     if (!credentials) {
-      return `wa_mock_${Date.now()}`;
+      return { providerMessageId: `wa_mock_${Date.now()}` };
+    }
+
+    const shouldApplyWindowPolicy =
+      input.notificationType === "booking_created_admin" ||
+      input.notificationType === "booking_reminder_24h" ||
+      input.notificationType === "booking_reminder_2h";
+    const fallbackLocale = await resolvePolicyFallbackLocale({
+      bookingId: input.bookingId,
+      notificationType: input.notificationType
+    });
+    const windowPolicy =
+      shouldApplyWindowPolicy && input.tenantId
+        ? await resolveWhatsAppWindowPolicy({
+            tenantId: input.tenantId,
+            senderPhoneNumberId: credentials.phoneNumberId,
+            recipientE164: input.recipient,
+            notificationType: input.notificationType,
+            fallbackLocale
+          })
+        : null;
+    const activeDeliveryMode = windowPolicy?.mode ?? "session";
+
+    if (windowPolicy?.mode === "template" && !windowPolicy.templateName) {
+      throw new Error(`whatsapp_template_missing:${input.notificationType}`);
     }
 
     if (input.notificationType === "booking_created_admin" && input.bookingId) {
@@ -542,42 +715,72 @@ async function sendByChannel(input: {
         console.log("[worker][whatsapp-admin-cta] sending", {
           tenantId: input.tenantId,
           bookingId: input.bookingId,
-          recipient: input.recipient
+          recipient: input.recipient,
+          mode: activeDeliveryMode
         });
-        const response = await fetch(`https://graph.facebook.com/v21.0/${credentials.phoneNumberId}/messages`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${credentials.accessToken}`
-          },
-          body: JSON.stringify({
-            messaging_product: "whatsapp",
-            to: input.recipient,
-            type: "interactive",
-            interactive: {
-              type: "button",
-              body: { text: approvalPayload.text.slice(0, 1024) },
-              action: {
-                buttons: [
-                  {
-                    type: "reply",
-                    reply: {
-                      id: `cta:${approvalPayload.confirmToken}`,
-                      title: approvalPayload.locale === "it" ? "Conferma" : "Confirm"
-                    }
-                  },
-                  {
-                    type: "reply",
-                    reply: {
-                      id: `cta:${approvalPayload.rejectToken}`,
-                      title: approvalPayload.locale === "it" ? "Rifiuta" : "Reject"
+        const response = await fetch(
+          `https://graph.facebook.com/v21.0/${credentials.phoneNumberId}/messages`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${credentials.accessToken}`
+            },
+            body: JSON.stringify(
+              activeDeliveryMode === "template"
+                ? {
+                    messaging_product: "whatsapp",
+                    to: input.recipient,
+                    type: "template",
+                    template: {
+                      name: windowPolicy!.templateName,
+                      language: { code: windowPolicy!.templateLang },
+                      components: [
+                        {
+                          type: "button",
+                          sub_type: "quick_reply",
+                          index: "0",
+                          parameters: [{ type: "payload", payload: `cta:${approvalPayload.confirmToken}` }]
+                        },
+                        {
+                          type: "button",
+                          sub_type: "quick_reply",
+                          index: "1",
+                          parameters: [{ type: "payload", payload: `cta:${approvalPayload.rejectToken}` }]
+                        }
+                      ]
                     }
                   }
-                ]
-              }
-            }
-          })
-        });
+                : {
+                    messaging_product: "whatsapp",
+                    to: input.recipient,
+                    type: "interactive",
+                    interactive: {
+                      type: "button",
+                      body: { text: approvalPayload.text.slice(0, 1024) },
+                      action: {
+                        buttons: [
+                          {
+                            type: "reply",
+                            reply: {
+                              id: `cta:${approvalPayload.confirmToken}`,
+                              title: approvalPayload.locale === "it" ? "Conferma" : "Confirm"
+                            }
+                          },
+                          {
+                            type: "reply",
+                            reply: {
+                              id: `cta:${approvalPayload.rejectToken}`,
+                              title: approvalPayload.locale === "it" ? "Rifiuta" : "Reject"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+            )
+          }
+        );
 
         const payload = await response.json().catch(() => null);
         if (!response.ok) {
@@ -594,10 +797,62 @@ async function sendByChannel(input: {
           tenantId: input.tenantId,
           bookingId: input.bookingId,
           recipient: input.recipient,
-          providerMessageId: messageId ?? null
+          providerMessageId: messageId ?? null,
+          mode: activeDeliveryMode
         });
-        return String(messageId ?? `wa_sent_${Date.now()}`);
+        return {
+          providerMessageId: String(messageId ?? `wa_sent_${Date.now()}`),
+          waDeliveryMode: activeDeliveryMode,
+          waTemplateName: activeDeliveryMode === "template" ? windowPolicy?.templateName ?? null : null,
+          waTemplateLang: activeDeliveryMode === "template" ? windowPolicy?.templateLang ?? null : null,
+          waWindowCheckedAt: windowPolicy?.checkedAt ?? null,
+          waWindowOpen: windowPolicy?.windowOpen ?? null,
+          waPolicyReason: windowPolicy?.reason ?? null
+        };
       }
+    }
+
+    if (
+      activeDeliveryMode === "template" &&
+      (input.notificationType === "booking_reminder_24h" || input.notificationType === "booking_reminder_2h")
+    ) {
+      const response = await fetch(`https://graph.facebook.com/v21.0/${credentials.phoneNumberId}/messages`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${credentials.accessToken}`
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: input.recipient,
+          type: "template",
+          template: {
+            name: windowPolicy!.templateName,
+            language: { code: windowPolicy!.templateLang }
+          }
+        })
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        const code = payload && typeof payload === "object" ? (payload as { error?: { code?: number } }).error?.code : null;
+        const message =
+          payload && typeof payload === "object"
+            ? (payload as { error?: { message?: string } }).error?.message
+            : null;
+        throw new Error(`whatsapp_send_failed:${response.status}${code ? `:${code}` : ""}${message ? `:${message}` : ""}`);
+      }
+
+      const messageId = payload?.messages?.[0]?.id;
+      return {
+        providerMessageId: String(messageId ?? `wa_sent_${Date.now()}`),
+        waDeliveryMode: "template" as const,
+        waTemplateName: windowPolicy?.templateName ?? null,
+        waTemplateLang: windowPolicy?.templateLang ?? null,
+        waWindowCheckedAt: windowPolicy?.checkedAt ?? null,
+        waWindowOpen: windowPolicy?.windowOpen ?? null,
+        waPolicyReason: windowPolicy?.reason ?? null
+      };
     }
 
     const response = await fetch(`https://graph.facebook.com/v21.0/${credentials.phoneNumberId}/messages`, {
@@ -625,12 +880,20 @@ async function sendByChannel(input: {
     }
 
     const messageId = payload?.messages?.[0]?.id;
-    return String(messageId ?? `wa_sent_${Date.now()}`);
+    return {
+      providerMessageId: String(messageId ?? `wa_sent_${Date.now()}`),
+      waDeliveryMode: "session" as const,
+      waTemplateName: null,
+      waTemplateLang: null,
+      waWindowCheckedAt: windowPolicy?.checkedAt ?? null,
+      waWindowOpen: windowPolicy?.windowOpen ?? null,
+      waPolicyReason: windowPolicy?.reason ?? null
+    };
   }
 
   // Email provider is not integrated yet; log-based baseline for delivery pipeline.
   console.log("[worker] email send simulated", { recipient: input.recipient, text });
-  return `email_mock_${Date.now()}`;
+  return { providerMessageId: `email_mock_${Date.now()}` };
 }
 
 async function runDeliverySweep() {
@@ -670,7 +933,7 @@ async function runDeliverySweep() {
 
     for (const item of queued) {
       try {
-        const providerMessageId = await sendByChannel({
+        const deliveryResult = await sendByChannel({
           tenantId: item.tenantId,
           channel: item.channel,
           recipient: item.recipient,
@@ -682,14 +945,20 @@ async function runDeliverySweep() {
           .update(notificationDeliveries)
           .set({
             status: "sent",
-            providerMessageId,
+            providerMessageId: deliveryResult.providerMessageId,
             nextAttemptAt: null,
             deadLetteredAt: null,
             lastAttemptAt: new Date(),
             sentAt: new Date(),
             updatedAt: new Date(),
             errorCode: null,
-            errorMessage: null
+            errorMessage: null,
+            waDeliveryMode: deliveryResult.waDeliveryMode ?? null,
+            waTemplateName: deliveryResult.waTemplateName ?? null,
+            waTemplateLang: deliveryResult.waTemplateLang ?? null,
+            waWindowCheckedAt: deliveryResult.waWindowCheckedAt ?? null,
+            waWindowOpen: deliveryResult.waWindowOpen ?? null,
+            waPolicyReason: deliveryResult.waPolicyReason ?? null
           })
           .where(eq(notificationDeliveries.id, item.id));
         sent += 1;

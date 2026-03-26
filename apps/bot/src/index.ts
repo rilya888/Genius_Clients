@@ -1278,6 +1278,37 @@ function buildInternalHeaders(
   return headers;
 }
 
+async function touchWhatsAppWindowFromInbound(input: {
+  routeContext: BotRoutingContext | null;
+  senderPhoneNumberId?: string;
+  recipientE164: string;
+  locale: SupportedLocale;
+}) {
+  if (!apiUrl || !internalApiSecret || !input.routeContext) {
+    return;
+  }
+  if (!input.senderPhoneNumberId?.trim()) {
+    return;
+  }
+  try {
+    await fetchWithApiRetry(`${apiUrl}/api/v1/public/whatsapp/window-touch`, {
+      method: "POST",
+      headers: buildInternalHeaders(input.routeContext),
+      body: JSON.stringify({
+        senderPhoneNumberId: input.senderPhoneNumberId.trim(),
+        recipientE164: input.recipientE164,
+        locale: input.locale
+      })
+    });
+  } catch (error) {
+    console.warn("[bot] whatsapp window touch failed", {
+      recipient: maskPhone(input.recipientE164),
+      senderPhoneNumberId: input.senderPhoneNumberId?.trim() ?? null,
+      error: toLogError(error)
+    });
+  }
+}
+
 function getSessionKey(phone: string, routeContext: BotRoutingContext | null = getLegacyRouteContext()) {
   if (!routeContext) {
     return `wa:session:unknown:${phone}`;
@@ -3392,6 +3423,12 @@ app.post("/webhooks/whatsapp", async (c) => {
         });
         continue;
       }
+      await touchWhatsAppWindowFromInbound({
+        routeContext,
+        senderPhoneNumberId: item.phoneNumberId,
+        recipientE164: item.from,
+        locale: item.locale
+      });
       const lock = await acquireSessionProcessingLock({
         phone: item.from,
         routeContext

@@ -1,14 +1,16 @@
 import { Hono } from "hono";
+import { assertE164 } from "@genius/shared";
 import type { ApiAppEnv } from "../../lib/hono-env";
 import { appError } from "../../lib/http";
 import { getApiEnv } from "../../lib/env";
 import { BookingService, CatalogService, SlotService } from "../../services";
-import { TenantRepository } from "../../repositories";
+import { TenantRepository, WhatsAppWindowRepository } from "../../repositories";
 
 const catalogService = new CatalogService();
 const slotService = new SlotService();
 const bookingService = new BookingService();
 const tenantRepository = new TenantRepository();
+const whatsappWindowRepository = new WhatsAppWindowRepository();
 
 export const publicRoutes = new Hono<ApiAppEnv>()
   .get("/tenants/:slug", async (c) => {
@@ -71,6 +73,48 @@ export const publicRoutes = new Hono<ApiAppEnv>()
         diagnostics: result.diagnostics
       }
     });
+  })
+  .post("/whatsapp/window-touch", async (c) => {
+    const internalSecret = c.req.header("x-internal-secret");
+    if (!internalSecret || internalSecret !== getApiEnv().internalApiSecret) {
+      throw appError("AUTH_FORBIDDEN", { reason: "internal_secret_required" });
+    }
+
+    const body = await c.req.json<{
+      senderPhoneNumberId?: string;
+      recipientE164?: string;
+      locale?: "it" | "en";
+      inboundAtIso?: string;
+    }>();
+    if (!body.senderPhoneNumberId || !body.recipientE164) {
+      throw appError("VALIDATION_ERROR", { required: ["senderPhoneNumberId", "recipientE164"] });
+    }
+    try {
+      assertE164(body.recipientE164);
+    } catch (error) {
+      throw appError("VALIDATION_ERROR", {
+        reason: "recipient_phone_invalid",
+        details: error instanceof Error ? error.message : "invalid_phone"
+      });
+    }
+    let inboundAt = new Date();
+    if (body.inboundAtIso) {
+      inboundAt = new Date(body.inboundAtIso);
+      if (Number.isNaN(inboundAt.getTime())) {
+        throw appError("VALIDATION_ERROR", { reason: "inboundAtIso_invalid" });
+      }
+    }
+
+    const tenantId = c.get("tenantId");
+    const data = await whatsappWindowRepository.touchInbound({
+      tenantId,
+      senderPhoneNumberId: body.senderPhoneNumberId.trim(),
+      recipientE164: body.recipientE164.trim(),
+      locale: body.locale,
+      inboundAt
+    });
+
+    return c.json({ data: { id: data?.id ?? null } });
   })
   .post("/bookings", async (c) => {
     const body = await c.req.json<{

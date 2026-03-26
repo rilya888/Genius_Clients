@@ -11,3 +11,4 @@ export * from "./webhook-repository";
 export * from "./notification-repository";
 export * from "./stripe-repository";
 export * from "./billing-repository";
+export * from "./whatsapp-window-repository";
