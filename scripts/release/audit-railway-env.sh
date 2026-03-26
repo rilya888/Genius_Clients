@@ -2,19 +2,26 @@
 set -euo pipefail
 
 ENVIRONMENT="${1:-production}"
+MVP_CHANNEL_MODE="${MVP_CHANNEL_MODE:-whatsapp_only}"
 SERVICES=("web" "api" "bot" "worker")
 
 required_web=("API_URL" "INTERNAL_API_SECRET")
 recommended_web=("APP_ROOT_DOMAIN" "SESSION_COOKIE_DOMAIN")
 
 required_api=("DATABASE_URL" "AUTH_TOKEN_SECRET" "INTERNAL_API_SECRET")
-recommended_api=("REDIS_URL" "STRIPE_SECRET_KEY" "STRIPE_WEBHOOK_SECRET" "WA_VERIFY_TOKEN" "WA_WEBHOOK_SECRET" "TG_WEBHOOK_SECRET_TOKEN")
+recommended_api=("REDIS_URL" "STRIPE_SECRET_KEY" "STRIPE_WEBHOOK_SECRET" "WA_VERIFY_TOKEN" "WA_WEBHOOK_SECRET")
 
 required_bot=("API_URL" "INTERNAL_API_SECRET")
-recommended_bot=("REDIS_URL" "BOT_TENANT_SLUG" "OPENAI_API_KEY" "TG_BOT_TOKEN" "WA_ACCESS_TOKEN" "WA_PHONE_NUMBER_ID" "WA_VERIFY_TOKEN" "WA_WEBHOOK_SECRET")
+recommended_bot=("REDIS_URL" "BOT_TENANT_SLUG" "OPENAI_API_KEY" "WA_ACCESS_TOKEN" "WA_PHONE_NUMBER_ID" "WA_VERIFY_TOKEN" "WA_WEBHOOK_SECRET")
 
 required_worker=("DATABASE_URL" "WORKER_ADMIN_SECRET")
-recommended_worker=("REDIS_URL" "TG_BOT_TOKEN" "WA_ACCESS_TOKEN" "WA_PHONE_NUMBER_ID")
+recommended_worker=("REDIS_URL" "WA_ACCESS_TOKEN" "WA_PHONE_NUMBER_ID")
+
+if [[ "$MVP_CHANNEL_MODE" != "whatsapp_only" ]]; then
+  recommended_api+=("TG_WEBHOOK_SECRET_TOKEN")
+  recommended_bot+=("TG_BOT_TOKEN")
+  recommended_worker+=("TG_BOT_TOKEN")
+fi
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "jq is required but not installed." >&2
@@ -69,6 +76,7 @@ check_group() {
 
 echo "Railway env audit"
 echo "Environment: ${ENVIRONMENT}"
+echo "MVP channel mode: ${MVP_CHANNEL_MODE}"
 echo
 
 for service in "${SERVICES[@]}"; do

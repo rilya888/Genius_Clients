@@ -2,7 +2,7 @@
 
 ## 1. Quality gates
 
-- Run `pnpm predeploy:env` with production-like secrets loaded.
+- Run `MVP_CHANNEL_MODE=whatsapp_only pnpm predeploy:env` with production-like secrets loaded.
 - Run `pnpm predeploy:quality`.
 - Ensure `pnpm test` is green.
 
@@ -15,14 +15,23 @@
 ## 3. Runtime config
 
 - Confirm required env vars are set for `web`, `api`, `bot`, `worker`.
-- Run `pnpm railway:audit-env` and ensure `missing required: 0`.
-- Validate `WA/TG/Stripe` webhook secrets are current.
+- Run `MVP_CHANNEL_MODE=whatsapp_only pnpm railway:audit-env` and ensure `missing required: 0`.
+- Validate `WA/Stripe` webhook secrets are current.
 - Validate `WORKER_ADMIN_SECRET` and token TTL settings.
+- For WhatsApp window-policy, verify:
+  - `WA_TEMPLATE_BOOKING_CREATED_ADMIN`
+  - `WA_TEMPLATE_BOOKING_REMINDER_24H`
+  - `WA_TEMPLATE_BOOKING_REMINDER_2H`
+  - `WA_TEMPLATE_LANG_IT`
+  - `WA_TEMPLATE_LANG_EN`
 
 ## 4. Smoke validation
 
 - Run `pnpm smoke:local` against running services.
 - Run `pnpm smoke:production`.
+- Run `pnpm smoke:observability`.
+- Run unified prod gates:
+  - `SMOKE_SUPER_ADMIN_SECRET=... SMOKE_TENANT_SLUG=alex-salon pnpm release:mvp:gates`
 - For `web-vite` auth/admin stability releases, run strict SPA gates:
   - `RELEASE_REQUIRE_AUTH_SMOKE=1 SMOKE_AUTH_AUTOREGISTER=1 SMOKE_API_URL=https://api-production-9caa.up.railway.app pnpm release:spa:gates`
 - If Stripe secrets are configured, run webhook idempotency smoke:
@@ -46,3 +55,5 @@
 - No unresolved schema drift.
 - Rollback plan confirmed.
 - `web` production deploy path is GitHub -> `deploy/web` branch trigger in Railway (no CLI snapshot deploy).
+- WhatsApp-only MVP mode is explicitly set and validated:
+  - `MVP_CHANNEL_MODE=whatsapp_only`
