@@ -35,6 +35,20 @@ function getTimezoneOffsetMs(at: Date, timezone: string): number {
   return sign * (Math.abs(hours) * 60 + minutes) * 60 * 1000;
 }
 
+function resolveSafeTimezone(input: string | null | undefined): string {
+  const fallback = "Europe/Rome";
+  const candidate = (input ?? "").trim();
+  if (!candidate) {
+    return fallback;
+  }
+  try {
+    new Intl.DateTimeFormat("en-GB", { timeZone: candidate }).format(new Date());
+    return candidate;
+  } catch {
+    return fallback;
+  }
+}
+
 function getUtcDateForTenantMidnight(
   dateParts: { year: number; month: number; day: number },
   timezone: string
@@ -227,7 +241,7 @@ export const publicRoutes = new Hono<ApiAppEnv>()
     const limitRaw = Number.isFinite(body.limit) ? Math.trunc(body.limit as number) : 10;
     const limit = Math.min(Math.max(limitRaw, 1), 50);
     const now = new Date();
-    const timezone = tenant.timezone || "Europe/Rome";
+    const timezone = resolveSafeTimezone(tenant.timezone);
 
     let fromIso: string | undefined;
     let toIso: string | undefined;
