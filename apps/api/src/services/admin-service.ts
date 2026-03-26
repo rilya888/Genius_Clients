@@ -54,6 +54,14 @@ export class AdminService {
     return normalized;
   }
 
+  private assertValidTimezone(timezone: string, reason: string) {
+    try {
+      new Intl.DateTimeFormat("en-GB", { timeZone: timezone }).format(new Date());
+    } catch {
+      throw appError("VALIDATION_ERROR", { reason });
+    }
+  }
+
   async getDashboard(input: { tenantId: string }) {
     const tenant = await this.tenantRepository.findById(input.tenantId);
     if (!tenant) {
@@ -712,6 +720,9 @@ export class AdminService {
     humanHandoffEnabled?: boolean;
     requestId?: string;
   }) {
+    if (input.timezone !== undefined) {
+      this.assertValidTimezone(input.timezone, "timezone_invalid");
+    }
     if (input.defaultLocale && input.defaultLocale !== "it" && input.defaultLocale !== "en") {
       throw appError("VALIDATION_ERROR", { reason: "default_locale_invalid" });
     }
@@ -870,6 +881,9 @@ export class AdminService {
       operatorNumber?: string | null;
     };
   }) {
+    if (input.timezone !== undefined) {
+      this.assertValidTimezone(input.timezone, "timezone_invalid");
+    }
     const tenant = await this.tenantRepository.findById(input.tenantId);
     if (!tenant) {
       throw appError("TENANT_NOT_FOUND");
