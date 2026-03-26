@@ -189,18 +189,34 @@ export const publicRoutes = new Hono<ApiAppEnv>()
     }
 
     const tenantId = c.get("tenantId");
-    const tenant = await tenantRepository.findById(tenantId);
+    let tenant = await tenantRepository.findById(tenantId);
     if (!tenant) {
       throw appError("TENANT_NOT_FOUND");
     }
 
+    const adminPhone = body.adminPhoneE164.trim();
     const allowedPhones = new Set(
       [tenant.adminNotificationWhatsappE164, tenant.operatorWhatsappE164]
         .filter(Boolean)
         .map((phone) => String(phone).trim())
     );
-    if (!allowedPhones.has(body.adminPhoneE164.trim())) {
-      throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_not_authorized" });
+    if (!allowedPhones.has(adminPhone)) {
+      // Fallback for cases when bot route context is stale and points to a legacy tenant.
+      const matchedTenants = await tenantRepository.findByAdminWhatsAppPhone(adminPhone);
+      if (matchedTenants.length === 1) {
+        const [matchedTenant] = matchedTenants;
+        if (!matchedTenant) {
+          throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_not_authorized" });
+        }
+        tenant = matchedTenant;
+      } else if (matchedTenants.length > 1) {
+        throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_ambiguous" });
+      } else {
+        throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_not_authorized" });
+      }
+    }
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND");
     }
 
     const horizon = body.horizon ?? "today";
@@ -223,7 +239,7 @@ export const publicRoutes = new Hono<ApiAppEnv>()
     }
 
     const rawItems = await bookingService.listAdminBookings({
-      tenantId,
+      tenantId: tenant.id,
       fromIso,
       toIso,
       limit: Math.max(20, limit),
