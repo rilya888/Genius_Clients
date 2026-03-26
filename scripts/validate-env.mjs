@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 
 const service = process.argv[2] ?? "all";
+const mvpChannelMode = (process.env.MVP_CHANNEL_MODE ?? "whatsapp_only").trim().toLowerCase();
+
+const integrationVars = ["OPENAI_API_KEY", "WA_VERIFY_TOKEN", "STRIPE_WEBHOOK_SECRET"];
+if (mvpChannelMode !== "whatsapp_only") {
+  integrationVars.push("TG_BOT_TOKEN");
+}
 
 const groups = {
   api: ["DATABASE_URL", "INTERNAL_API_SECRET", "AUTH_TOKEN_SECRET"],
   web: ["APP_URL", "API_URL", "SESSION_COOKIE_DOMAIN"],
   bot: ["API_URL", "INTERNAL_API_SECRET"],
   worker: ["DATABASE_URL", "WORKER_ADMIN_SECRET"],
-  integrations: ["OPENAI_API_KEY", "WA_VERIFY_TOKEN", "TG_BOT_TOKEN", "STRIPE_WEBHOOK_SECRET"],
+  integrations: integrationVars,
   observability: ["SENTRY_DSN"]
 };
 

@@ -53,6 +53,7 @@ To sync all service branches from `main` with branch-specific config:
 - `pnpm staging:sync-branches`
 - `pnpm deploy:wait-success` (wait until all 4 services are SUCCESS)
 - `pnpm deploy:sync-and-wait` (sync + wait)
+- `pnpm deploy:check-consistency` (ensure all 4 services run SUCCESS on same commit)
 
 This command:
 
@@ -62,6 +63,14 @@ This command:
 4. Force-pushes deploy branches with lease.
 
 `pnpm staging:sync-branches` uses prefix `staging`.
+
+## MVP release gates (WhatsApp-only)
+
+Before production sign-off:
+
+1. `MVP_CHANNEL_MODE=whatsapp_only pnpm railway:audit-env`
+2. `SMOKE_SUPER_ADMIN_SECRET=... SMOKE_TENANT_SLUG=alex-salon pnpm release:mvp:gates`
+3. `pnpm deploy:check-consistency`
 
 ## Web deploy policy (production)
 
