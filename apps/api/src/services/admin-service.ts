@@ -870,6 +870,11 @@ export class AdminService {
       operatorNumber?: string | null;
     };
   }) {
+    const tenant = await this.tenantRepository.findById(input.tenantId);
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND");
+    }
+
     const desiredWhatsappBotE164 = this.validateOptionalE164(
       input.whatsapp?.desiredBotNumber,
       "desired_whatsapp_bot_e164_invalid"
@@ -878,23 +883,53 @@ export class AdminService {
       input.whatsapp?.operatorNumber,
       "operator_whatsapp_e164_invalid"
     );
+    const effectiveDesiredWhatsappBotE164 =
+      desiredWhatsappBotE164 !== undefined ? desiredWhatsappBotE164 : tenant.desiredWhatsappBotE164;
+    const effectiveOperatorWhatsappE164 =
+      operatorWhatsappE164 !== undefined ? operatorWhatsappE164 : tenant.operatorWhatsappE164;
+
     if (
-      desiredWhatsappBotE164 &&
-      operatorWhatsappE164 &&
-      desiredWhatsappBotE164 === operatorWhatsappE164
+      effectiveDesiredWhatsappBotE164 &&
+      effectiveOperatorWhatsappE164 &&
+      effectiveDesiredWhatsappBotE164 === effectiveOperatorWhatsappE164
     ) {
       throw appError("VALIDATION_ERROR", { reason: "whatsapp_numbers_must_be_different" });
     }
-    if (desiredWhatsappBotE164) {
+    if (effectiveDesiredWhatsappBotE164) {
       const conflict = await this.channelEndpointRepository.findActiveWhatsAppEndpointConflictByE164({
         tenantId: input.tenantId,
-        e164: desiredWhatsappBotE164
+        e164: effectiveDesiredWhatsappBotE164
       });
       if (conflict) {
         throw appError("CONFLICT", {
           reason: "desired_whatsapp_bot_e164_conflict",
           conflictTenantId: conflict.tenantId,
           conflictTenantSlug: conflict.tenantSlug
+        });
+      }
+    }
+
+    const endpoints = await this.channelEndpointRepository.listWhatsAppEndpointsByTenantIds([input.tenantId]);
+    const connectedActiveEndpoints = endpoints.filter(
+      (item) => item.isActive && item.bindingStatus === "connected" && item.e164
+    );
+    if (connectedActiveEndpoints.length > 0) {
+      if (!effectiveDesiredWhatsappBotE164) {
+        throw appError("VALIDATION_ERROR", {
+          reason: "whatsapp_desired_bot_required_for_connected_endpoint"
+        });
+      }
+      if (!effectiveOperatorWhatsappE164) {
+        throw appError("VALIDATION_ERROR", {
+          reason: "whatsapp_operator_required_for_connected_endpoint"
+        });
+      }
+      const isDesiredNumberConnectedToTenant = connectedActiveEndpoints.some(
+        (item) => item.e164 === effectiveDesiredWhatsappBotE164
+      );
+      if (!isDesiredNumberConnectedToTenant) {
+        throw appError("VALIDATION_ERROR", {
+          reason: "whatsapp_routing_mismatch_for_tenant"
         });
       }
     }
@@ -911,7 +946,10 @@ export class AdminService {
       parkingNote: this.normalizeOptionalText(input.parking?.note),
       businessHoursNote: this.normalizeOptionalText(input.businessHoursNote),
       desiredWhatsappBotE164,
-      operatorWhatsappE164
+      operatorWhatsappE164,
+      // Keep one source of truth for admin confirmations and handoff contact.
+      adminNotificationWhatsappE164:
+        operatorWhatsappE164 !== undefined ? operatorWhatsappE164 : undefined
     };
 
     const updated = await this.tenantRepository.updateSettings(patch);
@@ -938,7 +976,8 @@ export class AdminService {
           parkingNote: patch.parkingNote,
           businessHoursNote: patch.businessHoursNote,
           desiredWhatsappBotE164: patch.desiredWhatsappBotE164,
-          operatorWhatsappE164: patch.operatorWhatsappE164
+          operatorWhatsappE164: patch.operatorWhatsappE164,
+          adminNotificationWhatsappE164: patch.adminNotificationWhatsappE164
         }
       }
     });
