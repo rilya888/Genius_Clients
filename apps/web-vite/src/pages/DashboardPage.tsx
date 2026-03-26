@@ -1,8 +1,9 @@
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { getAdminDashboard, updateOperationalSettings } from "../shared/api/adminApi";
+import { confirmAdminBooking, getAdminDashboard, listAdminBookings, updateOperationalSettings } from "../shared/api/adminApi";
 import { formatApiError } from "../shared/api/formatApiError";
 import { useI18n } from "../shared/i18n/I18nProvider";
+import { emitAdminBookingsChanged } from "../shared/admin-events";
 
 export function DashboardPage() {
   const { t } = useI18n();
@@ -16,6 +17,8 @@ export function DashboardPage() {
       bookingsCancelledWeek: number;
       staffActiveCount: number;
       bookedMinutesToday: number;
+      bookingsNoShowToday: number;
+      completedRevenueTodayMinor: number;
     } | null;
     attention: {
       servicesWithoutMasters: number;
@@ -28,6 +31,21 @@ export function DashboardPage() {
       entity: string;
       createdAt: string;
     }>;
+    todayBookings: Array<{
+      id: string;
+      clientName: string;
+      serviceDisplayName: string;
+      status: "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | "no_show";
+      startAt: string;
+    }>;
+    tomorrowBookings: Array<{
+      id: string;
+      clientName: string;
+      serviceDisplayName: string;
+      status: "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | "no_show";
+      startAt: string;
+    }>;
+    quickActionBusyBookingId: string | null;
     whatsappSetup: {
       desiredBotNumber: string | null;
       operatorNumber: string | null;
@@ -56,6 +74,9 @@ export function DashboardPage() {
     kpis: null,
     attention: null,
     recentActivity: [],
+    todayBookings: [],
+    tomorrowBookings: [],
+    quickActionBusyBookingId: null,
     whatsappSetup: null,
     whatsappSaving: false,
     whatsappMessage: null,
@@ -68,8 +89,30 @@ export function DashboardPage() {
 
   useEffect(() => {
     let cancelled = false;
-    getAdminDashboard()
-      .then((payload) => {
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const formatDateOnly = (value: Date) => {
+      const year = value.getFullYear();
+      const month = String(value.getMonth() + 1).padStart(2, "0");
+      const day = String(value.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+    const todayDate = formatDateOnly(today);
+    const tomorrowDate = formatDateOnly(tomorrow);
+
+    Promise.all([
+      getAdminDashboard(),
+      listAdminBookings({
+        from: todayDate,
+        to: todayDate
+      }),
+      listAdminBookings({
+        from: tomorrowDate,
+        to: tomorrowDate
+      })
+    ])
+      .then(([payload, todayBookings, tomorrowBookings]) => {
         if (!cancelled) {
           setState({
             pending: false,
@@ -77,6 +120,9 @@ export function DashboardPage() {
             kpis: payload.kpis,
             attention: payload.attention,
             recentActivity: payload.recentActivity,
+            todayBookings,
+            tomorrowBookings,
+            quickActionBusyBookingId: null,
             whatsappSetup: payload.whatsappSetup,
             whatsappSaving: false,
             whatsappMessage: null,
@@ -96,6 +142,9 @@ export function DashboardPage() {
             kpis: null,
             attention: null,
             recentActivity: [],
+            todayBookings: [],
+            tomorrowBookings: [],
+            quickActionBusyBookingId: null,
             whatsappSetup: null,
             whatsappSaving: false,
             whatsappMessage: null,
@@ -129,6 +178,31 @@ export function DashboardPage() {
       return "";
     }
     return t(`admin.dashboard.whatsapp.reason.${whatsappSetup.statusReason}`);
+  }
+
+  async function handleQuickConfirm(bookingId: string) {
+    setState((current) => ({
+      ...current,
+      quickActionBusyBookingId: bookingId
+    }));
+    try {
+      await confirmAdminBooking(bookingId);
+      setState((current) => ({
+        ...current,
+        todayBookings: current.todayBookings.map((row) => (row.id === bookingId ? { ...row, status: "confirmed" } : row)),
+        tomorrowBookings: current.tomorrowBookings.map((row) =>
+          row.id === bookingId ? { ...row, status: "confirmed" } : row
+        ),
+        quickActionBusyBookingId: null
+      }));
+      emitAdminBookingsChanged();
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        quickActionBusyBookingId: null,
+        error: formatApiError(error, t("admin.bookings.confirmFailed"))
+      }));
+    }
   }
 
   async function handleWhatsAppSave() {
@@ -169,6 +243,92 @@ export function DashboardPage() {
   return (
     <section className="page-shell">
       <h1>{t("admin.dashboard.title")}</h1>
+      <div className="settings-grid" style={{ marginBottom: "1rem" }}>
+        <article className="settings-card card-hover">
+          <h3>{t("admin.dashboard.bookingsToday")}</h3>
+          {state.pending ? <p>{t("common.loadingDots")}</p> : null}
+          {!state.pending && state.todayBookings.length === 0 ? (
+            <p className="status-muted">{t("admin.bookings.emptyTitle")}</p>
+          ) : null}
+          {!state.pending && state.todayBookings.length > 0 ? (
+            <div className="table-shell">
+              <table>
+                <tbody>
+                  {state.todayBookings.slice(0, 8).map((row) => (
+                    <tr key={row.id}>
+                      <td>{new Date(row.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
+                      <td>{row.clientName}</td>
+                      <td>{row.serviceDisplayName}</td>
+                      <td>
+                        <span className={`status-pill status-${row.status}`}>{t(`common.bookingStatus.${row.status}`)}</span>
+                      </td>
+                      <td>
+                        {row.status === "pending" ? (
+                          <button
+                            className="btn btn-ghost"
+                            type="button"
+                            disabled={state.quickActionBusyBookingId === row.id}
+                            onClick={() => void handleQuickConfirm(row.id)}
+                          >
+                            {state.quickActionBusyBookingId === row.id ? t("auth.loading") : t("admin.bookings.confirmAction")}
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          <div className="inline-actions">
+            <Link className="btn btn-ghost" to="/app/bookings">
+              {t("admin.dashboard.quick.openBookings")}
+            </Link>
+          </div>
+        </article>
+        <article className="settings-card card-hover">
+          <h3>{t("admin.dashboard.bookingsTomorrow")}</h3>
+          {state.pending ? <p>{t("common.loadingDots")}</p> : null}
+          {!state.pending && state.tomorrowBookings.length === 0 ? (
+            <p className="status-muted">{t("admin.bookings.emptyTitle")}</p>
+          ) : null}
+          {!state.pending && state.tomorrowBookings.length > 0 ? (
+            <div className="table-shell">
+              <table>
+                <tbody>
+                  {state.tomorrowBookings.slice(0, 8).map((row) => (
+                    <tr key={row.id}>
+                      <td>{new Date(row.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
+                      <td>{row.clientName}</td>
+                      <td>{row.serviceDisplayName}</td>
+                      <td>
+                        <span className={`status-pill status-${row.status}`}>{t(`common.bookingStatus.${row.status}`)}</span>
+                      </td>
+                      <td>
+                        {row.status === "pending" ? (
+                          <button
+                            className="btn btn-ghost"
+                            type="button"
+                            disabled={state.quickActionBusyBookingId === row.id}
+                            onClick={() => void handleQuickConfirm(row.id)}
+                          >
+                            {state.quickActionBusyBookingId === row.id ? t("auth.loading") : t("admin.bookings.confirmAction")}
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          <div className="inline-actions">
+            <Link className="btn btn-ghost" to="/app/bookings">
+              {t("admin.dashboard.quick.openBookings")}
+            </Link>
+          </div>
+        </article>
+      </div>
       <div className="admin-kpi-grid">
         <article className="kpi card-hover">
           <h3>{t("admin.dashboard.bookingsToday")}</h3>
@@ -193,6 +353,21 @@ export function DashboardPage() {
         <article className="kpi card-hover">
           <h3>{t("admin.dashboard.bookedMinutesToday")}</h3>
           <p>{state.pending || !kpis ? t("common.loadingDots") : kpis.bookedMinutesToday}</p>
+        </article>
+        <article className="kpi card-hover">
+          <h3>{t("admin.dashboard.noShowToday")}</h3>
+          <p>{state.pending || !kpis ? t("common.loadingDots") : kpis.bookingsNoShowToday}</p>
+        </article>
+        <article className="kpi card-hover">
+          <h3>{t("admin.dashboard.completedRevenueToday")}</h3>
+          <p>
+            {state.pending || !kpis
+              ? t("common.loadingDots")
+              : new Intl.NumberFormat(undefined, {
+                  style: "currency",
+                  currency: "EUR"
+                }).format((kpis.completedRevenueTodayMinor ?? 0) / 100)}
+          </p>
         </article>
       </div>
       <div className="settings-grid" style={{ marginTop: "1rem" }}>

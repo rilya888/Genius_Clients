@@ -89,6 +89,8 @@ export class AdminRepository {
       bookingsCancelledWeek: number;
       staffActiveCount: number;
       bookedMinutesToday: number;
+      bookingsNoShowToday: number;
+      completedRevenueTodayMinor: number;
     }>(sql`
       WITH window_bounds AS (
         SELECT
@@ -99,11 +101,11 @@ export class AdminRepository {
       SELECT
         COALESCE(SUM(CASE
           WHEN b.start_at >= w.day_start_utc AND b.start_at < w.day_end_utc
-            AND b.status IN ('pending', 'confirmed', 'completed')
+            AND b.status IN ('pending', 'confirmed', 'completed', 'no_show')
           THEN 1 ELSE 0 END), 0)::int AS "bookingsTodayTotal",
         COALESCE(SUM(CASE
           WHEN b.start_at >= w.week_start_utc AND b.start_at < w.day_end_utc
-            AND b.status IN ('pending', 'confirmed', 'completed')
+            AND b.status IN ('pending', 'confirmed', 'completed', 'no_show')
           THEN 1 ELSE 0 END), 0)::int AS "bookingsWeekTotal",
         COALESCE(SUM(CASE
           WHEN b.status = 'pending' THEN 1 ELSE 0 END), 0)::int AS "bookingsPendingCount",
@@ -118,9 +120,18 @@ export class AdminRepository {
         ) AS "staffActiveCount",
         COALESCE(SUM(CASE
           WHEN b.start_at >= w.day_start_utc AND b.start_at < w.day_end_utc
-            AND b.status IN ('pending', 'confirmed', 'completed')
+            AND b.status IN ('pending', 'confirmed', 'completed', 'no_show')
           THEN GREATEST(0, EXTRACT(EPOCH FROM (b.end_at - b.start_at)) / 60)::int
-          ELSE 0 END), 0)::int AS "bookedMinutesToday"
+          ELSE 0 END), 0)::int AS "bookedMinutesToday",
+        COALESCE(SUM(CASE
+          WHEN b.start_at >= w.day_start_utc AND b.start_at < w.day_end_utc
+            AND b.status = 'no_show'
+          THEN 1 ELSE 0 END), 0)::int AS "bookingsNoShowToday",
+        COALESCE(SUM(CASE
+          WHEN b.start_at >= w.day_start_utc AND b.start_at < w.day_end_utc
+            AND b.status = 'completed'
+          THEN COALESCE(b.completed_amount_minor, 0)
+          ELSE 0 END), 0)::int AS "completedRevenueTodayMinor"
       FROM window_bounds w
       LEFT JOIN bookings b ON b.tenant_id = ${input.tenantId}
     `);

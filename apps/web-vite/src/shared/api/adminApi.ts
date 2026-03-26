@@ -23,12 +23,14 @@ type BookingsEnvelope = {
       masterId: string | null;
       masterDisplayName: string | null;
       clientName: string;
-      status: "pending" | "confirmed" | "completed" | "cancelled" | "rejected";
+      status: "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | "no_show";
       startAt: string;
       rejectionReason?: string | null;
     }>;
   };
 };
+
+export type AdminBookingStatus = "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | "no_show";
 
 type NotificationSummaryEnvelope = {
   data: {
@@ -68,6 +70,8 @@ type DashboardEnvelope = {
       bookingsCancelledWeek: number;
       staffActiveCount: number;
       bookedMinutesToday: number;
+      bookingsNoShowToday: number;
+      completedRevenueTodayMinor: number;
     };
     attention: {
       servicesWithoutMasters: number;
@@ -425,7 +429,7 @@ export async function updateServiceMasterMappings(input: { serviceId: string; ma
 }
 
 export async function listAdminBookings(input?: {
-  status?: "pending" | "confirmed" | "completed" | "cancelled" | "rejected";
+  status?: AdminBookingStatus;
   from?: string;
   to?: string;
 }) {
@@ -442,15 +446,39 @@ export async function listAdminBookings(input?: {
 }
 
 export async function confirmAdminBooking(bookingId: string) {
+  return updateAdminBookingStatus({
+    bookingId,
+    status: "confirmed"
+  });
+}
+
+export async function updateAdminBookingStatus(input: {
+  bookingId: string;
+  status: AdminBookingStatus;
+  cancellationReason?: string;
+  rejectionReason?: string;
+  completedAmountMinor?: number | null;
+  completedCurrency?: string | null;
+  completedPaymentMethod?: string | null;
+  completedPaymentNote?: string | null;
+}) {
   const payload = await adminJson<{
     data: {
       id: string;
-      status: "pending" | "confirmed" | "completed" | "cancelled" | "rejected";
+      status: AdminBookingStatus;
       updatedAt: string;
     };
-  }>(`/api/v1/admin/bookings/${bookingId}`, {
+  }>(`/api/v1/admin/bookings/${input.bookingId}`, {
     method: "PATCH",
-    body: JSON.stringify({ status: "confirmed" })
+    body: JSON.stringify({
+      status: input.status,
+      cancellationReason: input.cancellationReason,
+      rejectionReason: input.rejectionReason,
+      completedAmountMinor: input.completedAmountMinor,
+      completedCurrency: input.completedCurrency,
+      completedPaymentMethod: input.completedPaymentMethod,
+      completedPaymentNote: input.completedPaymentNote
+    })
   });
 
   return payload.data;
