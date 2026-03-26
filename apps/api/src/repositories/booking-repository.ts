@@ -5,6 +5,13 @@ import { getDb } from "../lib/db";
 export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | "no_show";
 
 export class BookingRepository {
+  private isMissingColumnError(error: unknown) {
+    if (typeof error !== "object" || error === null || !("code" in error)) {
+      return false;
+    }
+    return String((error as { code: unknown }).code) === "42703";
+  }
+
   async hasActiveMasterMappingsForService(input: { tenantId: string; serviceId: string }) {
     const db = getDb();
     const [row] = await db
@@ -118,41 +125,83 @@ export class BookingRepository {
       filters.push(lte(bookings.startAt, new Date(input.toIso)));
     }
 
-    const items = await db
-      .select({
-        id: bookings.id,
-        serviceId: bookings.serviceId,
-        serviceDisplayName: services.displayName,
-        masterId: bookings.masterId,
-        masterDisplayName: masters.displayName,
-        status: bookings.status,
-        source: bookings.source,
-        clientName: bookings.clientName,
-        clientPhoneE164: bookings.clientPhoneE164,
-        clientEmail: bookings.clientEmail,
-        clientLocale: bookings.clientLocale,
-        startAt: bookings.startAt,
-        endAt: bookings.endAt,
-        cancellationReason: bookings.cancellationReason,
-        rejectionReason: bookings.rejectionReason,
-        completedAt: bookings.completedAt,
-        completedAmountMinor: bookings.completedAmountMinor,
-        completedCurrency: bookings.completedCurrency,
-        completedPaymentMethod: bookings.completedPaymentMethod,
-        completedPaymentNote: bookings.completedPaymentNote,
-        completedByUserId: bookings.completedByUserId,
-        createdAt: bookings.createdAt,
-        updatedAt: bookings.updatedAt
-      })
-      .from(bookings)
-      .innerJoin(services, eq(services.id, bookings.serviceId))
-      .leftJoin(masters, eq(masters.id, bookings.masterId))
-      .where(and(...filters))
-      .orderBy(desc(bookings.startAt), asc(bookings.id))
-      .limit(input.limit)
-      .offset(input.offset);
-
-    return items;
+    try {
+      const items = await db
+        .select({
+          id: bookings.id,
+          serviceId: bookings.serviceId,
+          serviceDisplayName: services.displayName,
+          masterId: bookings.masterId,
+          masterDisplayName: masters.displayName,
+          status: bookings.status,
+          source: bookings.source,
+          clientName: bookings.clientName,
+          clientPhoneE164: bookings.clientPhoneE164,
+          clientEmail: bookings.clientEmail,
+          clientLocale: bookings.clientLocale,
+          startAt: bookings.startAt,
+          endAt: bookings.endAt,
+          cancellationReason: bookings.cancellationReason,
+          rejectionReason: bookings.rejectionReason,
+          completedAt: bookings.completedAt,
+          completedAmountMinor: bookings.completedAmountMinor,
+          completedCurrency: bookings.completedCurrency,
+          completedPaymentMethod: bookings.completedPaymentMethod,
+          completedPaymentNote: bookings.completedPaymentNote,
+          completedByUserId: bookings.completedByUserId,
+          createdAt: bookings.createdAt,
+          updatedAt: bookings.updatedAt
+        })
+        .from(bookings)
+        .innerJoin(services, eq(services.id, bookings.serviceId))
+        .leftJoin(masters, eq(masters.id, bookings.masterId))
+        .where(and(...filters))
+        .orderBy(desc(bookings.startAt), asc(bookings.id))
+        .limit(input.limit)
+        .offset(input.offset);
+      return items;
+    } catch (error) {
+      if (!this.isMissingColumnError(error)) {
+        throw error;
+      }
+      // Backward-compatible fallback for databases where completion columns are not migrated yet.
+      const legacyItems = await db
+        .select({
+          id: bookings.id,
+          serviceId: bookings.serviceId,
+          serviceDisplayName: services.displayName,
+          masterId: bookings.masterId,
+          masterDisplayName: masters.displayName,
+          status: bookings.status,
+          source: bookings.source,
+          clientName: bookings.clientName,
+          clientPhoneE164: bookings.clientPhoneE164,
+          clientEmail: bookings.clientEmail,
+          clientLocale: bookings.clientLocale,
+          startAt: bookings.startAt,
+          endAt: bookings.endAt,
+          cancellationReason: bookings.cancellationReason,
+          rejectionReason: bookings.rejectionReason,
+          createdAt: bookings.createdAt,
+          updatedAt: bookings.updatedAt
+        })
+        .from(bookings)
+        .innerJoin(services, eq(services.id, bookings.serviceId))
+        .leftJoin(masters, eq(masters.id, bookings.masterId))
+        .where(and(...filters))
+        .orderBy(desc(bookings.startAt), asc(bookings.id))
+        .limit(input.limit)
+        .offset(input.offset);
+      return legacyItems.map((item) => ({
+        ...item,
+        completedAt: null,
+        completedAmountMinor: null,
+        completedCurrency: null,
+        completedPaymentMethod: null,
+        completedPaymentNote: null,
+        completedByUserId: null
+      }));
+    }
   }
 
   async findById(tenantId: string, bookingId: string) {
