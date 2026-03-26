@@ -96,6 +96,7 @@ type AiParseResult = {
   schemaVersion?: string;
   intent: ParsedIntent;
   confidence: "high" | "medium" | "low";
+  intentOverrideReason?: string;
   serviceQuery?: string;
   masterQuery?: string;
   dateText?: string;
@@ -493,6 +494,7 @@ export async function processAiWhatsAppMessage(
       aiParserLatencyMs: usedAiParser ? Date.now() - aiStartedAt : 0,
       intent: normalizedParsed.intent,
       confidence: normalizedParsed.confidence,
+      intentOverrideReason: normalizedParsed.intentOverrideReason ?? null,
       hasServiceQuery: Boolean(normalizedParsed.serviceQuery),
       hasMasterQuery: Boolean(normalizedParsed.masterQuery),
       hasDateText: Boolean(normalizedParsed.dateText),
@@ -808,13 +810,23 @@ async function resolveAiPlan(
           }
         };
       }
-      const lines = items.slice(0, 6).map((item, index) => `${index + 1}. ${formatBookingChoice(item.startAt, input.locale)} (${item.status})`);
+      const normalizedText = normalizeSearch(input.rawText);
+      const action: "cancel" | "reschedule" = hasCancelSignal(normalizedText) ? "cancel" : "reschedule";
+      const defaultPrompt =
+        action === "cancel"
+          ? input.locale === "it"
+            ? "Scegli la prenotazione da annullare."
+            : "Choose the booking to cancel."
+          : input.locale === "it"
+            ? "Scegli la prenotazione da spostare."
+            : "Choose the booking to reschedule.";
       return {
-        artifact: { kind: "none" },
-        outputText:
-          input.locale === "it"
-            ? `Le tue prenotazioni attive:\n${lines.join("\n")}\n\nPer annullare scrivi: cancel booking.`
-            : `Your active bookings:\n${lines.join("\n")}\n\nTo cancel, type: cancel booking.`
+        artifact: {
+          kind: "booking_list",
+          prompt: selectReplyPrompt(defaultPrompt, input.parsed.replyText),
+          action,
+          items
+        }
       };
     }
 
@@ -1907,7 +1919,7 @@ function isParsedIntent(value: string): value is ParsedIntent {
   ].includes(value);
 }
 
-function detectFastPathIntent(text: string, locale: SupportedLocale): AiParseResult | null {
+export function detectFastPathIntent(text: string, locale: SupportedLocale): AiParseResult | null {
   if (isLikelyNoiseInput(text)) {
     return {
       intent: "unknown",
@@ -1954,11 +1966,7 @@ function detectFastPathIntent(text: string, locale: SupportedLocale): AiParseRes
     };
   }
 
-  if (
-    /\b(reschedule|move booking|move appointment|change booking|change appointment|sposta|spostare|riprogramma|cambia prenotazione)\b/.test(
-      normalized
-    )
-  ) {
+  if (hasRescheduleSignal(normalized)) {
     return {
       intent: "reschedule_booking",
       confidence: "high",
@@ -2096,10 +2104,7 @@ function normalizeParsedIntentWithHeuristics(parsed: AiParseResult, text: string
     };
   }
   const hasCancel = hasCancelSignal(normalized);
-  const hasReschedule =
-    /\b(reschedule|move booking|move appointment|change booking|change appointment|sposta|spostare|riprogramma|cambia prenotazione)\b/.test(
-      normalized
-    );
+  const hasReschedule = hasRescheduleSignal(normalized);
   const hasBookingList = hasBookingListSignal(normalized);
   const hasCatalog = hasCatalogSignal(normalized);
   const extractedDate = parsed.dateText ?? extractFastDateText(normalized);
@@ -2124,6 +2129,7 @@ function normalizeParsedIntentWithHeuristics(parsed: AiParseResult, text: string
       ...parsed,
       intent: "cancel_booking",
       confidence: "high",
+      intentOverrideReason: parsed.intent === "cancel_booking" ? parsed.intentOverrideReason : "cancel_signal",
       replyText: locale === "it" ? "Ok, procediamo con l'annullamento." : "Okay, let's proceed with cancellation."
     };
   }
@@ -2133,6 +2139,7 @@ function normalizeParsedIntentWithHeuristics(parsed: AiParseResult, text: string
       ...parsed,
       intent: "reschedule_booking",
       confidence: "high",
+      intentOverrideReason: parsed.intent === "reschedule_booking" ? parsed.intentOverrideReason : "reschedule_signal",
       replyText:
         locale === "it" ? "Ok, procediamo con lo spostamento." : "Okay, let's proceed with rescheduling."
     };
@@ -2143,6 +2150,7 @@ function normalizeParsedIntentWithHeuristics(parsed: AiParseResult, text: string
       ...parsed,
       intent: "booking_list",
       confidence: parsed.confidence === "low" ? "medium" : "high",
+      intentOverrideReason: parsed.intent === "booking_list" ? parsed.intentOverrideReason : "booking_list_signal",
       replyText:
         locale === "it"
           ? "Ecco le tue prenotazioni attive."
@@ -2358,6 +2366,21 @@ function hasCancelSignal(normalizedText: string) {
   );
 }
 
+function hasRescheduleSignal(normalizedText: string) {
+  const hasRescheduleWord =
+    /\b(reschedule|rebook|ripianifica|riprogramma|sposta|spostare|posticipa|change|move|cambia)\b/.test(
+      normalizedText
+    );
+  const hasBookingWord =
+    /\b(booking|appointment|appointments|prenotazione|prenotazioni|appuntamento|appuntamenti)\b/.test(normalizedText);
+  if (hasRescheduleWord && hasBookingWord) {
+    return true;
+  }
+  return /\b(move|change|reschedule|sposta|cambia)\b(?:\s+\w+){0,2}\s+\b(my|the|la|il|mia|mio)?\s*\b(booking|appointment|prenotazione|appuntamento)\b/.test(
+    normalizedText
+  );
+}
+
 function hasComplaintSignal(normalizedText: string) {
   return /\b(complaint|angry|upset|bad service|terrible|ridiculous|frustrat|not happy|disappointed|reclamo|arrabbiat|insoddisfatt|servizio pessimo|pessimo|scandaloso|vergogna)\b/.test(
     normalizedText
@@ -2365,7 +2388,7 @@ function hasComplaintSignal(normalizedText: string) {
 }
 
 function hasBookingListSignal(normalizedText: string) {
-  return /\b(my bookings|my booking|my appointments|my appointment|show my bookings|show my appointments|what bookings do i have|what appointments do i have|do i have bookings|do i have appointments|le mie prenotazioni|mie prenotazioni|quali prenotazioni ho|quali appuntamenti ho|le mie visite|i miei appuntamenti|mostra le mie prenotazioni|mostra i miei appuntamenti|мои записи|какие у меня записи|мои брони)\b/.test(
+  return /\b(my bookings|my appointments|show my bookings|show my appointments|what bookings do i have|what appointments do i have|do i have bookings|do i have appointments|list my bookings|list my appointments|le mie prenotazioni|mie prenotazioni|quali prenotazioni ho|quali appuntamenti ho|le mie visite|i miei appuntamenti|mostra le mie prenotazioni|mostra i miei appuntamenti|elenca le mie prenotazioni|мои записи|какие у меня записи|мои брони)\b/.test(
     normalizedText
   );
 }
@@ -2385,29 +2408,31 @@ export function detectTransportFallbackIntent(text: string, locale: SupportedLoc
   const extractedDate = extractFastDateText(normalized);
   const extractedTime = extractFastTimeText(normalized);
 
-  if (hasBookingListSignal(normalized)) {
+  if (hasRescheduleSignal(normalized)) {
     return {
-      intent: "booking_list",
-      confidence: "medium",
-      replyText:
-        locale === "it"
-          ? "Ecco le tue prenotazioni attive."
-          : "Here are your active bookings."
+      intent: "reschedule_booking",
+      confidence: "high",
+      intentOverrideReason: "reschedule_signal",
+      replyText: locale === "it" ? "Procediamo con lo spostamento." : "Let's continue with rescheduling."
     };
   }
-
   if (hasCancelSignal(normalized)) {
     return {
       intent: "cancel_booking",
       confidence: "medium",
+      intentOverrideReason: "cancel_signal",
       replyText: locale === "it" ? "Procediamo con l'annullamento." : "Let's continue with cancellation."
     };
   }
-  if (/\b(reschedule|sposta|spostare|riprogramma|cambia prenotazione|change booking)\b/.test(normalized)) {
+  if (hasBookingListSignal(normalized)) {
     return {
-      intent: "reschedule_booking",
+      intent: "booking_list",
       confidence: "medium",
-      replyText: locale === "it" ? "Procediamo con lo spostamento." : "Let's continue with rescheduling."
+      intentOverrideReason: "booking_list_signal",
+      replyText:
+        locale === "it"
+          ? "Ecco le tue prenotazioni attive."
+          : "Here are your active bookings."
     };
   }
   if (hasCatalogSignal(normalized)) {
