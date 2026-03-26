@@ -11,6 +11,15 @@ Verify WhatsApp admin quick actions (`today/tomorrow/next`) and web deeplink beh
   - `adminNotificationWhatsappE164`
   - `operatorWhatsappE164`
   - active WhatsApp endpoint binding.
+  - `desiredWhatsappBotE164` matches connected endpoint `e164`.
+
+## Post-change guard (when numbers are edited)
+1. Open operational settings and save WhatsApp block.
+2. If API returns a validation error, do not continue until fixed:
+  - `whatsapp_desired_bot_required_for_connected_endpoint`
+  - `whatsapp_operator_required_for_connected_endpoint`
+  - `whatsapp_routing_mismatch_for_tenant`
+3. Immediately send `today` from the operator/admin number and confirm bot response.
 
 ## Test 1: Commands from admin number
 1. Send `today` to bot from admin number.
