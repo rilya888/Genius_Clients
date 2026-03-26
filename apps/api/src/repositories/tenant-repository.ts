@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { tenants } from "@genius/db";
 import { getDb } from "../lib/db";
 
@@ -36,6 +36,21 @@ export class TenantRepository {
     const db = getDb();
     const [tenant] = await db.select().from(tenants).where(eq(tenants.id, id)).limit(1);
     return tenant ?? null;
+  }
+
+  async findByAdminWhatsAppPhone(phoneE164: string) {
+    const db = getDb();
+    const items = await db
+      .select()
+      .from(tenants)
+      .where(
+        or(
+          eq(tenants.adminNotificationWhatsappE164, phoneE164),
+          eq(tenants.operatorWhatsappE164, phoneE164)
+        )
+      )
+      .limit(2);
+    return items;
   }
 
   async updateSettings(input: {
