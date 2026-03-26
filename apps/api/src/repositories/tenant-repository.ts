@@ -1,4 +1,4 @@
-import { eq, or } from "drizzle-orm";
+import { desc, eq, or } from "drizzle-orm";
 import { tenants } from "@genius/db";
 import { getDb } from "../lib/db";
 
@@ -49,6 +49,7 @@ export class TenantRepository {
           eq(tenants.operatorWhatsappE164, phoneE164)
         )
       )
+      .orderBy(desc(tenants.updatedAt))
       .limit(2);
     return items;
   }
