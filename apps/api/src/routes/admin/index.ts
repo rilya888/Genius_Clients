@@ -607,7 +607,7 @@ export const adminRoutes = new Hono<ApiAppEnv>()
     const to = c.req.query("to");
     const limit = c.req.query("limit");
     const offset = c.req.query("offset");
-    const allowedStatuses = new Set(["pending", "confirmed", "completed", "cancelled", "rejected"]);
+    const allowedStatuses = new Set(["pending", "confirmed", "completed", "cancelled", "rejected", "no_show"]);
 
     if (statusRaw && !allowedStatuses.has(statusRaw)) {
       throw appError("VALIDATION_ERROR", { reason: "booking_status_invalid" });
@@ -615,7 +615,7 @@ export const adminRoutes = new Hono<ApiAppEnv>()
 
     const items = await bookingService.listAdminBookings({
       tenantId,
-      status: statusRaw as "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | undefined,
+      status: statusRaw as "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | "no_show" | undefined,
       fromIso: from,
       toIso: to,
       limit: limit ? Number(limit) : undefined,
@@ -630,9 +630,13 @@ export const adminRoutes = new Hono<ApiAppEnv>()
     const requestId = c.get("requestId");
     const bookingId = c.req.param("id");
     const body = await c.req.json<{
-      status?: "pending" | "confirmed" | "completed" | "cancelled" | "rejected";
+      status?: "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | "no_show";
       cancellationReason?: string;
       rejectionReason?: string;
+      completedAmountMinor?: number | null;
+      completedCurrency?: string | null;
+      completedPaymentMethod?: string | null;
+      completedPaymentNote?: string | null;
     }>();
 
     if (!body.status) {
@@ -645,6 +649,10 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       nextStatus: body.status,
       cancellationReason: body.cancellationReason,
       rejectionReason: body.rejectionReason,
+      completedAmountMinor: body.completedAmountMinor,
+      completedCurrency: body.completedCurrency,
+      completedPaymentMethod: body.completedPaymentMethod,
+      completedPaymentNote: body.completedPaymentNote,
       requestId,
       actorUserId
     });

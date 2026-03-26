@@ -102,6 +102,7 @@ const botLateCancelBlockHours = Math.max(0, Number.parseInt(process.env.BOT_LATE
 const opsAlertWebhookUrl = process.env.OPS_ALERT_WEBHOOK_URL ?? "";
 const opsAlertWebhookToken = process.env.OPS_ALERT_WEBHOOK_TOKEN ?? "";
 const apiUrl = process.env.API_URL ?? "";
+const webUrl = (process.env.WEB_URL ?? process.env.APP_URL ?? "").trim();
 const internalApiSecret = process.env.INTERNAL_API_SECRET ?? "";
 const botTenantSlug = process.env.BOT_TENANT_SLUG ?? "";
 const botTenantId = process.env.BOT_TENANT_ID ?? "";
@@ -127,6 +128,8 @@ type RuntimeCounterKey =
   | "aiHandled"
   | "deterministicHandled"
   | "ctaHandled"
+  | "adminDigestHandled"
+  | "adminDigestErrors"
   | "nonTextHandled"
   | "fallbackTextHandled"
   | "processingErrors"
@@ -141,6 +144,8 @@ const runtimeStats = {
   aiHandled: 0,
   deterministicHandled: 0,
   ctaHandled: 0,
+  adminDigestHandled: 0,
+  adminDigestErrors: 0,
   nonTextHandled: 0,
   fallbackTextHandled: 0,
   processingErrors: 0,
@@ -157,6 +162,8 @@ const runtimeStats = {
     aiHandled: 0,
     deterministicHandled: 0,
     ctaHandled: 0,
+    adminDigestHandled: 0,
+    adminDigestErrors: 0,
     nonTextHandled: 0,
     fallbackTextHandled: 0,
     processingErrors: 0,
@@ -211,6 +218,8 @@ function bumpRuntimeCounter(key: RuntimeCounterKey) {
       aiHandled: 0,
       deterministicHandled: 0,
       ctaHandled: 0,
+      adminDigestHandled: 0,
+      adminDigestErrors: 0,
       nonTextHandled: 0,
       fallbackTextHandled: 0,
       processingErrors: 0,
@@ -239,6 +248,8 @@ function recordComplaintToHandoffLatency(latencyMs: number) {
       aiHandled: 0,
       deterministicHandled: 0,
       ctaHandled: 0,
+      adminDigestHandled: 0,
+      adminDigestErrors: 0,
       nonTextHandled: 0,
       fallbackTextHandled: 0,
       processingErrors: 0,
@@ -280,6 +291,8 @@ type WhatsAppChoice = {
   title: string;
   description?: string;
 };
+
+type AdminDigestHorizon = "today" | "tomorrow" | "next";
 
 type OpsAlertSeverity = "warning" | "critical";
 
@@ -1880,6 +1893,317 @@ async function notifyAdminWhatsAppHandoff(input: {
   return result.sent;
 }
 
+function getAdminBookingsWebLink() {
+  if (!webUrl) {
+    return "";
+  }
+  return `${webUrl.replace(/\/$/, "")}/app/bookings`;
+}
+
+async function fetchAdminBookingsDigestFromBot(input: {
+  adminPhoneE164: string;
+  horizon: AdminDigestHorizon;
+  routeContext?: BotRoutingContext | null;
+}) {
+  const routeContext = input.routeContext ?? getLegacyRouteContext();
+  if (!apiUrl || !internalApiSecret || (!routeContext?.tenantSlug && !routeContext?.tenantId)) {
+    return null;
+  }
+  const response = await fetchWithApiRetry(`${apiUrl}/api/v1/public/admin/bookings-digest`, {
+    method: "POST",
+    headers: buildInternalHeaders(routeContext),
+    body: JSON.stringify({
+      adminPhoneE164: input.adminPhoneE164,
+      horizon: input.horizon,
+      limit: input.horizon === "next" ? 3 : 12
+    })
+  });
+  if (response.status === 403) {
+    return null;
+  }
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(payload?.data?.items)) {
+    throw new Error(buildBotApiErrorCode("admin_digest_failed", payload));
+  }
+  return {
+    timezone:
+      typeof payload.data.timezone === "string" && payload.data.timezone
+        ? payload.data.timezone
+        : "Europe/Rome",
+    items: payload.data.items as Array<{
+      id: string;
+      clientName: string;
+      serviceDisplayName: string;
+      status: "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | "no_show";
+      startAt: string;
+    }>
+  };
+}
+
+function resolveAdminDigestCommand(input: {
+  text?: string;
+  replyId?: string;
+}): AdminDigestHorizon | "open_web" | null {
+  const replyId = input.replyId?.trim().toLowerCase();
+  if (replyId === "admin:today") {
+    return "today";
+  }
+  if (replyId === "admin:tomorrow") {
+    return "tomorrow";
+  }
+  if (replyId === "admin:next") {
+    return "next";
+  }
+  if (replyId === "admin:open_web") {
+    return "open_web";
+  }
+
+  const normalized = input.text?.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === "/today" || normalized === "today" || normalized === "oggi") {
+    return "today";
+  }
+  if (normalized === "/tomorrow" || normalized === "tomorrow" || normalized === "domani") {
+    return "tomorrow";
+  }
+  if (normalized === "/next" || normalized === "next" || normalized === "prossime") {
+    return "next";
+  }
+  if (normalized === "/open" || normalized === "open web") {
+    return "open_web";
+  }
+  return null;
+}
+
+function formatAdminDigestMessage(input: {
+  locale: SupportedLocale;
+  horizon: AdminDigestHorizon;
+  timezone: string;
+  items: Array<{
+    id: string;
+    clientName: string;
+    serviceDisplayName: string;
+    status: string;
+    startAt: string;
+  }>;
+}) {
+  const titleMap: Record<AdminDigestHorizon, { it: string; en: string }> = {
+    today: { it: "Prenotazioni di oggi", en: "Today bookings" },
+    tomorrow: { it: "Prenotazioni di domani", en: "Tomorrow bookings" },
+    next: { it: "Prossime prenotazioni", en: "Next bookings" }
+  };
+  const statusLabel = (status: string) => {
+    if (input.locale === "it") {
+      if (status === "pending") return "in attesa";
+      if (status === "confirmed") return "confermata";
+      if (status === "completed") return "completata";
+      if (status === "no_show") return "no-show";
+      return status;
+    }
+    if (status === "pending") return "pending";
+    if (status === "confirmed") return "confirmed";
+    if (status === "completed") return "completed";
+    if (status === "no_show") return "no-show";
+    return status;
+  };
+
+  if (input.items.length === 0) {
+    return input.locale === "it"
+      ? `${titleMap[input.horizon].it}: nessuna prenotazione.`
+      : `${titleMap[input.horizon].en}: no bookings found.`;
+  }
+
+  const dateFormat = new Intl.DateTimeFormat(input.locale === "it" ? "it-IT" : "en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: input.timezone
+  });
+  const rows = input.items.map((item, index) => {
+    const when = dateFormat.format(new Date(item.startAt));
+    return `${index + 1}. ${when} - ${item.clientName} - ${item.serviceDisplayName} (${statusLabel(item.status)})`;
+  });
+  return `${input.locale === "it" ? titleMap[input.horizon].it : titleMap[input.horizon].en}\n${rows.join("\n")}`;
+}
+
+function getAdminDigestButtons(input: { locale: SupportedLocale; horizon: AdminDigestHorizon }): WhatsAppChoice[] {
+  if (input.horizon === "today") {
+    return [
+      { id: "admin:tomorrow", title: input.locale === "it" ? "Domani" : "Tomorrow" },
+      { id: "admin:next", title: input.locale === "it" ? "Prossime" : "Next" },
+      { id: "admin:open_web", title: input.locale === "it" ? "Apri web" : "Open web" }
+    ];
+  }
+  if (input.horizon === "tomorrow") {
+    return [
+      { id: "admin:today", title: input.locale === "it" ? "Oggi" : "Today" },
+      { id: "admin:next", title: input.locale === "it" ? "Prossime" : "Next" },
+      { id: "admin:open_web", title: input.locale === "it" ? "Apri web" : "Open web" }
+    ];
+  }
+  return [
+    { id: "admin:today", title: input.locale === "it" ? "Oggi" : "Today" },
+    { id: "admin:tomorrow", title: input.locale === "it" ? "Domani" : "Tomorrow" },
+    { id: "admin:open_web", title: input.locale === "it" ? "Apri web" : "Open web" }
+  ];
+}
+
+async function handleAdminDigestCommand(input: {
+  from: string;
+  text?: string;
+  replyId?: string;
+  locale: SupportedLocale;
+  routeContext?: BotRoutingContext | null;
+}) {
+  const routeContext = input.routeContext ?? getLegacyRouteContext();
+  const command = resolveAdminDigestCommand({
+    text: input.text,
+    replyId: input.replyId
+  });
+  if (!command) {
+    return false;
+  }
+
+  if (command === "open_web") {
+    const authProbe = await fetchAdminBookingsDigestFromBot({
+      adminPhoneE164: input.from,
+      horizon: "next",
+      routeContext
+    }).catch(() => null);
+    if (!authProbe) {
+      bumpRuntimeCounter("adminDigestErrors");
+      return false;
+    }
+    const link = getAdminBookingsWebLink();
+    if (!link) {
+      await sendWhatsAppMessage({
+        to: input.from,
+        text: input.locale === "it" ? "Link web non configurato." : "Web link is not configured.",
+        routeContext
+      });
+      return true;
+    }
+    await sendWhatsAppMessage({
+      to: input.from,
+      text:
+        input.locale === "it" ? `Apri dashboard prenotazioni: ${link}` : `Open bookings dashboard: ${link}`,
+      routeContext
+    });
+    return true;
+  }
+
+  let digest;
+  try {
+    digest = await fetchAdminBookingsDigestFromBot({
+      adminPhoneE164: input.from,
+      horizon: command,
+      routeContext
+    });
+  } catch (error) {
+    bumpRuntimeCounter("adminDigestErrors");
+    await emitOpsAlert({
+      event: "admin_digest_fetch_failed",
+      severity: "warning",
+      context: {
+        from: maskPhone(input.from),
+        horizon: command,
+        error: toLogError(error)
+      }
+    });
+    await sendWhatsAppMessage({
+      to: input.from,
+      text:
+        input.locale === "it"
+          ? "Impossibile caricare ora la lista prenotazioni."
+          : "Unable to load booking list right now.",
+      routeContext
+    });
+    return true;
+  }
+
+  if (!digest) {
+    bumpRuntimeCounter("adminDigestErrors");
+    return false;
+  }
+
+  bumpRuntimeCounter("adminDigestHandled");
+  console.info("[bot][admin-digest] handled", {
+    from: maskPhone(input.from),
+    horizon: command,
+    total: digest.items.length
+  });
+
+  const summaryText = formatAdminDigestMessage({
+    locale: input.locale,
+    horizon: command,
+    timezone: digest.timezone,
+    items: digest.items
+  });
+  const link = getAdminBookingsWebLink();
+  const withLink = link
+    ? `${summaryText}\n\n${input.locale === "it" ? "Apri web:" : "Open web:"} ${link}`
+    : summaryText;
+  await sendWhatsAppMessage({
+    to: input.from,
+    text: withLink.slice(0, 3500),
+    routeContext
+  });
+  const firstPending = digest.items.find((item) => item.status === "pending");
+  if (firstPending) {
+    const confirmToken = buildBookingActionTokenForBot({
+      action: "admin_confirm",
+      bookingId: firstPending.id,
+      phoneE164: input.from,
+      ttlMinutes: 30
+    });
+    const rejectToken = buildBookingActionTokenForBot({
+      action: "admin_reject",
+      bookingId: firstPending.id,
+      phoneE164: input.from,
+      ttlMinutes: 30
+    });
+    if (confirmToken && rejectToken) {
+      await sendWhatsAppButtons({
+        to: input.from,
+        bodyText:
+          input.locale === "it"
+            ? "Prossima prenotazione in attesa: scegli azione."
+            : "Next pending booking: choose action.",
+        choices: [
+          {
+            id: `cta:${confirmToken}`,
+            title: input.locale === "it" ? "Conferma" : "Confirm"
+          },
+          {
+            id: `cta:${rejectToken}`,
+            title: input.locale === "it" ? "Rifiuta" : "Reject"
+          },
+          {
+            id: "admin:open_web",
+            title: input.locale === "it" ? "Apri web" : "Open web"
+          }
+        ],
+        routeContext
+      });
+      return true;
+    }
+  }
+  await sendWhatsAppButtons({
+    to: input.from,
+    bodyText: input.locale === "it" ? "Azioni rapide amministratore:" : "Administrator quick actions:",
+    choices: getAdminDigestButtons({
+      locale: input.locale,
+      horizon: command
+    }),
+    routeContext
+  });
+  return true;
+}
+
 async function fetchServiceDuration(
   serviceId: string,
   routeContext: BotRoutingContext | null = getLegacyRouteContext()
@@ -3204,6 +3528,12 @@ function renderPrometheusMetrics() {
     "# HELP bot_deterministic_handled_total Total inbound messages handled by deterministic flow.",
     "# TYPE bot_deterministic_handled_total counter",
     `bot_deterministic_handled_total ${runtimeStats.deterministicHandled}`,
+    "# HELP bot_admin_digest_handled_total Total admin digest commands handled by bot runtime.",
+    "# TYPE bot_admin_digest_handled_total counter",
+    `bot_admin_digest_handled_total ${runtimeStats.adminDigestHandled}`,
+    "# HELP bot_admin_digest_errors_total Total admin digest command errors in bot runtime.",
+    "# TYPE bot_admin_digest_errors_total counter",
+    `bot_admin_digest_errors_total ${runtimeStats.adminDigestErrors}`,
     "# HELP bot_handoff_escalations_total Total handoff escalations triggered by bot runtime.",
     "# TYPE bot_handoff_escalations_total counter",
     `bot_handoff_escalations_total ${runtimeStats.handoffEscalations}`,
@@ -3619,6 +3949,18 @@ app.post("/webhooks/whatsapp", async (c) => {
           bumpRuntimeCounter("ctaHandled");
           continue;
         }
+      }
+
+      const handledAdminDigest = await handleAdminDigestCommand({
+        from: item.from,
+        text: effectiveText,
+        replyId: effectiveReplyId,
+        locale: effectiveLocale,
+        routeContext
+      });
+      if (handledAdminDigest) {
+        bumpRuntimeCounter("ctaHandled");
+        continue;
       }
 
       const resetResult = await applyConversationResetPolicy(

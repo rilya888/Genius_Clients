@@ -10,6 +10,7 @@ const commonIt: Dictionary = {
   "common.bookingStatus.confirmed": "Confermato",
   "common.bookingStatus.completed": "Completato",
   "common.bookingStatus.cancelled": "Annullato",
+  "common.bookingStatus.no_show": "No-show",
   "common.errors.generic": "Si e verificato un errore. Riprova."
 };
 
@@ -21,6 +22,7 @@ const commonEn: Dictionary = {
   "common.bookingStatus.confirmed": "Confirmed",
   "common.bookingStatus.completed": "Completed",
   "common.bookingStatus.cancelled": "Cancelled",
+  "common.bookingStatus.no_show": "No-show",
   "common.errors.generic": "An error occurred. Please try again."
 };
 

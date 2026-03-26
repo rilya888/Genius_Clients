@@ -12,6 +12,54 @@ const bookingService = new BookingService();
 const tenantRepository = new TenantRepository();
 const whatsappWindowRepository = new WhatsAppWindowRepository();
 
+function getTimezoneOffsetMs(at: Date, timezone: string): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    timeZoneName: "shortOffset",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).formatToParts(at);
+  const timezoneName = parts.find((part) => part.type === "timeZoneName")?.value ?? "";
+  const offsetMatch = /GMT([+-]\d{1,2})(?::?(\d{2}))?/.exec(timezoneName);
+  if (!offsetMatch) {
+    throw appError("INTERNAL_ERROR", { reason: "timezone_offset_parse_failed", timezone, timezoneName });
+  }
+  const hours = Number(offsetMatch[1]);
+  const minutes = Number(offsetMatch[2] ?? "0");
+  const sign = hours >= 0 ? 1 : -1;
+  return sign * (Math.abs(hours) * 60 + minutes) * 60 * 1000;
+}
+
+function getUtcDateForTenantMidnight(
+  dateParts: { year: number; month: number; day: number },
+  timezone: string
+): Date {
+  const utcGuess = Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day, 0, 0, 0, 0);
+  const offsetMs = getTimezoneOffsetMs(new Date(utcGuess), timezone);
+  return new Date(utcGuess - offsetMs);
+}
+
+function getTenantDateParts(at: Date, timezone: string): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(at);
+  const year = Number(parts.find((part) => part.type === "year")?.value ?? "0");
+  const month = Number(parts.find((part) => part.type === "month")?.value ?? "0");
+  const day = Number(parts.find((part) => part.type === "day")?.value ?? "0");
+  if (!year || !month || !day) {
+    throw appError("INTERNAL_ERROR", { reason: "tenant_date_parts_parse_failed", timezone });
+  }
+  return { year, month, day };
+}
+
 export const publicRoutes = new Hono<ApiAppEnv>()
   .get("/tenants/:slug", async (c) => {
     const slug = c.req.param("slug");
@@ -115,6 +163,93 @@ export const publicRoutes = new Hono<ApiAppEnv>()
     });
 
     return c.json({ data: { id: data?.id ?? null } });
+  })
+  .post("/admin/bookings-digest", async (c) => {
+    const internalSecret = c.req.header("x-internal-secret");
+    if (!internalSecret || internalSecret !== getApiEnv().internalApiSecret) {
+      throw appError("AUTH_FORBIDDEN", { reason: "internal_secret_required" });
+    }
+
+    const body = await c.req.json<{
+      adminPhoneE164?: string;
+      horizon?: "today" | "tomorrow" | "next";
+      limit?: number;
+    }>();
+    if (!body.adminPhoneE164) {
+      throw appError("VALIDATION_ERROR", { required: ["adminPhoneE164"] });
+    }
+
+    try {
+      assertE164(body.adminPhoneE164);
+    } catch (error) {
+      throw appError("VALIDATION_ERROR", {
+        reason: "admin_phone_invalid",
+        details: error instanceof Error ? error.message : "invalid_phone"
+      });
+    }
+
+    const tenantId = c.get("tenantId");
+    const tenant = await tenantRepository.findById(tenantId);
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND");
+    }
+
+    const allowedPhones = new Set(
+      [tenant.adminNotificationWhatsappE164, tenant.operatorWhatsappE164]
+        .filter(Boolean)
+        .map((phone) => String(phone).trim())
+    );
+    if (!allowedPhones.has(body.adminPhoneE164.trim())) {
+      throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_not_authorized" });
+    }
+
+    const horizon = body.horizon ?? "today";
+    const limitRaw = Number.isFinite(body.limit) ? Math.trunc(body.limit as number) : 10;
+    const limit = Math.min(Math.max(limitRaw, 1), 50);
+    const now = new Date();
+    const timezone = tenant.timezone || "Europe/Rome";
+
+    let fromIso: string | undefined;
+    let toIso: string | undefined;
+    if (horizon === "today" || horizon === "tomorrow") {
+      const tenantDate = getTenantDateParts(now, timezone);
+      const baseUtc = getUtcDateForTenantMidnight(tenantDate, timezone);
+      const dayStartUtc = horizon === "today" ? baseUtc : new Date(baseUtc.getTime() + 24 * 60 * 60 * 1000);
+      const dayEndUtc = new Date(dayStartUtc.getTime() + 24 * 60 * 60 * 1000);
+      fromIso = dayStartUtc.toISOString();
+      toIso = new Date(dayEndUtc.getTime() - 1).toISOString();
+    } else {
+      fromIso = now.toISOString();
+    }
+
+    const rawItems = await bookingService.listAdminBookings({
+      tenantId,
+      fromIso,
+      toIso,
+      limit: Math.max(20, limit),
+      offset: 0
+    });
+    const statuses = horizon === "next" ? new Set(["pending", "confirmed"]) : new Set(["pending", "confirmed", "completed", "no_show"]);
+    const items = rawItems
+      .filter((item) => statuses.has(item.status))
+      .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
+      .slice(0, limit)
+      .map((item) => ({
+        id: item.id,
+        clientName: item.clientName,
+        serviceDisplayName: item.serviceDisplayName,
+        status: item.status,
+        startAt: item.startAt
+      }));
+
+    return c.json({
+      data: {
+        horizon,
+        timezone,
+        total: items.length,
+        items
+      }
+    });
   })
   .post("/bookings", async (c) => {
     const body = await c.req.json<{

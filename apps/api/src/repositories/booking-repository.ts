@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gte, inArray, lt, lte, min, sql } from "drizzle-orm
 import { bookings, masterServices, masters, services } from "@genius/db";
 import { getDb } from "../lib/db";
 
-export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled" | "rejected";
+export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | "no_show";
 
 export class BookingRepository {
   async hasActiveMasterMappingsForService(input: { tenantId: string; serviceId: string }) {
@@ -135,6 +135,12 @@ export class BookingRepository {
         endAt: bookings.endAt,
         cancellationReason: bookings.cancellationReason,
         rejectionReason: bookings.rejectionReason,
+        completedAt: bookings.completedAt,
+        completedAmountMinor: bookings.completedAmountMinor,
+        completedCurrency: bookings.completedCurrency,
+        completedPaymentMethod: bookings.completedPaymentMethod,
+        completedPaymentNote: bookings.completedPaymentNote,
+        completedByUserId: bookings.completedByUserId,
         createdAt: bookings.createdAt,
         updatedAt: bookings.updatedAt
       })
@@ -167,6 +173,12 @@ export class BookingRepository {
     nextStatus: BookingStatus;
     cancellationReason?: string | null;
     rejectionReason?: string | null;
+    completedAt?: Date | null;
+    completedAmountMinor?: number | null;
+    completedCurrency?: string | null;
+    completedPaymentMethod?: string | null;
+    completedPaymentNote?: string | null;
+    completedByUserId?: string | null;
   }) {
     const db = getDb();
     const [item] = await db
@@ -175,6 +187,12 @@ export class BookingRepository {
         status: input.nextStatus,
         cancellationReason: input.cancellationReason,
         rejectionReason: input.rejectionReason,
+        completedAt: input.completedAt,
+        completedAmountMinor: input.completedAmountMinor,
+        completedCurrency: input.completedCurrency,
+        completedPaymentMethod: input.completedPaymentMethod,
+        completedPaymentNote: input.completedPaymentNote,
+        completedByUserId: input.completedByUserId,
         updatedAt: new Date()
       })
       .where(
@@ -261,7 +279,7 @@ export class BookingRepository {
       .where(
         and(
           eq(bookings.tenantId, input.tenantId),
-          inArray(bookings.status, ["pending", "confirmed", "completed"]),
+          inArray(bookings.status, ["pending", "confirmed", "completed", "no_show"]),
           gte(bookings.startAt, input.from),
           lt(bookings.startAt, input.toExclusive)
         )

@@ -95,7 +95,9 @@ export class AdminService {
         bookingsPendingCount: Number(kpis?.bookingsPendingCount ?? 0),
         bookingsCancelledWeek: Number(kpis?.bookingsCancelledWeek ?? 0),
         staffActiveCount: Number(kpis?.staffActiveCount ?? 0),
-        bookedMinutesToday: Number(kpis?.bookedMinutesToday ?? 0)
+        bookedMinutesToday: Number(kpis?.bookedMinutesToday ?? 0),
+        bookingsNoShowToday: Number(kpis?.bookingsNoShowToday ?? 0),
+        completedRevenueTodayMinor: Number(kpis?.completedRevenueTodayMinor ?? 0)
       },
       attention: {
         servicesWithoutMasters: Number(attention.servicesWithoutMasters ?? 0),

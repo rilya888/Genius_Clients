@@ -23,7 +23,8 @@ export const bookingStatusEnum = pgEnum("booking_status", [
   "confirmed",
   "completed",
   "cancelled",
-  "rejected"
+  "rejected",
+  "no_show"
 ]);
 export const notificationTypeEnum = pgEnum("notification_type", [
   "booking_created_admin",
@@ -365,6 +366,14 @@ export const bookings = pgTable(
     reminder2hSentAt: timestamp("reminder2h_sent_at", { withTimezone: true }),
     cancellationReason: text("cancellation_reason"),
     rejectionReason: text("rejection_reason"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    completedAmountMinor: integer("completed_amount_minor"),
+    completedCurrency: varchar("completed_currency", { length: 8 }),
+    completedPaymentMethod: varchar("completed_payment_method", { length: 32 }),
+    completedPaymentNote: text("completed_payment_note"),
+    completedByUserId: uuid("completed_by_user_id").references(() => users.id, {
+      onDelete: "set null"
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },

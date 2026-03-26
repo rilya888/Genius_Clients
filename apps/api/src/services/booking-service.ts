@@ -257,6 +257,10 @@ export class BookingService {
     nextStatus: BookingStatus;
     cancellationReason?: string;
     rejectionReason?: string;
+    completedAmountMinor?: number | null;
+    completedCurrency?: string | null;
+    completedPaymentMethod?: string | null;
+    completedPaymentNote?: string | null;
     requestId?: string;
     actorUserId?: string;
   }) {
@@ -268,10 +272,11 @@ export class BookingService {
     const now = new Date();
     const transitionMap: Record<BookingStatus, BookingStatus[]> = {
       pending: ["confirmed", "cancelled", "rejected"],
-      confirmed: ["completed", "cancelled"],
+      confirmed: ["completed", "cancelled", "no_show"],
       completed: [],
       cancelled: [],
-      rejected: []
+      rejected: [],
+      no_show: []
     };
     const allowedNextStatuses = transitionMap[current.status];
 
@@ -292,6 +297,23 @@ export class BookingService {
     if (input.nextStatus === "rejected" && !input.rejectionReason?.trim()) {
       throw appError("VALIDATION_ERROR", { reason: "rejection_reason_required" });
     }
+    if (
+      input.completedAmountMinor !== undefined &&
+      input.completedAmountMinor !== null &&
+      (!Number.isFinite(input.completedAmountMinor) || input.completedAmountMinor <= 0)
+    ) {
+      throw appError("VALIDATION_ERROR", { reason: "completed_amount_invalid" });
+    }
+
+    const completedAt = input.nextStatus === "completed" ? now : null;
+    const completedAmountMinor =
+      input.nextStatus === "completed" ? input.completedAmountMinor ?? null : null;
+    const completedCurrency = input.nextStatus === "completed" ? input.completedCurrency?.trim() ?? null : null;
+    const completedPaymentMethod =
+      input.nextStatus === "completed" ? input.completedPaymentMethod?.trim() ?? null : null;
+    const completedPaymentNote =
+      input.nextStatus === "completed" ? input.completedPaymentNote?.trim() ?? null : null;
+    const completedByUserId = input.nextStatus === "completed" ? input.actorUserId ?? null : null;
 
     const updated = await this.bookingRepository.updateStatus({
       tenantId: input.tenantId,
@@ -301,7 +323,13 @@ export class BookingService {
       cancellationReason:
         input.nextStatus === "cancelled" ? input.cancellationReason?.trim() : null,
       rejectionReason:
-        input.nextStatus === "rejected" ? input.rejectionReason?.trim() : null
+        input.nextStatus === "rejected" ? input.rejectionReason?.trim() : null,
+      completedAt,
+      completedAmountMinor,
+      completedCurrency,
+      completedPaymentMethod,
+      completedPaymentNote,
+      completedByUserId
     });
 
     if (!updated) {
@@ -317,6 +345,9 @@ export class BookingService {
       meta: {
         from: current.status,
         to: input.nextStatus,
+        completedAmountMinor,
+        completedCurrency,
+        completedPaymentMethod,
         requestId: input.requestId
       }
     });

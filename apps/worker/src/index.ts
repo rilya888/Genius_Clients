@@ -51,6 +51,7 @@ const waTemplateReminder24hGlobal = process.env.WA_TEMPLATE_BOOKING_REMINDER_24H
 const waTemplateReminder2hGlobal = process.env.WA_TEMPLATE_BOOKING_REMINDER_2H?.trim() ?? "";
 const waTemplateLangIt = process.env.WA_TEMPLATE_LANG_IT?.trim() || "it";
 const waTemplateLangEn = process.env.WA_TEMPLATE_LANG_EN?.trim() || "en";
+const webUrl = (process.env.WEB_URL ?? process.env.APP_URL ?? "").trim();
 const workerAdminSecret = process.env.WORKER_ADMIN_SECRET ?? "";
 
 let isSweepRunning = false;
@@ -597,16 +598,18 @@ async function buildAdminApprovalPayload(input: { bookingId: string; recipient: 
 
   const shortId = details.bookingId.slice(0, 8);
   const masterName = details.masterName || (locale === "it" ? "Non assegnato" : "Unassigned");
+  const webLink = webUrl ? `${webUrl.replace(/\/$/, "")}/app/bookings` : null;
   const text =
     locale === "it"
-      ? `Nuova prenotazione #${shortId}\nCliente: ${details.clientName}\nServizio: ${details.serviceName}\nMaster: ${masterName}\nQuando: ${when}\nConfermi questa prenotazione?`
-      : `New booking #${shortId}\nClient: ${details.clientName}\nService: ${details.serviceName}\nSpecialist: ${masterName}\nWhen: ${when}\nDo you confirm this booking?`;
+      ? `Nuova prenotazione #${shortId}\nCliente: ${details.clientName}\nServizio: ${details.serviceName}\nMaster: ${masterName}\nQuando: ${when}\nConfermi questa prenotazione?${webLink ? `\nApri web: ${webLink}` : ""}`
+      : `New booking #${shortId}\nClient: ${details.clientName}\nService: ${details.serviceName}\nSpecialist: ${masterName}\nWhen: ${when}\nDo you confirm this booking?${webLink ? `\nOpen web: ${webLink}` : ""}`;
 
   return {
     text,
     confirmToken,
     rejectToken,
-    locale
+    locale,
+    webLink
   };
 }
 
@@ -772,6 +775,13 @@ async function sendByChannel(input: {
                             reply: {
                               id: `cta:${approvalPayload.rejectToken}`,
                               title: approvalPayload.locale === "it" ? "Rifiuta" : "Reject"
+                            }
+                          },
+                          {
+                            type: "reply",
+                            reply: {
+                              id: "admin:open_web",
+                              title: approvalPayload.locale === "it" ? "Apri web" : "Open web"
                             }
                           }
                         ]
