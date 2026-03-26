@@ -955,6 +955,26 @@ th {
   gap: 0.4rem;
 }
 
+.booking-mobile-list {
+  display: none;
+}
+
+.booking-mobile-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0.9rem;
+  margin-bottom: 0.8rem;
+}
+
+.booking-mobile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  margin-bottom: 0.4rem;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -987,6 +1007,11 @@ th {
 .status-rejected {
   background: #ffe7d6;
   color: #8a3f00;
+}
+
+.status-no_show {
+  background: #efe8ff;
+  color: #4b2a86;
 }
 
 .notification-status-pending {
@@ -1065,6 +1090,16 @@ th {
   .admin-sidebar {
     border-right: 0;
     border-bottom: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 840px) {
+  .booking-table-desktop {
+    display: none;
+  }
+
+  .booking-mobile-list {
+    display: block;
   }
 }
 

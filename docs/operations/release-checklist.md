@@ -18,6 +18,9 @@
 - Run `MVP_CHANNEL_MODE=whatsapp_only pnpm railway:audit-env` and ensure `missing required: 0`.
 - Validate `WA/Stripe` webhook secrets are current.
 - Validate `WORKER_ADMIN_SECRET` and token TTL settings.
+- Validate `WEB_URL` (or `APP_URL`) is set for:
+  - `bot` (used for `Open web` quick action links)
+  - `worker` (used in `booking_created_admin` admin CTA message)
 - For WhatsApp window-policy, verify:
   - `WA_TEMPLATE_BOOKING_CREATED_ADMIN`
   - `WA_TEMPLATE_BOOKING_REMINDER_24H`
@@ -30,6 +33,11 @@
 - Run `pnpm smoke:local` against running services.
 - Run `pnpm smoke:production`.
 - Run `pnpm smoke:observability`.
+- Run admin digest smoke from authorized admin number:
+  - send `today`, verify list reply
+  - send `tomorrow`, verify list reply
+  - send `next`, verify nearest bookings
+  - verify `Open web` reply returns `/app/bookings` link
 - Run unified prod gates:
   - `SMOKE_SUPER_ADMIN_SECRET=... SMOKE_TENANT_SLUG=alex-salon pnpm release:mvp:gates`
 - For `web-vite` auth/admin stability releases, run strict SPA gates:
