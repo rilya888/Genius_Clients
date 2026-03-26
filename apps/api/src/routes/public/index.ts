@@ -210,7 +210,11 @@ export const publicRoutes = new Hono<ApiAppEnv>()
         }
         tenant = matchedTenant;
       } else if (matchedTenants.length > 1) {
-        throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_ambiguous" });
+        const [preferredTenant] = matchedTenants;
+        if (!preferredTenant) {
+          throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_not_authorized" });
+        }
+        tenant = preferredTenant;
       } else {
         throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_not_authorized" });
       }
