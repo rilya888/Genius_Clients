@@ -19,6 +19,24 @@ export function formatApiError(error: unknown, fallbackMessage: string) {
     if (reason === "desired_whatsapp_bot_e164_conflict") {
       return withRequestId(resolveLocalizedMessage("This bot number is already assigned to another salon."), error.requestId);
     }
+    if (reason === "whatsapp_desired_bot_required_for_connected_endpoint") {
+      return withRequestId(
+        resolveLocalizedMessage("Set the bot number before saving because a WhatsApp endpoint is already connected."),
+        error.requestId
+      );
+    }
+    if (reason === "whatsapp_operator_required_for_connected_endpoint") {
+      return withRequestId(
+        resolveLocalizedMessage("Set the operator number before saving because a WhatsApp endpoint is already connected."),
+        error.requestId
+      );
+    }
+    if (reason === "whatsapp_routing_mismatch_for_tenant") {
+      return withRequestId(
+        resolveLocalizedMessage("The selected bot number does not match the connected WhatsApp endpoint for this salon."),
+        error.requestId
+      );
+    }
     const detail = error.message.startsWith("HTTP_") ? fallbackMessage : error.message;
     return error.requestId ? `${detail} (requestId: ${error.requestId})` : detail;
   }
@@ -57,6 +75,15 @@ function resolveLocalizedMessage(english: string) {
     }
     if (english === "This bot number is already assigned to another salon.") {
       return "Questo numero bot è già assegnato a un altro salone.";
+    }
+    if (english === "Set the bot number before saving because a WhatsApp endpoint is already connected.") {
+      return "Imposta il numero bot prima di salvare perché è già collegato un endpoint WhatsApp.";
+    }
+    if (english === "Set the operator number before saving because a WhatsApp endpoint is already connected.") {
+      return "Imposta il numero operatore prima di salvare perché è già collegato un endpoint WhatsApp.";
+    }
+    if (english === "The selected bot number does not match the connected WhatsApp endpoint for this salon.") {
+      return "Il numero bot selezionato non corrisponde all'endpoint WhatsApp collegato per questo salone.";
     }
   }
   return english;
