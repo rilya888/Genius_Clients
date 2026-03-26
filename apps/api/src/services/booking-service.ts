@@ -432,7 +432,7 @@ export class BookingService {
       });
     }
 
-    const tenant = await this.tenantRepository.findById(input.tenantId);
+    let tenant = await this.tenantRepository.findById(input.tenantId);
     if (!tenant) {
       throw appError("TENANT_NOT_FOUND");
     }
@@ -442,19 +442,35 @@ export class BookingService {
         .map((phone) => String(phone).trim())
     );
     if (!allowedPhones.has(adminPhone)) {
-      throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_not_authorized" });
+      // Fallback for stale route context: recover tenant by admin phone.
+      const matchedTenants = await this.tenantRepository.findByAdminWhatsAppPhone(adminPhone);
+      if (matchedTenants.length === 1) {
+        const [matchedTenant] = matchedTenants;
+        if (!matchedTenant) {
+          throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_not_authorized" });
+        }
+        tenant = matchedTenant;
+      } else if (matchedTenants.length > 1) {
+        throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_ambiguous" });
+      } else {
+        throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_not_authorized" });
+      }
+    }
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND");
     }
     if (input.action === "reject" && !input.rejectionReason?.trim()) {
       throw appError("VALIDATION_ERROR", { reason: "rejection_reason_required" });
     }
 
-    const current = await this.bookingRepository.findById(input.tenantId, input.bookingId);
+    const effectiveTenantId = tenant.id;
+    const current = await this.bookingRepository.findById(effectiveTenantId, input.bookingId);
     if (!current) {
       throw appError("TENANT_NOT_FOUND", { reason: "booking_not_found_in_tenant" });
     }
     if (current.status !== "pending") {
       console.log("[api][booking-admin-action] already processed", {
-        tenantId: input.tenantId,
+        tenantId: effectiveTenantId,
         bookingId: input.bookingId,
         action: input.action,
         currentStatus: current.status
@@ -468,7 +484,7 @@ export class BookingService {
 
     const nextStatus: BookingStatus = input.action === "confirm" ? "confirmed" : "rejected";
     const updated = await this.bookingRepository.updateStatus({
-      tenantId: input.tenantId,
+      tenantId: effectiveTenantId,
       bookingId: input.bookingId,
       expectedCurrentStatuses: ["pending"],
       nextStatus,
@@ -476,9 +492,9 @@ export class BookingService {
       rejectionReason: nextStatus === "rejected" ? input.rejectionReason?.trim() ?? null : null
     });
     if (!updated) {
-      const latest = await this.bookingRepository.findById(input.tenantId, input.bookingId);
+      const latest = await this.bookingRepository.findById(effectiveTenantId, input.bookingId);
       console.log("[api][booking-admin-action] concurrent change", {
-        tenantId: input.tenantId,
+        tenantId: effectiveTenantId,
         bookingId: input.bookingId,
         action: input.action,
         latestStatus: latest?.status ?? null
@@ -491,7 +507,7 @@ export class BookingService {
     }
 
     await this.auditRepository.create({
-      tenantId: input.tenantId,
+      tenantId: effectiveTenantId,
       actorUserId: undefined,
       action: "booking_status_changed",
       entity: "booking",
@@ -509,7 +525,7 @@ export class BookingService {
     if (nextStatus === "confirmed") {
       const recipient = updated.clientEmail ?? updated.clientPhoneE164;
       await this.notificationRepository.enqueue({
-        tenantId: input.tenantId,
+        tenantId: effectiveTenantId,
         bookingId: updated.id,
         notificationType: "booking_confirmed_client",
         channel: this.resolveClientChannel(updated.source),
@@ -519,7 +535,7 @@ export class BookingService {
       const defaultChannel = this.resolveClientChannel(updated.source);
       if (defaultChannel !== "whatsapp") {
         await this.notificationRepository.enqueue({
-          tenantId: input.tenantId,
+          tenantId: effectiveTenantId,
           bookingId: updated.id,
           notificationType: "booking_confirmed_client",
           channel: "whatsapp",
@@ -530,7 +546,7 @@ export class BookingService {
     } else {
       const recipient = updated.clientEmail ?? updated.clientPhoneE164;
       await this.notificationRepository.enqueue({
-        tenantId: input.tenantId,
+        tenantId: effectiveTenantId,
         bookingId: updated.id,
         notificationType: "booking_rejected_client",
         channel: this.resolveClientChannel(updated.source),
@@ -540,7 +556,7 @@ export class BookingService {
     }
 
     console.log("[api][booking-admin-action] applied", {
-      tenantId: input.tenantId,
+      tenantId: effectiveTenantId,
       bookingId: updated.id,
       action: input.action,
       resultingStatus: updated.status
