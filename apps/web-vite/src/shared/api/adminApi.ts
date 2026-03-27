@@ -84,6 +84,44 @@ type DashboardEnvelope = {
       entity: string;
       createdAt: string;
     }>;
+    revenueOverview: {
+      today: {
+        range: "today";
+        timezone: string;
+        currency: string;
+        fromAt: string;
+        toAt: string;
+        completedCount: number;
+        completedWithAmountCount: number;
+        completedWithoutAmountCount: number;
+        totalRevenueMinor: number;
+        averageTicketMinor: number;
+      };
+      week: {
+        range: "week";
+        timezone: string;
+        currency: string;
+        fromAt: string;
+        toAt: string;
+        completedCount: number;
+        completedWithAmountCount: number;
+        completedWithoutAmountCount: number;
+        totalRevenueMinor: number;
+        averageTicketMinor: number;
+      };
+      month: {
+        range: "month";
+        timezone: string;
+        currency: string;
+        fromAt: string;
+        toAt: string;
+        completedCount: number;
+        completedWithAmountCount: number;
+        completedWithoutAmountCount: number;
+        totalRevenueMinor: number;
+        averageTicketMinor: number;
+      };
+    };
     whatsappSetup: {
       desiredBotNumber: string | null;
       operatorNumber: string | null;
@@ -99,6 +137,44 @@ type DashboardEnvelope = {
       requiresAction: boolean;
       statusReason: string;
     };
+  };
+};
+
+export type RevenueRange = "today" | "week" | "month" | "custom";
+
+type RevenueSummaryEnvelope = {
+  data: {
+    range: RevenueRange;
+    timezone: string;
+    currency: string;
+    fromAt: string;
+    toAt: string;
+    completedCount: number;
+    completedWithAmountCount: number;
+    completedWithoutAmountCount: number;
+    totalRevenueMinor: number;
+    averageTicketMinor: number;
+  };
+};
+
+type RevenueBookingsEnvelope = {
+  data: {
+    range: RevenueRange;
+    timezone: string;
+    fromAt: string;
+    toAt: string;
+    items: Array<{
+      id: string;
+      clientName: string;
+      serviceId: string;
+      serviceDisplayName: string;
+      startAt: string;
+      completedAt: string;
+      completedAmountMinor: number | null;
+      completedCurrency: string | null;
+      completedPaymentMethod: string | null;
+      completedPaymentNote: string | null;
+    }>;
   };
 };
 
@@ -216,6 +292,7 @@ type ScopeEnvelope = {
       id: string;
       slug: string;
       name: string;
+      timezone: string;
     };
     salons: Array<{
       id: string;
@@ -333,6 +410,38 @@ export async function listAdminServices() {
 export async function getAdminDashboard() {
   const payload = await adminJson<DashboardEnvelope>("/api/v1/admin/dashboard", {
     method: "GET"
+  });
+  return payload.data;
+}
+
+export async function getRevenueSummary(input: { range: RevenueRange; from?: string; to?: string }) {
+  const payload = await adminJson<RevenueSummaryEnvelope>("/api/v1/admin/revenue/summary", {
+    method: "GET",
+    query: {
+      range: input.range,
+      from: input.from,
+      to: input.to
+    }
+  });
+  return payload.data;
+}
+
+export async function listRevenueBookings(input: {
+  range: RevenueRange;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const payload = await adminJson<RevenueBookingsEnvelope>("/api/v1/admin/revenue/bookings", {
+    method: "GET",
+    query: {
+      range: input.range,
+      from: input.from,
+      to: input.to,
+      limit: input.limit ?? 50,
+      offset: input.offset ?? 0
+    }
   });
   return payload.data;
 }

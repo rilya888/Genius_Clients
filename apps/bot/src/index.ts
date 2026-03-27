@@ -102,7 +102,12 @@ const botLateCancelBlockHours = Math.max(0, Number.parseInt(process.env.BOT_LATE
 const opsAlertWebhookUrl = process.env.OPS_ALERT_WEBHOOK_URL ?? "";
 const opsAlertWebhookToken = process.env.OPS_ALERT_WEBHOOK_TOKEN ?? "";
 const apiUrl = process.env.API_URL ?? "";
-const webUrl = (process.env.WEB_URL ?? process.env.APP_URL ?? "").trim();
+const webUrl = (
+  process.env.WEB_URL ??
+  process.env.APP_URL ??
+  process.env.RAILWAY_SERVICE_WEB_URL ??
+  ""
+).trim();
 const internalApiSecret = process.env.INTERNAL_API_SECRET ?? "";
 const botTenantSlug = process.env.BOT_TENANT_SLUG ?? "";
 const botTenantId = process.env.BOT_TENANT_ID ?? "";
@@ -1893,11 +1898,26 @@ async function notifyAdminWhatsAppHandoff(input: {
   return result.sent;
 }
 
-function getAdminBookingsWebLink() {
-  if (!webUrl) {
+function normalizeAbsoluteUrl(input: string): string {
+  if (!input) {
     return "";
   }
-  return `${webUrl.replace(/\/$/, "")}/app/bookings`;
+  if (/^https?:\/\//i.test(input)) {
+    return input;
+  }
+  return `https://${input}`;
+}
+
+function getAdminBookingsWebLink(routeContext?: BotRoutingContext | null) {
+  const base = normalizeAbsoluteUrl(webUrl).replace(/\/$/, "");
+  if (!base) {
+    return "";
+  }
+  const tenantSlug = routeContext?.tenantSlug?.trim();
+  if (tenantSlug) {
+    return `${base}/t/${encodeURIComponent(tenantSlug)}/app`;
+  }
+  return `${base}/app`;
 }
 
 async function fetchAdminBookingsDigestFromBot(input: {
@@ -2015,16 +2035,26 @@ function formatAdminDigestMessage(input: {
       : `${titleMap[input.horizon].en}: no bookings found.`;
   }
 
-  const dateFormat = new Intl.DateTimeFormat(input.locale === "it" ? "it-IT" : "en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: input.timezone
-  });
+  const toDateTimeLabel = (value: string) => {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: input.timezone
+    }).formatToParts(new Date(value));
+    const map = new Map(parts.map((part) => [part.type, part.value]));
+    const day = map.get("day") ?? "01";
+    const month = map.get("month") ?? "01";
+    const year = map.get("year") ?? "1970";
+    const hour = map.get("hour") ?? "00";
+    const minute = map.get("minute") ?? "00";
+    return `${day}.${month}.${year} ${hour}:${minute}`;
+  };
   const rows = input.items.map((item, index) => {
-    const when = dateFormat.format(new Date(item.startAt));
+    const when = toDateTimeLabel(item.startAt);
     return `${index + 1}. ${when} - ${item.clientName} - ${item.serviceDisplayName} (${statusLabel(item.status)})`;
   });
   return `${input.locale === "it" ? titleMap[input.horizon].it : titleMap[input.horizon].en}\n${rows.join("\n")}`;
@@ -2078,7 +2108,7 @@ async function handleAdminDigestCommand(input: {
       bumpRuntimeCounter("adminDigestErrors");
       return false;
     }
-    const link = getAdminBookingsWebLink();
+    const link = getAdminBookingsWebLink(routeContext);
     if (!link) {
       await sendWhatsAppMessage({
         to: input.from,
@@ -2143,7 +2173,7 @@ async function handleAdminDigestCommand(input: {
     timezone: digest.timezone,
     items: digest.items
   });
-  const link = getAdminBookingsWebLink();
+  const link = getAdminBookingsWebLink(routeContext);
   const withLink = link
     ? `${summaryText}\n\n${input.locale === "it" ? "Apri web:" : "Open web:"} ${link}`
     : summaryText;
@@ -2563,13 +2593,21 @@ function getNextDays(timezone: string, count: number) {
   return Array.from(new Set(out));
 }
 
-function formatDateChoiceLabel(dateIso: string, locale: SupportedLocale, timezone: string) {
-  return new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-GB", {
-    weekday: "short",
+function formatDateChoiceLabel(dateIso: string, _locale: SupportedLocale, timezone: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
     timeZone: timezone
-  }).format(new Date(`${dateIso}T00:00:00.000Z`));
+  }).formatToParts(new Date(`${dateIso}T00:00:00.000Z`));
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+  const day = map.get("day") ?? "01";
+  const month = map.get("month") ?? "01";
+  const year = map.get("year") ?? "1970";
+  return `${day}.${month}.${year}`;
 }
 
 async function sendRescheduleDateChoices(input: {

@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { useScopeContext } from "../shared/hooks/useScopeContext";
@@ -8,9 +8,11 @@ import { clearSession, getRefreshToken, isEmailVerifiedFlagSet } from "../shared
 import { formatApiError } from "../shared/api/formatApiError";
 import { buildTenantScopedPath, resolveCurrentTenantSlug } from "../shared/routing/tenant-host";
 import { ADMIN_BOOKINGS_CHANGED_EVENT } from "../shared/admin-events";
+import { BackToDashboardAction } from "./BackToDashboardAction";
 
 export function AppLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { locale, setLocale, t } = useI18n();
   const { accountId, salonId, accounts, salons, capabilities, role, userEmail, setAccountId, setSalonId } =
     useScopeContext();
@@ -18,6 +20,7 @@ export function AppLayout() {
   const availableSalons = useMemo(() => salons.filter((item) => item.accountId === accountId), [salons, accountId]);
   const selectedAccount = useMemo(() => accounts.find((item) => item.id === accountId), [accounts, accountId]);
   const selectedSalon = useMemo(() => salons.find((item) => item.id === salonId), [salons, salonId]);
+  const isSingleTenantMode = !capabilities.multiSalon && accounts.length <= 1 && availableSalons.length <= 1;
   const [pendingBookingCount, setPendingBookingCount] = useState(0);
   const [isEmailVerified, setIsEmailVerified] = useState(true);
   const [emailVerificationPending, setEmailVerificationPending] = useState(false);
@@ -27,8 +30,18 @@ export function AppLayout() {
     null
   );
   const [billingDaysPastDue, setBillingDaysPastDue] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const currentTenantSlug = resolveCurrentTenantSlug();
   const appHref = (path = "/app") => (currentTenantSlug ? buildTenantScopedPath(currentTenantSlug, path) : path);
+  const normalizedPath = location.pathname.replace(/\/+$/, "") || "/";
+  const isDashboardPath =
+    normalizedPath === "/app" || /^\/t\/[^/]+\/app$/.test(normalizedPath);
+  const canViewRevenue = role === "owner" || role === "admin";
+  const closeSidebarOnMobile = () => {
+    if (window.innerWidth <= 1024) {
+      setSidebarOpen(false);
+    }
+  };
 
   async function handleLogout() {
     try {
@@ -42,6 +55,24 @@ export function AppLayout() {
   useEffect(() => {
     setIsEmailVerified(isEmailVerifiedFlagSet());
   }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 1024px)");
+    const syncSidebarState = () => {
+      setSidebarOpen(!mediaQuery.matches);
+    };
+    syncSidebarState();
+    mediaQuery.addEventListener("change", syncSidebarState);
+    return () => {
+      mediaQuery.removeEventListener("change", syncSidebarState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (window.innerWidth <= 1024) {
+      setSidebarOpen(false);
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,9 +136,20 @@ export function AppLayout() {
 
   return (
     <div className="admin-shell">
-      <aside className="admin-sidebar">
-        <LinkLikeBrand label={t("app.brand")} />
-        <div style={{ marginTop: "0.75rem", marginBottom: "0.75rem" }}>
+      <aside className="admin-sidebar" data-open={sidebarOpen ? "true" : "false"}>
+        <div className="admin-sidebar-top">
+          <LinkLikeBrand label={t("app.brand")} />
+          <button
+            className="admin-sidebar-toggle"
+            type="button"
+            onClick={() => setSidebarOpen((current) => !current)}
+            aria-expanded={sidebarOpen}
+            aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"}
+          >
+            {sidebarOpen ? "Close" : "Menu"}
+          </button>
+        </div>
+        <div className="sidebar-language-block">
           <label style={{ display: "block", marginBottom: "0.35rem", fontSize: "0.9rem", color: "var(--text-muted)" }}>
             {t("app.language")}
           </label>
@@ -120,53 +162,71 @@ export function AppLayout() {
             </button>
           </div>
         </div>
-        <div className="scope-panel">
-          <label>
-            {t("app.scope.account")}
-            <select
-              value={accountId}
-              disabled={accounts.length <= 1}
-              onChange={(event) => {
-                const nextAccountId = event.target.value;
-                setAccountId(nextAccountId);
-                const nextSalon = salons.find((item) => item.accountId === nextAccountId);
-                setSalonId(nextSalon?.id ?? "");
-              }}
-            >
-              {accounts.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
+        {isSingleTenantMode ? (
+          <div className="scope-cards">
+            <article className="scope-card">
+              <span>{t("app.scope.account")}</span>
+              <strong>{selectedAccount?.name ?? t("app.scope.notSelected")}</strong>
+            </article>
+            <article className="scope-card">
+              <span>{t("app.scope.salon")}</span>
+              <strong>{selectedSalon?.name ?? t("app.scope.notSelected")}</strong>
+            </article>
+            <article className="scope-card">
+              <span>{t("app.scope.role")}</span>
+              <strong>{t(`app.role.${role}`)}</strong>
+            </article>
+          </div>
+        ) : (
+          <div className="scope-panel">
+            <label>
+              {t("app.scope.account")}
+              <select
+                value={accountId}
+                disabled={accounts.length <= 1}
+                onChange={(event) => {
+                  const nextAccountId = event.target.value;
+                  setAccountId(nextAccountId);
+                  const nextSalon = salons.find((item) => item.accountId === nextAccountId);
+                  setSalonId(nextSalon?.id ?? "");
+                }}
+              >
+                {accounts.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <label>
-            {t("app.scope.salon")}
-            <select value={salonId} disabled={!capabilities.multiSalon || availableSalons.length <= 1} onChange={(event) => setSalonId(event.target.value)}>
-              {availableSalons.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label>
+              {t("app.scope.salon")}
+              <select value={salonId} disabled={!capabilities.multiSalon || availableSalons.length <= 1} onChange={(event) => setSalonId(event.target.value)}>
+                {availableSalons.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <label>
-            {t("app.scope.role")}
-            <input value={t(`app.role.${role}`)} disabled readOnly />
-          </label>
-        </div>
+            <label>
+              {t("app.scope.role")}
+              <input value={t(`app.role.${role}`)} disabled readOnly />
+            </label>
+          </div>
+        )}
         <nav>
-          <NavLink to={appHref("/app")}>{t("app.dashboard")}</NavLink>
-          <NavLink to={appHref("/app/bookings")}>{t("app.bookings")}</NavLink>
-          <NavLink to={appHref("/app/services")}>{t("app.services")}</NavLink>
-          <NavLink to={appHref("/app/staff")}>{t("app.staff")}</NavLink>
-          <NavLink to={appHref("/app/schedule")}>{t("app.schedule")}</NavLink>
-          <NavLink to={appHref("/app/settings")}>{t("app.settings")}</NavLink>
-          <NavLink to={appHref("/app/settings/faq")}>{t("app.faqSettings")}</NavLink>
-          <NavLink to={appHref("/app/settings/privacy")}>{t("app.privacy")}</NavLink>
-          <NavLink to={appHref("/app/settings/notifications")}>{t("app.notifications")}</NavLink>
+          <NavLink to={appHref("/app")} onClick={closeSidebarOnMobile}>{t("app.dashboard")}</NavLink>
+          <NavLink to={appHref("/app/bookings")} onClick={closeSidebarOnMobile}>{t("app.bookings")}</NavLink>
+          <NavLink to={appHref("/app/services")} onClick={closeSidebarOnMobile}>{t("app.services")}</NavLink>
+          <NavLink to={appHref("/app/staff")} onClick={closeSidebarOnMobile}>{t("app.staff")}</NavLink>
+          <NavLink to={appHref("/app/schedule")} onClick={closeSidebarOnMobile}>{t("app.schedule")}</NavLink>
+          {canViewRevenue ? <NavLink to={appHref("/app/revenue")} onClick={closeSidebarOnMobile}>{t("app.revenue")}</NavLink> : null}
+          <NavLink to={appHref("/app/settings")} onClick={closeSidebarOnMobile}>{t("app.settings")}</NavLink>
+          <NavLink to={appHref("/app/settings/faq")} onClick={closeSidebarOnMobile}>{t("app.faqSettings")}</NavLink>
+          <NavLink to={appHref("/app/settings/privacy")} onClick={closeSidebarOnMobile}>{t("app.privacy")}</NavLink>
+          <NavLink to={appHref("/app/settings/notifications")} onClick={closeSidebarOnMobile}>{t("app.notifications")}</NavLink>
         </nav>
         <button className="btn btn-secondary" type="button" onClick={handleLogout}>
           {t("app.logout")}
@@ -255,6 +315,7 @@ export function AppLayout() {
           </span>
         </div>
         <Outlet />
+        {!isDashboardPath ? <BackToDashboardAction /> : null}
       </main>
     </div>
   );

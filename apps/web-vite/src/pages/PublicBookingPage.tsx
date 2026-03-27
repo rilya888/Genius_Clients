@@ -9,6 +9,7 @@ import {
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/AsyncState";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { resolveBrowserTenantContext } from "../shared/routing/tenant-host";
+import { formatUiDateTime } from "../shared/i18n/dateTime";
 
 type LoadState<T> = {
   pending: boolean;
@@ -16,11 +17,8 @@ type LoadState<T> = {
   data: T;
 };
 
-function slotLabel(slot: PublicSlot, locale: string) {
-  return new Intl.DateTimeFormat(locale, {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(new Date(slot.startAt));
+function slotLabel(slot: PublicSlot, timezone?: string) {
+  return formatUiDateTime(slot.startAt, timezone);
 }
 
 export function PublicBookingPage({ embedded = false }: { embedded?: boolean }) {
@@ -51,6 +49,7 @@ export function PublicBookingPage({ embedded = false }: { embedded?: boolean }) 
   const [bookingMessage, setBookingMessage] = useState<string | null>(null);
   const [bookingCreated, setBookingCreated] = useState(false);
   const [bookingHasError, setBookingHasError] = useState(false);
+  const [slotsTimezone, setSlotsTimezone] = useState<string | null>(null);
 
   useEffect(() => {
     if (!hasTenantContext) {
@@ -134,12 +133,13 @@ export function PublicBookingPage({ embedded = false }: { embedded?: boolean }) 
 
     setSlots((state) => ({ ...state, pending: true, error: null }));
     try {
-      const items = await listPublicSlots({
+      const result = await listPublicSlots({
         serviceId,
         date,
         masterId: masterId || undefined
       });
-      setSlots({ pending: false, error: null, data: items });
+      setSlotsTimezone(result.timezone);
+      setSlots({ pending: false, error: null, data: result.items });
     } catch {
       setSlots({ pending: false, error: t("public.booking.loadSlotsFailed"), data: [] });
     }
@@ -214,7 +214,7 @@ export function PublicBookingPage({ embedded = false }: { embedded?: boolean }) 
             key={`${slot.masterId}-${slot.startAt}`}
             className={`slot-card card-hover ${selectedSlot?.startAt === slot.startAt ? "slot-selected" : ""}`}
           >
-            <h3>{slotLabel(slot, locale)}</h3>
+            <h3>{slotLabel(slot, slotsTimezone ?? undefined)}</h3>
             <p>
               {t("booking.master")}: {masterNameById[slot.masterId] ?? slot.masterId}
             </p>
@@ -234,7 +234,7 @@ export function PublicBookingPage({ embedded = false }: { embedded?: boolean }) 
         <h2>{t("booking.clientDetails")}</h2>
         {selectedSlot ? (
           <p className="status-muted">
-            {t("booking.selected")}: {slotLabel(selectedSlot, locale)}
+            {t("booking.selected")}: {slotLabel(selectedSlot, slotsTimezone ?? undefined)}
           </p>
         ) : null}
         <form

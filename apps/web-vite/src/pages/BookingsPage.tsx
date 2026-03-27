@@ -4,6 +4,8 @@ import { formatApiError } from "../shared/api/formatApiError";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/AsyncState";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { emitAdminBookingsChanged } from "../shared/admin-events";
+import { useScopeContext } from "../shared/hooks/useScopeContext";
+import { formatUiDateTime } from "../shared/i18n/dateTime";
 
 type BookingRow = {
   id: string;
@@ -15,6 +17,7 @@ type BookingRow = {
 
 export function BookingsPage() {
   const { t } = useI18n();
+  const { tenantTimezone } = useScopeContext();
   const [status, setStatus] = useState<"" | "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | "no_show">("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -177,9 +180,11 @@ export function BookingsPage() {
   }
 
   function renderActions(row: BookingRow) {
+    const bookingStartMs = new Date(row.startAt).getTime();
+    const canCompleteNow = Number.isFinite(bookingStartMs) ? bookingStartMs <= Date.now() : true;
     if (row.status === "pending") {
       return (
-        <div className="inline-actions">
+        <div className="inline-actions booking-row-actions">
           <button
             className="btn btn-ghost"
             type="button"
@@ -209,11 +214,12 @@ export function BookingsPage() {
     }
     if (row.status === "confirmed") {
       return (
-        <div className="inline-actions">
+        <div className="inline-actions booking-row-actions">
           <button
             className="btn btn-ghost"
             type="button"
-            disabled={processingBookingId === row.id}
+            disabled={processingBookingId === row.id || !canCompleteNow}
+            title={!canCompleteNow ? t("admin.bookings.completeFutureHint") : undefined}
             onClick={() => void handleBookingStatusAction(row.id, row.status, "completed")}
           >
             {t("admin.bookings.completeAction")}
@@ -243,7 +249,7 @@ export function BookingsPage() {
   return (
     <section className="page-shell">
       <h1>{t("admin.bookings.title")}</h1>
-      <div className="booking-controls">
+      <div className="booking-controls booking-controls-compact">
         <label>
           {t("admin.bookings.statusFilter")}
           <select value={status} onChange={(event) => setStatus(event.target.value as typeof status)}>
@@ -264,7 +270,6 @@ export function BookingsPage() {
           {t("admin.bookings.to")}
           <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
         </label>
-        <div />
       </div>
       {state.pending ? <LoadingState text={t("admin.bookings.loading")} /> : null}
       {state.error ? <ErrorState text={state.error} /> : null}
@@ -291,7 +296,7 @@ export function BookingsPage() {
                 <tr key={row.id}>
                   <td>{row.clientName}</td>
                   <td>{row.serviceName}</td>
-                  <td>{new Date(row.startAt).toLocaleString()}</td>
+                  <td>{formatUiDateTime(row.startAt, tenantTimezone)}</td>
                   <td>
                     <span className={`status-pill status-${row.status}`}>{t(`common.bookingStatus.${row.status}`)}</span>
                   </td>
@@ -311,7 +316,7 @@ export function BookingsPage() {
                 <span className={`status-pill status-${row.status}`}>{t(`common.bookingStatus.${row.status}`)}</span>
               </header>
               <p>{row.serviceName}</p>
-              <p className="status-muted">{new Date(row.startAt).toLocaleString()}</p>
+              <p className="status-muted">{formatUiDateTime(row.startAt, tenantTimezone)}</p>
               {renderActions(row)}
             </article>
           ))}
