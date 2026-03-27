@@ -411,14 +411,26 @@ export class BookingService {
 
     if (input.nextStatus === "cancelled") {
       const recipient = updated.clientEmail ?? updated.clientPhoneE164;
+      const defaultChannel = this.resolveClientChannel(updated.source);
       await this.notificationRepository.enqueue({
         tenantId: input.tenantId,
         bookingId: updated.id,
         notificationType: "booking_cancelled",
-        channel: this.resolveClientChannel(updated.source),
+        channel: defaultChannel,
         recipient,
         idempotencyKey: `${updated.id}:booking_cancelled`
       });
+
+      if (defaultChannel !== "whatsapp") {
+        await this.notificationRepository.enqueue({
+          tenantId: input.tenantId,
+          bookingId: updated.id,
+          notificationType: "booking_cancelled",
+          channel: "whatsapp",
+          recipient: updated.clientPhoneE164,
+          idempotencyKey: `${updated.id}:booking_cancelled:whatsapp`
+        });
+      }
     }
 
     if (input.nextStatus === "rejected") {
