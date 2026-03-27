@@ -6,10 +6,19 @@ export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled" 
 
 export class BookingRepository {
   private isMissingColumnError(error: unknown) {
-    if (typeof error !== "object" || error === null || !("code" in error)) {
+    if (typeof error !== "object" || error === null) {
       return false;
     }
-    return String((error as { code: unknown }).code) === "42703";
+    if ("code" in error && String((error as { code: unknown }).code) === "42703") {
+      return true;
+    }
+    if ("cause" in error) {
+      const cause = (error as { cause?: unknown }).cause;
+      if (typeof cause === "object" && cause !== null && "code" in cause) {
+        return String((cause as { code: unknown }).code) === "42703";
+      }
+    }
+    return false;
   }
 
   async hasActiveMasterMappingsForService(input: { tenantId: string; serviceId: string }) {
@@ -196,6 +205,7 @@ export class BookingRepository {
         .offset(input.offset);
       return legacyItems.map((item) => ({
         ...item,
+        cancellationReasonCategory: null,
         completedAt: null,
         completedAmountMinor: null,
         completedCurrency: null,
@@ -208,13 +218,77 @@ export class BookingRepository {
 
   async findById(tenantId: string, bookingId: string) {
     const db = getDb();
-    const [item] = await db
-      .select()
-      .from(bookings)
-      .where(and(eq(bookings.tenantId, tenantId), eq(bookings.id, bookingId)))
-      .limit(1);
-
-    return item ?? null;
+    try {
+      const [item] = await db
+        .select({
+          id: bookings.id,
+          tenantId: bookings.tenantId,
+          serviceId: bookings.serviceId,
+          masterId: bookings.masterId,
+          status: bookings.status,
+          source: bookings.source,
+          clientName: bookings.clientName,
+          clientPhoneE164: bookings.clientPhoneE164,
+          clientEmail: bookings.clientEmail,
+          clientLocale: bookings.clientLocale,
+          clientConsentAt: bookings.clientConsentAt,
+          startAt: bookings.startAt,
+          endAt: bookings.endAt,
+          reminder24hSentAt: bookings.reminder24hSentAt,
+          reminder2hSentAt: bookings.reminder2hSentAt,
+          cancellationReason: bookings.cancellationReason,
+          cancellationReasonCategory: bookings.cancellationReasonCategory,
+          rejectionReason: bookings.rejectionReason,
+          completedAt: bookings.completedAt,
+          completedAmountMinor: bookings.completedAmountMinor,
+          completedCurrency: bookings.completedCurrency,
+          completedPaymentMethod: bookings.completedPaymentMethod,
+          completedPaymentNote: bookings.completedPaymentNote,
+          completedByUserId: bookings.completedByUserId,
+          createdAt: bookings.createdAt,
+          updatedAt: bookings.updatedAt
+        })
+        .from(bookings)
+        .where(and(eq(bookings.tenantId, tenantId), eq(bookings.id, bookingId)))
+        .limit(1);
+      return item ?? null;
+    } catch (error) {
+      if (!this.isMissingColumnError(error)) {
+        throw error;
+      }
+      const [legacyItem] = await db
+        .select({
+          id: bookings.id,
+          tenantId: bookings.tenantId,
+          serviceId: bookings.serviceId,
+          masterId: bookings.masterId,
+          status: bookings.status,
+          source: bookings.source,
+          clientName: bookings.clientName,
+          clientPhoneE164: bookings.clientPhoneE164,
+          clientEmail: bookings.clientEmail,
+          clientLocale: bookings.clientLocale,
+          clientConsentAt: bookings.clientConsentAt,
+          startAt: bookings.startAt,
+          endAt: bookings.endAt,
+          reminder24hSentAt: bookings.reminder24hSentAt,
+          reminder2hSentAt: bookings.reminder2hSentAt,
+          cancellationReason: bookings.cancellationReason,
+          rejectionReason: bookings.rejectionReason,
+          completedAt: bookings.completedAt,
+          completedAmountMinor: bookings.completedAmountMinor,
+          completedCurrency: bookings.completedCurrency,
+          completedPaymentMethod: bookings.completedPaymentMethod,
+          completedPaymentNote: bookings.completedPaymentNote,
+          completedByUserId: bookings.completedByUserId,
+          createdAt: bookings.createdAt,
+          updatedAt: bookings.updatedAt
+        })
+        .from(bookings)
+        .where(and(eq(bookings.tenantId, tenantId), eq(bookings.id, bookingId)))
+        .limit(1);
+      return legacyItem ? { ...legacyItem, cancellationReasonCategory: null } : null;
+    }
   }
 
   async updateStatus(input: {
@@ -233,31 +307,59 @@ export class BookingRepository {
     completedByUserId?: string | null;
   }) {
     const db = getDb();
-    const [item] = await db
-      .update(bookings)
-      .set({
-        status: input.nextStatus,
-        cancellationReason: input.cancellationReason,
-        cancellationReasonCategory: input.cancellationReasonCategory,
-        rejectionReason: input.rejectionReason,
-        completedAt: input.completedAt,
-        completedAmountMinor: input.completedAmountMinor,
-        completedCurrency: input.completedCurrency,
-        completedPaymentMethod: input.completedPaymentMethod,
-        completedPaymentNote: input.completedPaymentNote,
-        completedByUserId: input.completedByUserId,
-        updatedAt: new Date()
-      })
-      .where(
-        and(
-          eq(bookings.tenantId, input.tenantId),
-          eq(bookings.id, input.bookingId),
-          inArray(bookings.status, input.expectedCurrentStatuses)
+    try {
+      const [item] = await db
+        .update(bookings)
+        .set({
+          status: input.nextStatus,
+          cancellationReason: input.cancellationReason,
+          cancellationReasonCategory: input.cancellationReasonCategory,
+          rejectionReason: input.rejectionReason,
+          completedAt: input.completedAt,
+          completedAmountMinor: input.completedAmountMinor,
+          completedCurrency: input.completedCurrency,
+          completedPaymentMethod: input.completedPaymentMethod,
+          completedPaymentNote: input.completedPaymentNote,
+          completedByUserId: input.completedByUserId,
+          updatedAt: new Date()
+        })
+        .where(
+          and(
+            eq(bookings.tenantId, input.tenantId),
+            eq(bookings.id, input.bookingId),
+            inArray(bookings.status, input.expectedCurrentStatuses)
+          )
         )
-      )
-      .returning();
-
-    return item ?? null;
+        .returning();
+      return item ?? null;
+    } catch (error) {
+      if (!this.isMissingColumnError(error)) {
+        throw error;
+      }
+      const [legacyItem] = await db
+        .update(bookings)
+        .set({
+          status: input.nextStatus,
+          cancellationReason: input.cancellationReason,
+          rejectionReason: input.rejectionReason,
+          completedAt: input.completedAt,
+          completedAmountMinor: input.completedAmountMinor,
+          completedCurrency: input.completedCurrency,
+          completedPaymentMethod: input.completedPaymentMethod,
+          completedPaymentNote: input.completedPaymentNote,
+          completedByUserId: input.completedByUserId,
+          updatedAt: new Date()
+        })
+        .where(
+          and(
+            eq(bookings.tenantId, input.tenantId),
+            eq(bookings.id, input.bookingId),
+            inArray(bookings.status, input.expectedCurrentStatuses)
+          )
+        )
+        .returning();
+      return legacyItem ? { ...legacyItem, cancellationReasonCategory: null } : null;
+    }
   }
 
   async listUpcomingByPhone(input: {
