@@ -7,7 +7,7 @@
     "node": ">=20.12.0"
   },
   "scripts": {
-    "start": "bash -lc \"${SERVICE_START_CMD:?SERVICE_START_CMD is required}\"",
+    "start": "node apps/worker/dist/index.js",
     "build": "pnpm -r --filter \"./packages/*\" run build && pnpm -r --filter \"./apps/*\" run build",
     "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",
