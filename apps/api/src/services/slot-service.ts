@@ -116,6 +116,7 @@ export class SlotService {
   }
 
   async getAvailableSlots(input: GetAvailableSlotsInput): Promise<{
+    timezone: string;
     items: SlotItem[];
     diagnostics?: SlotDiagnostics;
   }> {
@@ -155,6 +156,7 @@ export class SlotService {
     );
     if (masterCandidates.length === 0) {
       return {
+        timezone: tenant.timezone,
         items: [],
         diagnostics: input.includeDiagnostics
           ? {
@@ -290,10 +292,11 @@ export class SlotService {
 
     slots.sort((a, b) => a.startAt.localeCompare(b.startAt) || a.masterId.localeCompare(b.masterId));
     return {
+      timezone: tenant.timezone,
       items: slots,
       diagnostics: input.includeDiagnostics
         ? {
-        timezone: tenant.timezone,
+            timezone: tenant.timezone,
             minAdvanceMinutes: tenant.bookingMinAdvanceMinutes,
             bookingBufferMinutes: tenant.bookingBufferMinutes,
             masters: diagnosticsRows

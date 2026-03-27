@@ -1248,7 +1248,8 @@ export class AdminService {
       account: {
         id: tenant.id,
         slug: tenant.slug,
-        name: tenant.name
+        name: tenant.name,
+        timezone: tenant.timezone
       },
       salons: [
         {

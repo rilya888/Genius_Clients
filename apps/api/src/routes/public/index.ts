@@ -131,6 +131,7 @@ export const publicRoutes = new Hono<ApiAppEnv>()
 
     return c.json({
       data: {
+        timezone: result.timezone,
         items: result.items,
         diagnostics: result.diagnostics
       }
