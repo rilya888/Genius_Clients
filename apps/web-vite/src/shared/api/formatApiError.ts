@@ -16,6 +16,18 @@ export function formatApiError(error: unknown, fallbackMessage: string) {
     if (reason === "cannot_complete_future_booking") {
       return withRequestId(resolveLocalizedMessage("You can complete a booking only after its start time."), error.requestId);
     }
+    if (reason === "revenue_custom_range_requires_from_to") {
+      return withRequestId(resolveLocalizedMessage("Select both start and end dates for a custom period."), error.requestId);
+    }
+    if (reason === "revenue_custom_range_invalid_order") {
+      return withRequestId(resolveLocalizedMessage("Start date must be earlier than or equal to end date."), error.requestId);
+    }
+    if (reason === "revenue_custom_range_date_invalid") {
+      return withRequestId(resolveLocalizedMessage("Enter valid dates for the custom period."), error.requestId);
+    }
+    if (reason === "revenue_custom_range_too_large") {
+      return withRequestId(resolveLocalizedMessage("Custom period is too large. Maximum is 365 days."), error.requestId);
+    }
     if (reason === "desired_whatsapp_bot_e164_invalid") {
       return withRequestId(resolveLocalizedMessage("Enter a valid WhatsApp bot number in international format."), error.requestId);
     }
@@ -102,6 +114,18 @@ function resolveLocalizedMessage(english: string) {
     }
     if (english === "You can complete a booking only after its start time.") {
       return "Puoi segnare una prenotazione come completata solo dopo l'orario di inizio.";
+    }
+    if (english === "Select both start and end dates for a custom period.") {
+      return "Seleziona sia la data di inizio sia la data di fine per il periodo personalizzato.";
+    }
+    if (english === "Start date must be earlier than or equal to end date.") {
+      return "La data di inizio deve essere precedente o uguale alla data di fine.";
+    }
+    if (english === "Enter valid dates for the custom period.") {
+      return "Inserisci date valide per il periodo personalizzato.";
+    }
+    if (english === "Custom period is too large. Maximum is 365 days.") {
+      return "Il periodo personalizzato è troppo ampio. Il massimo è 365 giorni.";
     }
   }
   return english;

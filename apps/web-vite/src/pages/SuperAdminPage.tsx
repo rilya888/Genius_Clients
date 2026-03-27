@@ -135,6 +135,53 @@ type WhatsAppEndpointDraft = {
   isActive: boolean;
 };
 
+type WhatsAppProvisioningStatusResponse = {
+  activeJob: {
+    id: string;
+    botNumberE164: string;
+    operatorNumberE164: string;
+    status: string;
+    step: string;
+    errorCode: string | null;
+    errorMessage: string | null;
+    updatedAt: string;
+  } | null;
+  latestJob: {
+    id: string;
+    botNumberE164: string;
+    operatorNumberE164: string;
+    status: string;
+    step: string;
+    errorCode: string | null;
+    errorMessage: string | null;
+    updatedAt: string;
+  } | null;
+  otpSession: {
+    id: string;
+    state: string;
+    verificationMethod: string;
+    attempts: number;
+    maxAttempts: number;
+    otpExpiresAt: string | null;
+  } | null;
+  activeBinding: {
+    id: string;
+    botNumberE164: string;
+    operatorNumberE164: string;
+    phoneNumberId: string;
+    isActive: boolean;
+    updatedAt: string;
+  } | null;
+  latestBinding: {
+    id: string;
+    botNumberE164: string;
+    operatorNumberE164: string;
+    phoneNumberId: string;
+    isActive: boolean;
+    updatedAt: string;
+  } | null;
+};
+
 const EMPTY_WHATSAPP_ENDPOINT_DRAFT: WhatsAppEndpointDraft = {
   id: "",
   tenantId: "",
@@ -183,6 +230,14 @@ export function SuperAdminPage() {
   const [whatsAppEndpoints, setWhatsAppEndpoints] = useState<WhatsAppEndpoint[]>([]);
   const [whatsAppSummary, setWhatsAppSummary] = useState<WhatsAppEndpointSummary | null>(null);
   const [whatsAppDraft, setWhatsAppDraft] = useState<WhatsAppEndpointDraft>(EMPTY_WHATSAPP_ENDPOINT_DRAFT);
+  const [provisionTenantId, setProvisionTenantId] = useState("");
+  const [provisionBotNumber, setProvisionBotNumber] = useState("");
+  const [provisionOperatorNumber, setProvisionOperatorNumber] = useState("");
+  const [provisionPhoneNumberId, setProvisionPhoneNumberId] = useState("");
+  const [provisionJobId, setProvisionJobId] = useState("");
+  const [provisionOtpCode, setProvisionOtpCode] = useState("");
+  const [provisionOtpMethod, setProvisionOtpMethod] = useState<"sms" | "voice">("sms");
+  const [provisionStatus, setProvisionStatus] = useState<WhatsAppProvisioningStatusResponse | null>(null);
 
   const sortedPlans = useMemo(
     () => [...plans].sort((a, b) => a.sortOrder - b.sortOrder),
@@ -195,6 +250,10 @@ export function SuperAdminPage() {
   const selectedWhatsAppTenant = useMemo(
     () => tenants.find((tenant) => tenant.tenantId === whatsAppDraft.tenantId) ?? null,
     [tenants, whatsAppDraft.tenantId]
+  );
+  const selectedProvisionTenant = useMemo(
+    () => tenants.find((tenant) => tenant.tenantId === provisionTenantId) ?? null,
+    [tenants, provisionTenantId]
   );
 
   async function loadAll() {
@@ -318,6 +377,38 @@ export function SuperAdminPage() {
       notes: buildWhatsAppNotesFromTenant(tenant, prev.notes)
     }));
     setStatus(`WhatsApp draft prefilled from tenant ${tenant.tenantSlug}`);
+  }
+
+  async function loadProvisionStatus(tenantId: string) {
+    if (!tenantId.trim()) {
+      setStatus("Select tenant for provisioning status");
+      return;
+    }
+    const result = await superAdminRequest<WhatsAppProvisioningStatusResponse>(
+      `/api/v1/super-admin/tenants/${tenantId}/whatsapp/provision/status`
+    );
+    if (!result.ok) {
+      setStatus(result.error?.message ?? "Failed to load provisioning status");
+      return;
+    }
+    const payload = result.data ?? null;
+    setProvisionStatus(payload);
+    const jobId = payload?.activeJob?.id ?? payload?.latestJob?.id ?? "";
+    if (jobId) {
+      setProvisionJobId(jobId);
+    }
+    setStatus("Provisioning status loaded");
+  }
+
+  function prefillProvisionFromTenant(tenant: TenantOverview) {
+    setProvisionTenantId(tenant.tenantId);
+    setProvisionBotNumber(tenant.desiredWhatsappBotE164 ?? "");
+    setProvisionOperatorNumber(tenant.operatorWhatsappE164 ?? "");
+    setProvisionPhoneNumberId("");
+    setProvisionOtpCode("");
+    setProvisionJobId("");
+    setProvisionStatus(null);
+    setStatus(`Provisioning draft prefilled from tenant ${tenant.tenantSlug}`);
   }
 
   return (
@@ -752,9 +843,291 @@ export function SuperAdminPage() {
               >
                 Use for WhatsApp draft
               </button>
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  prefillProvisionFromTenant(tenant);
+                }}
+              >
+                Use for auto provisioning
+              </button>
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="settings-card" style={{ marginBottom: 12 }}>
+        <h2 style={{ marginTop: 0 }}>WhatsApp Auto Provisioning</h2>
+        <p style={{ marginTop: 0, color: "var(--text-muted)" }}>
+          Start provisioning, request OTP, confirm OTP, and retry failed runs without manual DB edits.
+        </p>
+        <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+          <label>
+            Tenant
+            <select
+              value={provisionTenantId}
+              onChange={(event) => {
+                const tenantId = event.target.value;
+                setProvisionTenantId(tenantId);
+                const tenant = tenants.find((item) => item.tenantId === tenantId) ?? null;
+                if (!tenant) {
+                  return;
+                }
+                setProvisionBotNumber(tenant.desiredWhatsappBotE164 ?? "");
+                setProvisionOperatorNumber(tenant.operatorWhatsappE164 ?? "");
+              }}
+            >
+              <option value="">select tenant</option>
+              {tenants.map((tenant) => (
+                <option key={`provision-tenant-${tenant.tenantId}`} value={tenant.tenantId}>
+                  {tenant.tenantSlug} ({tenant.tenantName})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Bot number (E.164)
+            <input
+              value={provisionBotNumber}
+              onChange={(event) => setProvisionBotNumber(event.target.value)}
+              placeholder="+393..."
+            />
+          </label>
+          <label>
+            Operator number (E.164)
+            <input
+              value={provisionOperatorNumber}
+              onChange={(event) => setProvisionOperatorNumber(event.target.value)}
+              placeholder="+393..."
+            />
+          </label>
+          <label>
+            Phone Number ID (optional if mapped)
+            <input
+              value={provisionPhoneNumberId}
+              onChange={(event) => setProvisionPhoneNumberId(event.target.value)}
+              placeholder="1234567890"
+            />
+          </label>
+          <label>
+            OTP method
+            <select
+              value={provisionOtpMethod}
+              onChange={(event) => setProvisionOtpMethod(event.target.value as "sms" | "voice")}
+            >
+              <option value="sms">sms</option>
+              <option value="voice">voice</option>
+            </select>
+          </label>
+          <label>
+            Job ID
+            <input
+              value={provisionJobId}
+              onChange={(event) => setProvisionJobId(event.target.value)}
+              placeholder="auto-filled from status"
+            />
+          </label>
+          <label>
+            OTP code
+            <input
+              value={provisionOtpCode}
+              onChange={(event) => setProvisionOtpCode(event.target.value)}
+              placeholder="123456"
+            />
+          </label>
+        </div>
+        {selectedProvisionTenant ? (
+          <p style={{ marginTop: 8, color: "var(--text-muted)" }}>
+            tenant: <strong>{selectedProvisionTenant.tenantSlug}</strong> | current requested bot:{" "}
+            <strong>{selectedProvisionTenant.desiredWhatsappBotE164 ?? "n/a"}</strong> | operator:{" "}
+            <strong>{selectedProvisionTenant.operatorWhatsappE164 ?? "n/a"}</strong>
+          </p>
+        ) : null}
+        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+          <button
+            className="btn btn-ghost"
+            onClick={() => {
+              if (!provisionTenantId.trim()) {
+                setStatus("Select tenant first");
+                return;
+              }
+              void loadProvisionStatus(provisionTenantId.trim());
+            }}
+          >
+            Load Status
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              if (!provisionTenantId.trim() || !provisionBotNumber.trim() || !provisionOperatorNumber.trim()) {
+                setStatus("Tenant, bot number, and operator number are required");
+                return;
+              }
+              void superAdminRequest<{ job: { id: string }; requiresOtp: boolean }>(
+                `/api/v1/super-admin/tenants/${provisionTenantId.trim()}/whatsapp/provision/start`,
+                {
+                  method: "POST",
+                  body: JSON.stringify({
+                    botNumber: provisionBotNumber.trim(),
+                    operatorNumber: provisionOperatorNumber.trim(),
+                    verificationMethod: provisionOtpMethod,
+                    phoneNumberId: provisionPhoneNumberId.trim() || undefined,
+                    actor
+                  })
+                }
+              ).then(async (result) => {
+                if (!result.ok) {
+                  setStatus(result.error?.message ?? "Provisioning start failed");
+                  return;
+                }
+                const nextJobId = result.data?.job?.id ?? "";
+                if (nextJobId) {
+                  setProvisionJobId(nextJobId);
+                }
+                setStatus("Provisioning started");
+                await loadAll();
+                await loadProvisionStatus(provisionTenantId.trim());
+              });
+            }}
+          >
+            Start
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => {
+              if (!provisionTenantId.trim() || !provisionJobId.trim()) {
+                setStatus("Tenant and job ID are required");
+                return;
+              }
+              void superAdminRequest<{ job: { id: string } }>(
+                `/api/v1/super-admin/tenants/${provisionTenantId.trim()}/whatsapp/provision/request-otp`,
+                {
+                  method: "POST",
+                  body: JSON.stringify({
+                    jobId: provisionJobId.trim(),
+                    verificationMethod: provisionOtpMethod,
+                    actor
+                  })
+                }
+              ).then(async (result) => {
+                if (!result.ok) {
+                  setStatus(result.error?.message ?? "OTP request failed");
+                  return;
+                }
+                setStatus("OTP requested");
+                await loadProvisionStatus(provisionTenantId.trim());
+              });
+            }}
+          >
+            Request OTP
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => {
+              if (!provisionTenantId.trim() || !provisionJobId.trim() || !provisionOtpCode.trim()) {
+                setStatus("Tenant, job ID, and OTP code are required");
+                return;
+              }
+              void superAdminRequest<{ job: { id: string } }>(
+                `/api/v1/super-admin/tenants/${provisionTenantId.trim()}/whatsapp/provision/confirm-otp`,
+                {
+                  method: "POST",
+                  body: JSON.stringify({
+                    jobId: provisionJobId.trim(),
+                    code: provisionOtpCode.trim(),
+                    actor
+                  })
+                }
+              ).then(async (result) => {
+                if (!result.ok) {
+                  setStatus(result.error?.message ?? "OTP confirm failed");
+                  return;
+                }
+                setStatus("OTP confirmed and routing activated");
+                setProvisionOtpCode("");
+                await loadAll();
+                await loadProvisionStatus(provisionTenantId.trim());
+              });
+            }}
+          >
+            Confirm OTP
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => {
+              if (!provisionTenantId.trim() || !provisionJobId.trim()) {
+                setStatus("Tenant and job ID are required");
+                return;
+              }
+              void superAdminRequest<{ job: { id: string }; nextAction: string }>(
+                `/api/v1/super-admin/tenants/${provisionTenantId.trim()}/whatsapp/provision/retry`,
+                {
+                  method: "POST",
+                  body: JSON.stringify({
+                    jobId: provisionJobId.trim(),
+                    actor
+                  })
+                }
+              ).then(async (result) => {
+                if (!result.ok) {
+                  setStatus(result.error?.message ?? "Provisioning retry failed");
+                  return;
+                }
+                setStatus(`Retry accepted. Next action: ${result.data?.nextAction ?? "n/a"}`);
+                await loadProvisionStatus(provisionTenantId.trim());
+              });
+            }}
+          >
+            Retry
+          </button>
+        </div>
+        {provisionStatus ? (
+          <div
+            style={{
+              marginTop: 10,
+              padding: "10px 12px",
+              borderRadius: 16,
+              background: "rgba(16, 185, 129, 0.08)"
+            }}
+          >
+            <p style={{ margin: 0 }}>
+              active job:{" "}
+              {provisionStatus.activeJob
+                ? `${provisionStatus.activeJob.id} | ${provisionStatus.activeJob.status} | ${provisionStatus.activeJob.step}`
+                : "none"}
+            </p>
+            <p style={{ margin: "4px 0 0 0" }}>
+              latest job:{" "}
+              {provisionStatus.latestJob
+                ? `${provisionStatus.latestJob.id} | ${provisionStatus.latestJob.status} | ${provisionStatus.latestJob.step}`
+                : "none"}
+            </p>
+            <p style={{ margin: "4px 0 0 0" }}>
+              otp:{" "}
+              {provisionStatus.otpSession
+                ? `${provisionStatus.otpSession.state} | ${provisionStatus.otpSession.verificationMethod} | attempts ${provisionStatus.otpSession.attempts}/${provisionStatus.otpSession.maxAttempts}`
+                : "none"}
+            </p>
+            <p style={{ margin: "4px 0 0 0" }}>
+              active binding:{" "}
+              {provisionStatus.activeBinding
+                ? `${provisionStatus.activeBinding.phoneNumberId} | ${provisionStatus.activeBinding.botNumberE164} | active`
+                : "none"}
+            </p>
+            {provisionStatus.activeJob?.errorCode || provisionStatus.activeJob?.errorMessage ? (
+              <p style={{ margin: "4px 0 0 0", color: "#a16207" }}>
+                active job error: {provisionStatus.activeJob.errorCode ?? "unknown"} -{" "}
+                {provisionStatus.activeJob.errorMessage ?? "n/a"}
+              </p>
+            ) : null}
+            {provisionStatus.latestJob?.errorCode || provisionStatus.latestJob?.errorMessage ? (
+              <p style={{ margin: "4px 0 0 0", color: "#a16207" }}>
+                latest job error: {provisionStatus.latestJob.errorCode ?? "unknown"} -{" "}
+                {provisionStatus.latestJob.errorMessage ?? "n/a"}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="settings-card" style={{ marginBottom: 12 }}>
