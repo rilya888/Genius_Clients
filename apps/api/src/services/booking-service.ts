@@ -11,6 +11,13 @@ import {
 } from "../repositories";
 import { SubscriptionGovernanceService } from "./subscription-governance-service";
 
+const cancellationReasonCategoryAllowed = new Set([
+  "master_unavailable",
+  "schedule_conflict",
+  "client_request",
+  "other"
+]);
+
 export type PublicBookingInput = {
   tenantId: string;
   serviceId: string;
@@ -256,6 +263,7 @@ export class BookingService {
     bookingId: string;
     nextStatus: BookingStatus;
     cancellationReason?: string;
+    cancellationReasonCategory?: string;
     rejectionReason?: string;
     completedAmountMinor?: number | null;
     completedCurrency?: string | null;
@@ -294,6 +302,16 @@ export class BookingService {
     if (input.nextStatus === "cancelled" && !input.cancellationReason?.trim()) {
       throw appError("VALIDATION_ERROR", { reason: "cancellation_reason_required" });
     }
+    if (input.nextStatus === "cancelled" && !input.cancellationReasonCategory?.trim()) {
+      throw appError("VALIDATION_ERROR", { reason: "cancellation_reason_category_required" });
+    }
+    if (
+      input.nextStatus === "cancelled" &&
+      input.cancellationReasonCategory &&
+      !cancellationReasonCategoryAllowed.has(input.cancellationReasonCategory.trim())
+    ) {
+      throw appError("VALIDATION_ERROR", { reason: "cancellation_reason_category_invalid" });
+    }
     if (input.nextStatus === "rejected" && !input.rejectionReason?.trim()) {
       throw appError("VALIDATION_ERROR", { reason: "rejection_reason_required" });
     }
@@ -322,6 +340,8 @@ export class BookingService {
       nextStatus: input.nextStatus,
       cancellationReason:
         input.nextStatus === "cancelled" ? input.cancellationReason?.trim() : null,
+      cancellationReasonCategory:
+        input.nextStatus === "cancelled" ? input.cancellationReasonCategory?.trim() : null,
       rejectionReason:
         input.nextStatus === "rejected" ? input.rejectionReason?.trim() : null,
       completedAt,
@@ -345,6 +365,8 @@ export class BookingService {
       meta: {
         from: current.status,
         to: input.nextStatus,
+        cancellationReasonCategory:
+          input.nextStatus === "cancelled" ? input.cancellationReasonCategory?.trim() ?? null : null,
         completedAmountMinor,
         completedCurrency,
         completedPaymentMethod,

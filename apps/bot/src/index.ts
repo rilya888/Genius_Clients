@@ -4124,6 +4124,8 @@ app.post("/webhooks/whatsapp", async (c) => {
         }) => rescheduleBookingFromBot({ ...input, routeContext }),
         getTenantTimezone: () => getTenantTimezoneForConversation(routeContext),
         getTenantConfig: () => getTenantBotConfig(routeContext),
+        notifyAdminHandoff: (input: { phone: string; summary: string; locale: SupportedLocale }) =>
+          notifyAdminWhatsAppHandoff({ ...input, routeContext }),
         getLateCancelPolicy: async () => {
           const config = await getTenantBotConfig(routeContext);
           return {

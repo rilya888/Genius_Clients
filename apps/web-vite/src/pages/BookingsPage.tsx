@@ -15,6 +15,28 @@ type BookingRow = {
   status: "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | "no_show";
 };
 
+type CancellationReasonCategory = "master_unavailable" | "schedule_conflict" | "client_request" | "other";
+
+function normalizeCancellationReasonCategory(value: string | null | undefined): CancellationReasonCategory | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === "1" || normalized === "master_unavailable") {
+    return "master_unavailable";
+  }
+  if (normalized === "2" || normalized === "schedule_conflict") {
+    return "schedule_conflict";
+  }
+  if (normalized === "3" || normalized === "client_request") {
+    return "client_request";
+  }
+  if (normalized === "4" || normalized === "other") {
+    return "other";
+  }
+  return null;
+}
+
 export function BookingsPage() {
   const { t } = useI18n();
   const { tenantTimezone } = useScopeContext();
@@ -100,6 +122,13 @@ export function BookingsPage() {
     setProcessingBookingId(bookingId);
     try {
       if (nextStatus === "cancelled") {
+        const cancellationReasonCategoryRaw = window.prompt(t("admin.bookings.cancelCategoryPrompt"), "1");
+        const cancellationReasonCategory = normalizeCancellationReasonCategory(cancellationReasonCategoryRaw);
+        if (!cancellationReasonCategory) {
+          setActionError(t("admin.bookings.cancelCategoryInvalid"));
+          setProcessingBookingId(null);
+          return;
+        }
         const cancellationReason = window.prompt(t("admin.bookings.cancelReasonPrompt"), "");
         if (!cancellationReason?.trim()) {
           setProcessingBookingId(null);
@@ -108,6 +137,7 @@ export function BookingsPage() {
         await updateAdminBookingStatus({
           bookingId,
           status: "cancelled",
+          cancellationReasonCategory,
           cancellationReason: cancellationReason.trim()
         });
       } else if (nextStatus === "rejected") {

@@ -365,6 +365,7 @@ export const bookings = pgTable(
     reminder24hSentAt: timestamp("reminder24h_sent_at", { withTimezone: true }),
     reminder2hSentAt: timestamp("reminder2h_sent_at", { withTimezone: true }),
     cancellationReason: text("cancellation_reason"),
+    cancellationReasonCategory: varchar("cancellation_reason_category", { length: 64 }),
     rejectionReason: text("rejection_reason"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     completedAmountMinor: integer("completed_amount_minor"),

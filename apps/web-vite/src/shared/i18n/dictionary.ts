@@ -490,6 +490,9 @@ export const dictionary: Record<Locale, Dict> = {
     "admin.bookings.noShowAction": "No-show",
     "admin.bookings.noShowFailed": "Failed to mark no-show",
     "admin.bookings.cancelReasonPrompt": "Enter cancellation reason",
+    "admin.bookings.cancelCategoryPrompt":
+      "Select cancellation category: 1) Master unavailable 2) Schedule conflict 3) Client request 4) Other",
+    "admin.bookings.cancelCategoryInvalid": "Cancellation category is required",
     "admin.bookings.rejectReasonPrompt": "Enter rejection reason",
     "admin.bookings.completeAmountPrompt": "Enter amount in EUR (optional)",
     "admin.bookings.completeAmountInvalid": "Amount must be a positive number",
@@ -1115,6 +1118,9 @@ export const dictionary: Record<Locale, Dict> = {
     "admin.bookings.noShowAction": "No-show",
     "admin.bookings.noShowFailed": "Impossibile impostare no-show",
     "admin.bookings.cancelReasonPrompt": "Inserisci motivo annullamento",
+    "admin.bookings.cancelCategoryPrompt":
+      "Seleziona categoria annullamento: 1) Operatore non disponibile 2) Conflitto agenda 3) Richiesta cliente 4) Altro",
+    "admin.bookings.cancelCategoryInvalid": "La categoria annullamento e obbligatoria",
     "admin.bookings.rejectReasonPrompt": "Inserisci motivo rifiuto",
     "admin.bookings.completeAmountPrompt": "Inserisci importo in EUR (opzionale)",
     "admin.bookings.completeAmountInvalid": "L'importo deve essere un numero positivo",
