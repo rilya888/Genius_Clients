@@ -616,3 +616,96 @@ export const channelEndpointEvents = pgTable(
   },
   (t) => [index("idx_channel_endpoint_events_endpoint_created").on(t.endpointId, t.createdAt)]
 );
+
+export const whatsappNumberProvisioningJobs = pgTable(
+  "whatsapp_number_provisioning_jobs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    botNumberE164: varchar("bot_number_e164", { length: 32 }).notNull(),
+    operatorNumberE164: varchar("operator_number_e164", { length: 32 }).notNull(),
+    status: varchar("status", { length: 32 }).notNull().default("draft"),
+    step: varchar("step", { length: 32 }).notNull().default("validating"),
+    jobKey: varchar("job_key", { length: 120 }).notNull(),
+    metaPayloadJson: jsonb("meta_payload_json"),
+    errorCode: varchar("error_code", { length: 80 }),
+    errorMessage: text("error_message"),
+    attempts: integer("attempts").notNull().default(0),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+    createdBy: varchar("created_by", { length: 120 }),
+    updatedBy: varchar("updated_by", { length: 120 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [
+    unique("uq_whatsapp_number_provisioning_jobs_job_key").on(t.jobKey),
+    index("idx_whatsapp_number_provisioning_jobs_tenant_created").on(t.tenantId, t.createdAt),
+    index("idx_whatsapp_number_provisioning_jobs_tenant_status").on(t.tenantId, t.status, t.updatedAt),
+    check(
+      "ck_whatsapp_number_provisioning_jobs_status",
+      sql`${t.status} in ('draft', 'running', 'otp_required', 'ready', 'failed_retryable', 'failed_final', 'rolled_back')`
+    ),
+    check(
+      "ck_whatsapp_number_provisioning_jobs_step",
+      sql`${t.step} in ('validating', 'meta_prepare', 'otp_request', 'otp_verify', 'routing_update', 'healthcheck', 'done')`
+    ),
+    check("ck_whatsapp_number_provisioning_jobs_attempts_non_negative", sql`${t.attempts} >= 0`)
+  ]
+);
+
+export const whatsappTenantBindings = pgTable(
+  "whatsapp_tenant_bindings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    botNumberE164: varchar("bot_number_e164", { length: 32 }).notNull(),
+    operatorNumberE164: varchar("operator_number_e164", { length: 32 }).notNull(),
+    phoneNumberId: varchar("phone_number_id", { length: 80 }).notNull(),
+    wabaId: varchar("waba_id", { length: 80 }),
+    businessId: varchar("business_id", { length: 80 }),
+    endpointId: uuid("endpoint_id").references(() => channelEndpointsV2.id, { onDelete: "set null" }),
+    bindingVersion: integer("binding_version").notNull().default(1),
+    isActive: boolean("is_active").notNull().default(false),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    createdBy: varchar("created_by", { length: 120 }),
+    updatedBy: varchar("updated_by", { length: 120 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [
+    unique("uq_whatsapp_tenant_bindings_phone_number_id").on(t.phoneNumberId),
+    index("idx_whatsapp_tenant_bindings_tenant_version").on(t.tenantId, t.bindingVersion),
+    index("idx_whatsapp_tenant_bindings_tenant_active").on(t.tenantId, t.isActive, t.updatedAt),
+    check("ck_whatsapp_tenant_bindings_binding_version_positive", sql`${t.bindingVersion} > 0`)
+  ]
+);
+
+export const whatsappOtpSessions = pgTable(
+  "whatsapp_otp_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => whatsappNumberProvisioningJobs.id, { onDelete: "cascade" }),
+    verificationMethod: varchar("verification_method", { length: 16 }).notNull().default("sms"),
+    maskedTarget: varchar("masked_target", { length: 64 }),
+    state: varchar("state", { length: 24 }).notNull().default("created"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(5),
+    otpExpiresAt: timestamp("otp_expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [
+    index("idx_whatsapp_otp_sessions_job_created").on(t.jobId, t.createdAt),
+    check("ck_whatsapp_otp_sessions_verification_method", sql`${t.verificationMethod} in ('sms', 'voice')`),
+    check("ck_whatsapp_otp_sessions_state", sql`${t.state} in ('created', 'requested', 'verified', 'expired', 'failed')`),
+    check("ck_whatsapp_otp_sessions_attempts_non_negative", sql`${t.attempts} >= 0`),
+    check("ck_whatsapp_otp_sessions_max_attempts_positive", sql`${t.maxAttempts} > 0`)
+  ]
+);

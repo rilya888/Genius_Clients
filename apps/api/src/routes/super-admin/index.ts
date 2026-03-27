@@ -19,6 +19,7 @@ import { SuperAdminRuntimeSettingsRepository } from "../../repositories/super-ad
 import { SuperAdminChannelEndpointRepository } from "../../repositories/super-admin/channel-endpoint-repository";
 import { getApiEnv } from "../../lib/env";
 import { computeWhatsAppSetupSummary } from "../../lib/whatsapp-setup";
+import { SuperAdminWhatsAppProvisioningService } from "../../services/super-admin-whatsapp-provisioning-service";
 
 const planRepository = new SuperAdminPlanRepository();
 const tenantSubscriptionRepository = new SuperAdminTenantSubscriptionRepository();
@@ -27,6 +28,7 @@ const versionRepository = new SuperAdminVersionRepository();
 const runtimeSettingsRepository = new SuperAdminRuntimeSettingsRepository();
 const channelEndpointRepository = new SuperAdminChannelEndpointRepository();
 const tenantRepository = new TenantRepository();
+const whatsappProvisioningService = new SuperAdminWhatsAppProvisioningService();
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const CANONICAL_PLAN_CODES = new Set(["starter", "pro", "business", "enterprise"]);
@@ -35,6 +37,7 @@ const CHANNEL_BINDING_STATUSES = new Set(["draft", "pending_verification", "conn
 const CHANNEL_TOKEN_SOURCES = new Set(["unknown", "map", "fallback"]);
 const CHANNEL_TEMPLATE_STATUSES = new Set(["unknown", "not_ready", "ready"]);
 const CHANNEL_PROFILE_STATUSES = new Set(["unknown", "incomplete", "ready"]);
+const OTP_VERIFICATION_METHODS = new Set(["sms", "voice"]);
 
 function buildSuperAdminCookie(input: {
   cookieName: string;
@@ -148,6 +151,10 @@ function parseChannelProfileStatus(value: unknown): "unknown" | "incomplete" | "
     CHANNEL_PROFILE_STATUSES as Set<"unknown" | "incomplete" | "ready">,
     "channel_profile_status_invalid"
   );
+}
+
+function parseOtpVerificationMethod(value: unknown): "sms" | "voice" {
+  return parseChannelEnum(value, OTP_VERIFICATION_METHODS as Set<"sms" | "voice">, "verification_method_invalid");
 }
 
 function normalizeOptionalString(value: unknown, maxLength: number): string | null {
@@ -903,6 +910,164 @@ export const superAdminRoutes = new Hono()
         }
       }
     });
+  })
+  .get("/tenants/:tenantId/whatsapp/provision/status", async (c) => {
+    const tenantId = c.req.param("tenantId");
+    const tenant = await tenantRepository.findById(tenantId);
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND", { reason: "tenant_not_found" });
+    }
+
+    const data = await whatsappProvisioningService.getStatus(tenantId);
+    return c.json({ data });
+  })
+  .post("/tenants/:tenantId/whatsapp/provision/start", async (c) => {
+    const tenantId = c.req.param("tenantId");
+    const tenant = await tenantRepository.findById(tenantId);
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND", { reason: "tenant_not_found" });
+    }
+
+    const body = await c.req.json<{
+      botNumber?: string;
+      operatorNumber?: string;
+      verificationMethod?: unknown;
+      phoneNumberId?: string;
+      actor?: string;
+    }>();
+
+    if (!body.botNumber || !body.operatorNumber) {
+      throw appError("VALIDATION_ERROR", { required: ["botNumber", "operatorNumber"] });
+    }
+
+    const result = await whatsappProvisioningService.start({
+      tenantId,
+      botNumber: body.botNumber,
+      operatorNumber: body.operatorNumber,
+      verificationMethod:
+        body.verificationMethod !== undefined
+          ? parseOtpVerificationMethod(body.verificationMethod)
+          : undefined,
+      phoneNumberId: body.phoneNumberId?.trim() || undefined,
+      actor: normalizeActor(body.actor)
+    });
+
+    await auditRepository.createLog({
+      actor: normalizeActor(body.actor),
+      action: "super_admin.whatsapp_provisioning.start",
+      entity: "whatsapp_number_provisioning_jobs",
+      entityId: result.job.id,
+      afterJson: result,
+      requestId: undefined
+    });
+
+    return c.json({ data: result }, 201);
+  })
+  .post("/tenants/:tenantId/whatsapp/provision/request-otp", async (c) => {
+    const tenantId = c.req.param("tenantId");
+    const tenant = await tenantRepository.findById(tenantId);
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND", { reason: "tenant_not_found" });
+    }
+
+    const body = await c.req.json<{
+      jobId?: string;
+      verificationMethod?: unknown;
+      actor?: string;
+    }>();
+
+    if (!body.jobId?.trim()) {
+      throw appError("VALIDATION_ERROR", { required: ["jobId"] });
+    }
+
+    const result = await whatsappProvisioningService.requestOtp({
+      tenantId,
+      jobId: body.jobId.trim(),
+      verificationMethod:
+        body.verificationMethod !== undefined
+          ? parseOtpVerificationMethod(body.verificationMethod)
+          : undefined,
+      actor: normalizeActor(body.actor)
+    });
+
+    await auditRepository.createLog({
+      actor: normalizeActor(body.actor),
+      action: "super_admin.whatsapp_provisioning.request_otp",
+      entity: "whatsapp_number_provisioning_jobs",
+      entityId: body.jobId.trim(),
+      afterJson: result,
+      requestId: undefined
+    });
+
+    return c.json({ data: result });
+  })
+  .post("/tenants/:tenantId/whatsapp/provision/confirm-otp", async (c) => {
+    const tenantId = c.req.param("tenantId");
+    const tenant = await tenantRepository.findById(tenantId);
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND", { reason: "tenant_not_found" });
+    }
+
+    const body = await c.req.json<{
+      jobId?: string;
+      code?: string;
+      actor?: string;
+    }>();
+
+    if (!body.jobId?.trim() || !body.code?.trim()) {
+      throw appError("VALIDATION_ERROR", { required: ["jobId", "code"] });
+    }
+
+    const result = await whatsappProvisioningService.confirmOtp({
+      tenantId,
+      jobId: body.jobId.trim(),
+      code: body.code.trim(),
+      actor: normalizeActor(body.actor)
+    });
+
+    await auditRepository.createLog({
+      actor: normalizeActor(body.actor),
+      action: "super_admin.whatsapp_provisioning.confirm_otp",
+      entity: "whatsapp_number_provisioning_jobs",
+      entityId: body.jobId.trim(),
+      afterJson: result,
+      requestId: undefined
+    });
+
+    return c.json({ data: result });
+  })
+  .post("/tenants/:tenantId/whatsapp/provision/retry", async (c) => {
+    const tenantId = c.req.param("tenantId");
+    const tenant = await tenantRepository.findById(tenantId);
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND", { reason: "tenant_not_found" });
+    }
+
+    const body = await c.req.json<{
+      jobId?: string;
+      actor?: string;
+    }>();
+
+    if (!body.jobId?.trim()) {
+      throw appError("VALIDATION_ERROR", { required: ["jobId"] });
+    }
+
+    const result = await whatsappProvisioningService.retry({
+      tenantId,
+      jobId: body.jobId.trim(),
+      actor: normalizeActor(body.actor)
+    });
+
+    await auditRepository.createLog({
+      actor: normalizeActor(body.actor),
+      action: "super_admin.whatsapp_provisioning.retry",
+      entity: "whatsapp_number_provisioning_jobs",
+      entityId: body.jobId.trim(),
+      afterJson: result,
+      requestId: undefined
+    });
+
+    return c.json({ data: result });
   })
   .post("/whatsapp/endpoints", async (c) => {
     const body = await c.req.json<{
