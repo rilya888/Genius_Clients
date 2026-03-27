@@ -102,7 +102,12 @@ const botLateCancelBlockHours = Math.max(0, Number.parseInt(process.env.BOT_LATE
 const opsAlertWebhookUrl = process.env.OPS_ALERT_WEBHOOK_URL ?? "";
 const opsAlertWebhookToken = process.env.OPS_ALERT_WEBHOOK_TOKEN ?? "";
 const apiUrl = process.env.API_URL ?? "";
-const webUrl = (process.env.WEB_URL ?? process.env.APP_URL ?? "").trim();
+const webUrl = (
+  process.env.WEB_URL ??
+  process.env.APP_URL ??
+  process.env.RAILWAY_SERVICE_WEB_URL ??
+  ""
+).trim();
 const internalApiSecret = process.env.INTERNAL_API_SECRET ?? "";
 const botTenantSlug = process.env.BOT_TENANT_SLUG ?? "";
 const botTenantId = process.env.BOT_TENANT_ID ?? "";
@@ -1893,11 +1898,26 @@ async function notifyAdminWhatsAppHandoff(input: {
   return result.sent;
 }
 
-function getAdminBookingsWebLink() {
-  if (!webUrl) {
+function normalizeAbsoluteUrl(input: string): string {
+  if (!input) {
     return "";
   }
-  return `${webUrl.replace(/\/$/, "")}/app/bookings`;
+  if (/^https?:\/\//i.test(input)) {
+    return input;
+  }
+  return `https://${input}`;
+}
+
+function getAdminBookingsWebLink(routeContext?: BotRoutingContext | null) {
+  const base = normalizeAbsoluteUrl(webUrl).replace(/\/$/, "");
+  if (!base) {
+    return "";
+  }
+  const tenantSlug = routeContext?.tenantSlug?.trim();
+  if (tenantSlug) {
+    return `${base}/t/${encodeURIComponent(tenantSlug)}/app`;
+  }
+  return `${base}/app`;
 }
 
 async function fetchAdminBookingsDigestFromBot(input: {
@@ -2078,7 +2098,7 @@ async function handleAdminDigestCommand(input: {
       bumpRuntimeCounter("adminDigestErrors");
       return false;
     }
-    const link = getAdminBookingsWebLink();
+    const link = getAdminBookingsWebLink(routeContext);
     if (!link) {
       await sendWhatsAppMessage({
         to: input.from,
@@ -2143,7 +2163,7 @@ async function handleAdminDigestCommand(input: {
     timezone: digest.timezone,
     items: digest.items
   });
-  const link = getAdminBookingsWebLink();
+  const link = getAdminBookingsWebLink(routeContext);
   const withLink = link
     ? `${summaryText}\n\n${input.locale === "it" ? "Apri web:" : "Open web:"} ${link}`
     : summaryText;
