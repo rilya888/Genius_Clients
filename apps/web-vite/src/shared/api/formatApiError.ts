@@ -7,6 +7,12 @@ export function formatApiError(error: unknown, fallbackMessage: string) {
       const detail = resolveEmailVerificationRequiredMessage();
       return error.requestId ? `${detail} (requestId: ${error.requestId})` : detail;
     }
+    if (reason === "billing_read_only_active") {
+      return withRequestId(resolveLocalizedMessage("Billing read-only mode is active."), error.requestId);
+    }
+    if (reason === "completed_amount_invalid") {
+      return withRequestId(resolveLocalizedMessage("Amount must be a positive number."), error.requestId);
+    }
     if (reason === "desired_whatsapp_bot_e164_invalid") {
       return withRequestId(resolveLocalizedMessage("Enter a valid WhatsApp bot number in international format."), error.requestId);
     }
@@ -84,6 +90,12 @@ function resolveLocalizedMessage(english: string) {
     }
     if (english === "The selected bot number does not match the connected WhatsApp endpoint for this salon.") {
       return "Il numero bot selezionato non corrisponde all'endpoint WhatsApp collegato per questo salone.";
+    }
+    if (english === "Billing read-only mode is active.") {
+      return "La modalità sola lettura per fatturazione è attiva.";
+    }
+    if (english === "Amount must be a positive number.") {
+      return "L'importo deve essere un numero positivo.";
     }
   }
   return english;

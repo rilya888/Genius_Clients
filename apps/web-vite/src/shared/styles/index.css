@@ -170,6 +170,16 @@ summary:focus-visible {
   color: var(--secondary-500);
 }
 
+.sidebar-language-block {
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.admin-sidebar .sidebar-language-block .lang-switch {
+  display: inline-flex;
+  width: auto;
+}
+
 .section,
 .page-shell {
   max-width: 1160px;
@@ -734,6 +744,31 @@ h1 {
   color: var(--text);
 }
 
+.scope-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.scope-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.5rem 0.6rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.scope-card span {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.scope-card strong {
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
 .admin-main {
   padding: var(--space-8);
   overflow-x: hidden;
@@ -804,9 +839,13 @@ h1 {
 
 .booking-controls-compact select,
 .booking-controls-compact input {
+  appearance: none;
+  -webkit-appearance: none;
   min-height: 36px;
+  height: 36px;
   padding: 0.45rem 0.55rem;
   font-size: 0.82rem;
+  line-height: 1.2;
 }
 
 .stepper {
@@ -1291,9 +1330,13 @@ th {
 
   .booking-controls-compact select,
   .booking-controls-compact input {
+    appearance: none;
+    -webkit-appearance: none;
     min-height: 32px;
+    height: 32px;
     padding: 0.34rem 0.45rem;
     font-size: 0.76rem;
+    line-height: 1.1;
   }
 
   .booking-mobile-card .booking-row-actions {

@@ -19,6 +19,7 @@ export function AppLayout() {
   const availableSalons = useMemo(() => salons.filter((item) => item.accountId === accountId), [salons, accountId]);
   const selectedAccount = useMemo(() => accounts.find((item) => item.id === accountId), [accounts, accountId]);
   const selectedSalon = useMemo(() => salons.find((item) => item.id === salonId), [salons, salonId]);
+  const isSingleTenantMode = !capabilities.multiSalon && accounts.length <= 1 && availableSalons.length <= 1;
   const [pendingBookingCount, setPendingBookingCount] = useState(0);
   const [isEmailVerified, setIsEmailVerified] = useState(true);
   const [emailVerificationPending, setEmailVerificationPending] = useState(false);
@@ -143,7 +144,7 @@ export function AppLayout() {
             {sidebarOpen ? "Close" : "Menu"}
           </button>
         </div>
-        <div style={{ marginTop: "0.75rem", marginBottom: "0.75rem" }}>
+        <div className="sidebar-language-block">
           <label style={{ display: "block", marginBottom: "0.35rem", fontSize: "0.9rem", color: "var(--text-muted)" }}>
             {t("app.language")}
           </label>
@@ -156,43 +157,60 @@ export function AppLayout() {
             </button>
           </div>
         </div>
-        <div className="scope-panel">
-          <label>
-            {t("app.scope.account")}
-            <select
-              value={accountId}
-              disabled={accounts.length <= 1}
-              onChange={(event) => {
-                const nextAccountId = event.target.value;
-                setAccountId(nextAccountId);
-                const nextSalon = salons.find((item) => item.accountId === nextAccountId);
-                setSalonId(nextSalon?.id ?? "");
-              }}
-            >
-              {accounts.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
+        {isSingleTenantMode ? (
+          <div className="scope-cards">
+            <article className="scope-card">
+              <span>{t("app.scope.account")}</span>
+              <strong>{selectedAccount?.name ?? t("app.scope.notSelected")}</strong>
+            </article>
+            <article className="scope-card">
+              <span>{t("app.scope.salon")}</span>
+              <strong>{selectedSalon?.name ?? t("app.scope.notSelected")}</strong>
+            </article>
+            <article className="scope-card">
+              <span>{t("app.scope.role")}</span>
+              <strong>{t(`app.role.${role}`)}</strong>
+            </article>
+          </div>
+        ) : (
+          <div className="scope-panel">
+            <label>
+              {t("app.scope.account")}
+              <select
+                value={accountId}
+                disabled={accounts.length <= 1}
+                onChange={(event) => {
+                  const nextAccountId = event.target.value;
+                  setAccountId(nextAccountId);
+                  const nextSalon = salons.find((item) => item.accountId === nextAccountId);
+                  setSalonId(nextSalon?.id ?? "");
+                }}
+              >
+                {accounts.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <label>
-            {t("app.scope.salon")}
-            <select value={salonId} disabled={!capabilities.multiSalon || availableSalons.length <= 1} onChange={(event) => setSalonId(event.target.value)}>
-              {availableSalons.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label>
+              {t("app.scope.salon")}
+              <select value={salonId} disabled={!capabilities.multiSalon || availableSalons.length <= 1} onChange={(event) => setSalonId(event.target.value)}>
+                {availableSalons.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <label>
-            {t("app.scope.role")}
-            <input value={t(`app.role.${role}`)} disabled readOnly />
-          </label>
-        </div>
+            <label>
+              {t("app.scope.role")}
+              <input value={t(`app.role.${role}`)} disabled readOnly />
+            </label>
+          </div>
+        )}
         <nav>
           <NavLink to={appHref("/app")} onClick={closeSidebarOnMobile}>{t("app.dashboard")}</NavLink>
           <NavLink to={appHref("/app/bookings")} onClick={closeSidebarOnMobile}>{t("app.bookings")}</NavLink>
