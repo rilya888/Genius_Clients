@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { useScopeContext } from "../shared/hooks/useScopeContext";
@@ -11,6 +11,7 @@ import { ADMIN_BOOKINGS_CHANGED_EVENT } from "../shared/admin-events";
 
 export function AppLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { locale, setLocale, t } = useI18n();
   const { accountId, salonId, accounts, salons, capabilities, role, userEmail, setAccountId, setSalonId } =
     useScopeContext();
@@ -27,8 +28,14 @@ export function AppLayout() {
     null
   );
   const [billingDaysPastDue, setBillingDaysPastDue] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const currentTenantSlug = resolveCurrentTenantSlug();
   const appHref = (path = "/app") => (currentTenantSlug ? buildTenantScopedPath(currentTenantSlug, path) : path);
+  const closeSidebarOnMobile = () => {
+    if (window.innerWidth <= 1024) {
+      setSidebarOpen(false);
+    }
+  };
 
   async function handleLogout() {
     try {
@@ -42,6 +49,24 @@ export function AppLayout() {
   useEffect(() => {
     setIsEmailVerified(isEmailVerifiedFlagSet());
   }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 1024px)");
+    const syncSidebarState = () => {
+      setSidebarOpen(!mediaQuery.matches);
+    };
+    syncSidebarState();
+    mediaQuery.addEventListener("change", syncSidebarState);
+    return () => {
+      mediaQuery.removeEventListener("change", syncSidebarState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (window.innerWidth <= 1024) {
+      setSidebarOpen(false);
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,8 +130,19 @@ export function AppLayout() {
 
   return (
     <div className="admin-shell">
-      <aside className="admin-sidebar">
-        <LinkLikeBrand label={t("app.brand")} />
+      <aside className="admin-sidebar" data-open={sidebarOpen ? "true" : "false"}>
+        <div className="admin-sidebar-top">
+          <LinkLikeBrand label={t("app.brand")} />
+          <button
+            className="admin-sidebar-toggle"
+            type="button"
+            onClick={() => setSidebarOpen((current) => !current)}
+            aria-expanded={sidebarOpen}
+            aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"}
+          >
+            {sidebarOpen ? "Close" : "Menu"}
+          </button>
+        </div>
         <div style={{ marginTop: "0.75rem", marginBottom: "0.75rem" }}>
           <label style={{ display: "block", marginBottom: "0.35rem", fontSize: "0.9rem", color: "var(--text-muted)" }}>
             {t("app.language")}
@@ -158,15 +194,15 @@ export function AppLayout() {
           </label>
         </div>
         <nav>
-          <NavLink to={appHref("/app")}>{t("app.dashboard")}</NavLink>
-          <NavLink to={appHref("/app/bookings")}>{t("app.bookings")}</NavLink>
-          <NavLink to={appHref("/app/services")}>{t("app.services")}</NavLink>
-          <NavLink to={appHref("/app/staff")}>{t("app.staff")}</NavLink>
-          <NavLink to={appHref("/app/schedule")}>{t("app.schedule")}</NavLink>
-          <NavLink to={appHref("/app/settings")}>{t("app.settings")}</NavLink>
-          <NavLink to={appHref("/app/settings/faq")}>{t("app.faqSettings")}</NavLink>
-          <NavLink to={appHref("/app/settings/privacy")}>{t("app.privacy")}</NavLink>
-          <NavLink to={appHref("/app/settings/notifications")}>{t("app.notifications")}</NavLink>
+          <NavLink to={appHref("/app")} onClick={closeSidebarOnMobile}>{t("app.dashboard")}</NavLink>
+          <NavLink to={appHref("/app/bookings")} onClick={closeSidebarOnMobile}>{t("app.bookings")}</NavLink>
+          <NavLink to={appHref("/app/services")} onClick={closeSidebarOnMobile}>{t("app.services")}</NavLink>
+          <NavLink to={appHref("/app/staff")} onClick={closeSidebarOnMobile}>{t("app.staff")}</NavLink>
+          <NavLink to={appHref("/app/schedule")} onClick={closeSidebarOnMobile}>{t("app.schedule")}</NavLink>
+          <NavLink to={appHref("/app/settings")} onClick={closeSidebarOnMobile}>{t("app.settings")}</NavLink>
+          <NavLink to={appHref("/app/settings/faq")} onClick={closeSidebarOnMobile}>{t("app.faqSettings")}</NavLink>
+          <NavLink to={appHref("/app/settings/privacy")} onClick={closeSidebarOnMobile}>{t("app.privacy")}</NavLink>
+          <NavLink to={appHref("/app/settings/notifications")} onClick={closeSidebarOnMobile}>{t("app.notifications")}</NavLink>
         </nav>
         <button className="btn btn-secondary" type="button" onClick={handleLogout}>
           {t("app.logout")}
