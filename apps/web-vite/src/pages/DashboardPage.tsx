@@ -31,6 +31,29 @@ export function DashboardPage() {
       entity: string;
       createdAt: string;
     }>;
+    revenueOverview: {
+      today: {
+        totalRevenueMinor: number;
+        completedCount: number;
+        completedWithAmountCount: number;
+        completedWithoutAmountCount: number;
+        averageTicketMinor: number;
+      };
+      week: {
+        totalRevenueMinor: number;
+        completedCount: number;
+        completedWithAmountCount: number;
+        completedWithoutAmountCount: number;
+        averageTicketMinor: number;
+      };
+      month: {
+        totalRevenueMinor: number;
+        completedCount: number;
+        completedWithAmountCount: number;
+        completedWithoutAmountCount: number;
+        averageTicketMinor: number;
+      };
+    } | null;
     todayBookings: Array<{
       id: string;
       clientName: string;
@@ -74,6 +97,7 @@ export function DashboardPage() {
     kpis: null,
     attention: null,
     recentActivity: [],
+    revenueOverview: null,
     todayBookings: [],
     tomorrowBookings: [],
     quickActionBusyBookingId: null,
@@ -120,6 +144,7 @@ export function DashboardPage() {
             kpis: payload.kpis,
             attention: payload.attention,
             recentActivity: payload.recentActivity,
+            revenueOverview: payload.revenueOverview,
             todayBookings,
             tomorrowBookings,
             quickActionBusyBookingId: null,
@@ -142,6 +167,7 @@ export function DashboardPage() {
             kpis: null,
             attention: null,
             recentActivity: [],
+            revenueOverview: null,
             todayBookings: [],
             tomorrowBookings: [],
             quickActionBusyBookingId: null,
@@ -371,6 +397,46 @@ export function DashboardPage() {
         </article>
       </div>
       <div className="settings-grid" style={{ marginTop: "1rem" }}>
+        <article className="settings-card card-hover">
+          <h3>{t("admin.revenue.overviewTitle")}</h3>
+          {state.pending || !state.revenueOverview ? <p>{t("common.loadingDots")}</p> : null}
+          {!state.pending && state.revenueOverview ? (
+            <div className="revenue-overview-grid">
+              <div>
+                <strong>{t("admin.revenue.range.today")}</strong>
+                <p>
+                  {new Intl.NumberFormat(undefined, { style: "currency", currency: "EUR" }).format(
+                    state.revenueOverview.today.totalRevenueMinor / 100
+                  )}
+                </p>
+                <p className="status-muted">{t("admin.revenue.completedCount")}: {state.revenueOverview.today.completedCount}</p>
+              </div>
+              <div>
+                <strong>{t("admin.revenue.range.week")}</strong>
+                <p>
+                  {new Intl.NumberFormat(undefined, { style: "currency", currency: "EUR" }).format(
+                    state.revenueOverview.week.totalRevenueMinor / 100
+                  )}
+                </p>
+                <p className="status-muted">{t("admin.revenue.completedCount")}: {state.revenueOverview.week.completedCount}</p>
+              </div>
+              <div>
+                <strong>{t("admin.revenue.range.month")}</strong>
+                <p>
+                  {new Intl.NumberFormat(undefined, { style: "currency", currency: "EUR" }).format(
+                    state.revenueOverview.month.totalRevenueMinor / 100
+                  )}
+                </p>
+                <p className="status-muted">{t("admin.revenue.completedCount")}: {state.revenueOverview.month.completedCount}</p>
+              </div>
+            </div>
+          ) : null}
+          <div className="inline-actions">
+            <Link className="btn btn-ghost" to="revenue">
+              {t("admin.revenue.openPage")}
+            </Link>
+          </div>
+        </article>
         <article className="settings-card card-hover">
           <h3>{t("admin.dashboard.attentionTitle")}</h3>
           <p>

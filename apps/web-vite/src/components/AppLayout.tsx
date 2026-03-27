@@ -8,6 +8,7 @@ import { clearSession, getRefreshToken, isEmailVerifiedFlagSet } from "../shared
 import { formatApiError } from "../shared/api/formatApiError";
 import { buildTenantScopedPath, resolveCurrentTenantSlug } from "../shared/routing/tenant-host";
 import { ADMIN_BOOKINGS_CHANGED_EVENT } from "../shared/admin-events";
+import { BackToDashboardAction } from "./BackToDashboardAction";
 
 export function AppLayout() {
   const navigate = useNavigate();
@@ -32,6 +33,10 @@ export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const currentTenantSlug = resolveCurrentTenantSlug();
   const appHref = (path = "/app") => (currentTenantSlug ? buildTenantScopedPath(currentTenantSlug, path) : path);
+  const normalizedPath = location.pathname.replace(/\/+$/, "") || "/";
+  const isDashboardPath =
+    normalizedPath === "/app" || /^\/t\/[^/]+\/app$/.test(normalizedPath);
+  const canViewRevenue = role === "owner" || role === "admin";
   const closeSidebarOnMobile = () => {
     if (window.innerWidth <= 1024) {
       setSidebarOpen(false);
@@ -217,6 +222,7 @@ export function AppLayout() {
           <NavLink to={appHref("/app/services")} onClick={closeSidebarOnMobile}>{t("app.services")}</NavLink>
           <NavLink to={appHref("/app/staff")} onClick={closeSidebarOnMobile}>{t("app.staff")}</NavLink>
           <NavLink to={appHref("/app/schedule")} onClick={closeSidebarOnMobile}>{t("app.schedule")}</NavLink>
+          {canViewRevenue ? <NavLink to={appHref("/app/revenue")} onClick={closeSidebarOnMobile}>{t("app.revenue")}</NavLink> : null}
           <NavLink to={appHref("/app/settings")} onClick={closeSidebarOnMobile}>{t("app.settings")}</NavLink>
           <NavLink to={appHref("/app/settings/faq")} onClick={closeSidebarOnMobile}>{t("app.faqSettings")}</NavLink>
           <NavLink to={appHref("/app/settings/privacy")} onClick={closeSidebarOnMobile}>{t("app.privacy")}</NavLink>
@@ -309,6 +315,7 @@ export function AppLayout() {
           </span>
         </div>
         <Outlet />
+        {!isDashboardPath ? <BackToDashboardAction /> : null}
       </main>
     </div>
   );

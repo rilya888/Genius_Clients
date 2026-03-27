@@ -790,6 +790,34 @@ h1 {
   color: var(--text-muted);
 }
 
+.revenue-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.revenue-overview-grid > div {
+  background: color-mix(in srgb, var(--primary-100), #ffffff 40%);
+  border: 1px solid color-mix(in srgb, var(--primary-500), white 70%);
+  border-radius: 12px;
+  padding: 0.6rem 0.7rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.back-dashboard-action {
+  position: sticky;
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  margin-top: var(--space-4);
+  z-index: 10;
+}
+
+.back-dashboard-action .btn {
+  width: 100%;
+  justify-content: center;
+  box-shadow: 0 8px 22px rgba(8, 43, 39, 0.14);
+}
+
 .page-shell {
   display: grid;
   gap: var(--space-4);
@@ -1223,6 +1251,7 @@ th {
 
   .admin-main {
     padding: var(--space-5);
+    padding-bottom: calc(var(--space-8) + 60px);
   }
 }
 
@@ -1316,6 +1345,10 @@ th {
   }
 
   .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .revenue-overview-grid {
     grid-template-columns: 1fr;
   }
 
