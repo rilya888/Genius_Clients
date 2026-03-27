@@ -32,6 +32,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Date Format Guard
+        run: pnpm ci:date-format-guard
+
       - name: Typecheck
         run: pnpm typecheck
 
