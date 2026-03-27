@@ -4,6 +4,8 @@ import { formatApiError } from "../shared/api/formatApiError";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/AsyncState";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { emitAdminBookingsChanged } from "../shared/admin-events";
+import { useScopeContext } from "../shared/hooks/useScopeContext";
+import { formatUiDateTime } from "../shared/i18n/dateTime";
 
 type BookingRow = {
   id: string;
@@ -15,6 +17,7 @@ type BookingRow = {
 
 export function BookingsPage() {
   const { t } = useI18n();
+  const { tenantTimezone } = useScopeContext();
   const [status, setStatus] = useState<"" | "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | "no_show">("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -293,7 +296,7 @@ export function BookingsPage() {
                 <tr key={row.id}>
                   <td>{row.clientName}</td>
                   <td>{row.serviceName}</td>
-                  <td>{new Date(row.startAt).toLocaleString()}</td>
+                  <td>{formatUiDateTime(row.startAt, tenantTimezone)}</td>
                   <td>
                     <span className={`status-pill status-${row.status}`}>{t(`common.bookingStatus.${row.status}`)}</span>
                   </td>
@@ -313,7 +316,7 @@ export function BookingsPage() {
                 <span className={`status-pill status-${row.status}`}>{t(`common.bookingStatus.${row.status}`)}</span>
               </header>
               <p>{row.serviceName}</p>
-              <p className="status-muted">{new Date(row.startAt).toLocaleString()}</p>
+              <p className="status-muted">{formatUiDateTime(row.startAt, tenantTimezone)}</p>
               {renderActions(row)}
             </article>
           ))}

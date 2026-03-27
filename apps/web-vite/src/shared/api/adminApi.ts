@@ -292,6 +292,7 @@ type ScopeEnvelope = {
       id: string;
       slug: string;
       name: string;
+      timezone: string;
     };
     salons: Array<{
       id: string;

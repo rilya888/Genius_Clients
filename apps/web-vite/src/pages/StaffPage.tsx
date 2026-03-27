@@ -11,6 +11,8 @@ import { formatApiError } from "../shared/api/formatApiError";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/AsyncState";
 import { Modal } from "../components/ui/Modal";
 import { useI18n } from "../shared/i18n/I18nProvider";
+import { useScopeContext } from "../shared/hooks/useScopeContext";
+import { formatUiDateTime } from "../shared/i18n/dateTime";
 
 type StaffItem = {
   id: string;
@@ -26,7 +28,8 @@ type EditorState = {
 };
 
 export function StaffPage() {
-  const { locale, t } = useI18n();
+  const { t } = useI18n();
+  const { tenantTimezone } = useScopeContext();
   const [actionError, setActionError] = useState<string | null>(null);
   const [updatingMasterId, setUpdatingMasterId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -81,7 +84,7 @@ export function StaffPage() {
         const impact = await getAdminMasterDeactivationCheck(item.id);
         if (impact.upcomingConfirmedCount > 0) {
           const nearestDate = impact.earliestStartAt
-            ? new Date(impact.earliestStartAt).toLocaleString(locale)
+            ? formatUiDateTime(impact.earliestStartAt, tenantTimezone)
             : "-";
           const warningText =
             `${t("admin.staff.deactivationWarningPrefix")} ${impact.upcomingConfirmedCount}. ` +

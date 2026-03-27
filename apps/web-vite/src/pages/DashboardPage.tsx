@@ -4,9 +4,12 @@ import { confirmAdminBooking, getAdminDashboard, listAdminBookings, updateOperat
 import { formatApiError } from "../shared/api/formatApiError";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { emitAdminBookingsChanged } from "../shared/admin-events";
+import { useScopeContext } from "../shared/hooks/useScopeContext";
+import { formatUiDateTime, formatUiTime } from "../shared/i18n/dateTime";
 
 export function DashboardPage() {
   const { t } = useI18n();
+  const { tenantTimezone } = useScopeContext();
   const [state, setState] = useState<{
     pending: boolean;
     error: string | null;
@@ -282,7 +285,7 @@ export function DashboardPage() {
                 <tbody>
                   {state.todayBookings.slice(0, 8).map((row) => (
                     <tr key={row.id}>
-                      <td>{new Date(row.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
+                      <td>{formatUiTime(row.startAt, tenantTimezone)}</td>
                       <td>{row.clientName}</td>
                       <td>{row.serviceDisplayName}</td>
                       <td>
@@ -324,7 +327,7 @@ export function DashboardPage() {
                 <tbody>
                   {state.tomorrowBookings.slice(0, 8).map((row) => (
                     <tr key={row.id}>
-                      <td>{new Date(row.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
+                      <td>{formatUiTime(row.startAt, tenantTimezone)}</td>
                       <td>{row.clientName}</td>
                       <td>{row.serviceDisplayName}</td>
                       <td>
@@ -491,7 +494,7 @@ export function DashboardPage() {
                     <tr key={item.id}>
                       <td data-label={t("admin.dashboard.activityAction")}>{item.action}</td>
                       <td data-label={t("admin.dashboard.activityEntity")}>{item.entity}</td>
-                      <td data-label={t("common.col.date")}>{new Date(item.createdAt).toLocaleString()}</td>
+                      <td data-label={t("common.col.date")}>{formatUiDateTime(item.createdAt, tenantTimezone)}</td>
                     </tr>
                   ))}
                 </tbody>

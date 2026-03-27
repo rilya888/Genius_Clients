@@ -10,6 +10,8 @@ import {
 import { formatApiError } from "../shared/api/formatApiError";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/AsyncState";
 import { useI18n } from "../shared/i18n/I18nProvider";
+import { useScopeContext } from "../shared/hooks/useScopeContext";
+import { formatUiDate } from "../shared/i18n/dateTime";
 
 type Master = {
   id: string;
@@ -120,7 +122,8 @@ function createDraftsByMaster(masters: Master[], hours: WorkingHour[]) {
 }
 
 export function SchedulePage() {
-  const { locale, t } = useI18n();
+  const { t } = useI18n();
+  const { tenantTimezone } = useScopeContext();
   const [masters, setMasters] = useState<{ pending: boolean; error: string | null; data: Master[] }>({
     pending: true,
     error: null,
@@ -422,7 +425,7 @@ export function SchedulePage() {
             <tbody>
               {exceptions.data.map((item) => (
                 <tr key={item.id}>
-                  <td>{new Date(item.date).toLocaleDateString(locale)}</td>
+                  <td>{formatUiDate(item.date, tenantTimezone)}</td>
                   <td>{item.masterId ? (masterNameById[item.masterId] ?? item.masterId) : t("common.value.all")}</td>
                   <td>{item.isClosed ? t("admin.schedule.closed") : t("admin.schedule.open")}</td>
                   <td>{item.note ?? "-"}</td>

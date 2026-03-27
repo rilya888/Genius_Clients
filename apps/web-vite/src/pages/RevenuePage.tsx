@@ -6,10 +6,11 @@ import { useI18n } from "../shared/i18n/I18nProvider";
 import { useScopeContext } from "../shared/hooks/useScopeContext";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/AsyncState";
 import { buildTenantScopedPath, resolveCurrentTenantSlug } from "../shared/routing/tenant-host";
+import { formatUiDateTime } from "../shared/i18n/dateTime";
 
 export function RevenuePage() {
   const { t } = useI18n();
-  const { role } = useScopeContext();
+  const { role, tenantTimezone } = useScopeContext();
   const canViewRevenue = role === "owner" || role === "admin";
   const currentTenantSlug = resolveCurrentTenantSlug();
   const dashboardHref = currentTenantSlug ? buildTenantScopedPath(currentTenantSlug, "/app") : "/app";
@@ -196,7 +197,7 @@ export function RevenuePage() {
                 <tr key={item.id}>
                   <td data-label={t("public.booking.clientSection")}>{item.clientName}</td>
                   <td data-label={t("booking.service")}>{item.serviceDisplayName}</td>
-                  <td data-label={t("admin.revenue.completedAt")}>{new Date(item.completedAt).toLocaleString()}</td>
+                  <td data-label={t("admin.revenue.completedAt")}>{formatUiDateTime(item.completedAt, tenantTimezone)}</td>
                   <td data-label={t("admin.revenue.amount")}>
                     {item.completedAmountMinor && item.completedAmountMinor > 0
                       ? new Intl.NumberFormat(undefined, {

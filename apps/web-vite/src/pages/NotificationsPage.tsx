@@ -4,10 +4,11 @@ import { formatApiError } from "../shared/api/formatApiError";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { useScopeContext } from "../shared/hooks/useScopeContext";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/AsyncState";
+import { formatUiDateTime } from "../shared/i18n/dateTime";
 
 export function NotificationsPage() {
-  const { locale, t } = useI18n();
-  const { role } = useScopeContext();
+  const { t } = useI18n();
+  const { role, tenantTimezone } = useScopeContext();
   const [summary, setSummary] = useState<{
     pending: boolean;
     error: string | null;
@@ -141,7 +142,7 @@ export function NotificationsPage() {
                     <span className={`status-pill notification-status-${row.status}`}>{notificationStatusLabel(row.status)}</span>
                   </td>
                 <td>{row.channel}</td>
-                <td>{new Date(row.createdAt).toLocaleString(locale)}</td>
+                <td>{formatUiDateTime(row.createdAt, tenantTimezone)}</td>
               </tr>
             ))}
             </tbody>

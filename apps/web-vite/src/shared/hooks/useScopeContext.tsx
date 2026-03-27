@@ -16,6 +16,7 @@ type ScopeContextValue = {
   salons: Array<{ id: string; accountId: string; name: string; isPrimary?: boolean }>;
   capabilities: { multiSalon: boolean };
   tenantId: string | null;
+  tenantTimezone: string;
   userEmail: string | null;
   hydrated: boolean;
   role: Role;
@@ -36,6 +37,7 @@ export function ScopeProvider({ children }: PropsWithChildren) {
   );
   const [capabilities, setCapabilities] = useState<{ multiSalon: boolean }>({ multiSalon: false });
   const [tenantId, setTenantId] = useState<string | null>(null);
+  const [tenantTimezone, setTenantTimezone] = useState("Europe/Rome");
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [role, setRole] = useState<Role>("owner");
@@ -64,6 +66,7 @@ export function ScopeProvider({ children }: PropsWithChildren) {
             slug: scope.account.slug
           }
         ]);
+        setTenantTimezone(scope.account.timezone || "Europe/Rome");
         setSalons(scope.salons);
         setCapabilities(scope.capabilities);
         setAccountId(scope.account.id);
@@ -93,6 +96,7 @@ export function ScopeProvider({ children }: PropsWithChildren) {
       salons,
       capabilities,
       tenantId,
+      tenantTimezone,
       userEmail,
       hydrated,
       role,
@@ -100,7 +104,7 @@ export function ScopeProvider({ children }: PropsWithChildren) {
       setSalonId,
       setRole
     }),
-    [accountId, salonId, accounts, salons, capabilities, tenantId, userEmail, hydrated, role]
+    [accountId, salonId, accounts, salons, capabilities, tenantId, tenantTimezone, userEmail, hydrated, role]
   );
 
   return <ScopeContext.Provider value={value}>{children}</ScopeContext.Provider>;
