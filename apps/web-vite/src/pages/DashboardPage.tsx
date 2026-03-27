@@ -411,24 +411,26 @@ export function DashboardPage() {
             <p className="status-muted">{t("admin.dashboard.activityEmpty")}</p>
           ) : null}
           {!state.pending && state.recentActivity.length > 0 ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>{t("admin.dashboard.activityAction")}</th>
-                  <th>{t("admin.dashboard.activityEntity")}</th>
-                  <th>{t("common.col.date")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {state.recentActivity.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.action}</td>
-                    <td>{item.entity}</td>
-                    <td>{new Date(item.createdAt).toLocaleString()}</td>
+            <div className="table-shell activity-table-shell">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t("admin.dashboard.activityAction")}</th>
+                    <th>{t("admin.dashboard.activityEntity")}</th>
+                    <th>{t("common.col.date")}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {state.recentActivity.map((item) => (
+                    <tr key={item.id}>
+                      <td data-label={t("admin.dashboard.activityAction")}>{item.action}</td>
+                      <td data-label={t("admin.dashboard.activityEntity")}>{item.entity}</td>
+                      <td data-label={t("common.col.date")}>{new Date(item.createdAt).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : null}
         </article>
         <article className="settings-card card-hover">

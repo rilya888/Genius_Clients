@@ -179,7 +179,7 @@ export function BookingsPage() {
   function renderActions(row: BookingRow) {
     if (row.status === "pending") {
       return (
-        <div className="inline-actions">
+        <div className="inline-actions booking-row-actions">
           <button
             className="btn btn-ghost"
             type="button"
@@ -209,7 +209,7 @@ export function BookingsPage() {
     }
     if (row.status === "confirmed") {
       return (
-        <div className="inline-actions">
+        <div className="inline-actions booking-row-actions">
           <button
             className="btn btn-ghost"
             type="button"
@@ -243,7 +243,7 @@ export function BookingsPage() {
   return (
     <section className="page-shell">
       <h1>{t("admin.bookings.title")}</h1>
-      <div className="booking-controls">
+      <div className="booking-controls booking-controls-compact">
         <label>
           {t("admin.bookings.statusFilter")}
           <select value={status} onChange={(event) => setStatus(event.target.value as typeof status)}>
@@ -264,7 +264,6 @@ export function BookingsPage() {
           {t("admin.bookings.to")}
           <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
         </label>
-        <div />
       </div>
       {state.pending ? <LoadingState text={t("admin.bookings.loading")} /> : null}
       {state.error ? <ErrorState text={state.error} /> : null}

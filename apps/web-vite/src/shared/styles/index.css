@@ -788,6 +788,27 @@ h1 {
   align-items: end;
 }
 
+.booking-controls-compact {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: end;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding-bottom: 0.2rem;
+}
+
+.booking-controls-compact label {
+  min-width: 120px;
+  font-size: 0.82rem;
+}
+
+.booking-controls-compact select,
+.booking-controls-compact input {
+  min-height: 36px;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.82rem;
+}
+
 .stepper {
   margin-top: var(--space-4);
   display: grid;
@@ -1007,6 +1028,25 @@ th {
   justify-content: space-between;
   gap: 0.7rem;
   margin-bottom: 0.4rem;
+}
+
+.booking-row-actions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+
+.booking-row-actions .btn {
+  min-height: 34px;
+  padding: 0.34rem 0.58rem;
+  font-size: 0.76rem;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.activity-table-shell td {
+  max-width: 220px;
 }
 
 .status-pill {
@@ -1238,5 +1278,68 @@ th {
 
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .booking-controls-compact {
+    gap: 0.45rem;
+  }
+
+  .booking-controls-compact label {
+    min-width: 104px;
+    font-size: 0.78rem;
+  }
+
+  .booking-controls-compact select,
+  .booking-controls-compact input {
+    min-height: 32px;
+    padding: 0.34rem 0.45rem;
+    font-size: 0.76rem;
+  }
+
+  .booking-mobile-card .booking-row-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 0.6rem;
+  }
+
+  .booking-mobile-card .booking-row-actions .btn {
+    width: 100%;
+    min-height: 32px;
+    padding: 0.3rem 0.35rem;
+    font-size: 0.72rem;
+  }
+
+  .activity-table-shell table,
+  .activity-table-shell thead,
+  .activity-table-shell tbody,
+  .activity-table-shell tr,
+  .activity-table-shell th,
+  .activity-table-shell td {
+    display: block;
+    width: 100%;
+  }
+
+  .activity-table-shell thead {
+    display: none;
+  }
+
+  .activity-table-shell tbody tr {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.45rem 0.6rem;
+    margin-bottom: 0.55rem;
+    background: var(--bg-elevated);
+  }
+
+  .activity-table-shell td {
+    border: 0;
+    padding: 0.24rem 0;
+    max-width: 100%;
+  }
+
+  .activity-table-shell td::before {
+    content: attr(data-label) ": ";
+    font-weight: 700;
+    color: var(--text-muted);
   }
 }
