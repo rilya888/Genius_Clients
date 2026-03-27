@@ -29,6 +29,24 @@ type DeliverySummary = {
   total: number;
 };
 
+function formatUiDateTime(value: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(new Date(value));
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+  const day = map.get("day") ?? "01";
+  const month = map.get("month") ?? "01";
+  const year = map.get("year") ?? "1970";
+  const hour = map.get("hour") ?? "00";
+  const minute = map.get("minute") ?? "00";
+  return `${day}.${month}.${year} ${hour}:${minute}`;
+}
+
 export default function NotificationsPage() {
   const [items, setItems] = useState<DeliveryItem[]>([]);
   const [summary, setSummary] = useState<DeliverySummary>({
@@ -142,7 +160,7 @@ export default function NotificationsPage() {
           <tbody>
             {items.map((item) => (
               <tr key={item.id}>
-                <td>{new Date(item.createdAt).toLocaleString()}</td>
+                <td>{formatUiDateTime(item.createdAt)}</td>
                 <td>{item.notificationType}</td>
                 <td>{item.channel}</td>
                 <td>{item.recipient}</td>
@@ -150,7 +168,7 @@ export default function NotificationsPage() {
                 <td>
                   {item.attemptCount}/{item.maxAttempts}
                 </td>
-                <td>{item.sentAt ? new Date(item.sentAt).toLocaleString() : "-"}</td>
+                <td>{item.sentAt ? formatUiDateTime(item.sentAt) : "-"}</td>
                 <td>{item.errorCode ?? item.errorMessage ?? "-"}</td>
               </tr>
             ))}

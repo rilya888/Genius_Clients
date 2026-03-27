@@ -110,6 +110,32 @@ function parseWhatsAppAccessTokenMap(raw: string): Map<string, string> {
 
 const waAccessTokenByPhone = parseWhatsAppAccessTokenMap(waAccessTokenByPhoneRaw);
 
+function getUiDateTimeParts(input: { value: Date | string; timezone: string }) {
+  const date = input.value instanceof Date ? input.value : new Date(input.value);
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: input.timezone
+  }).formatToParts(date);
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+  return {
+    day: map.get("day") ?? "01",
+    month: map.get("month") ?? "01",
+    year: map.get("year") ?? "1970",
+    hour: map.get("hour") ?? "00",
+    minute: map.get("minute") ?? "00"
+  };
+}
+
+function formatUiDateTime(input: { value: Date | string; timezone: string }) {
+  const parts = getUiDateTimeParts(input);
+  return `${parts.day}.${parts.month}.${parts.year} ${parts.hour}:${parts.minute}`;
+}
+
 async function resolveWhatsAppCredentials(tenantId?: string): Promise<{ phoneNumberId: string; accessToken: string } | null> {
   if (tenantId && db) {
     const [endpoint] = await db
@@ -495,16 +521,10 @@ async function buildBookingDetailsText(input: { bookingId: string; notificationT
     return null;
   }
 
-  const locale = details.clientLocale === "it" ? "it-IT" : "en-GB";
-  const when = new Intl.DateTimeFormat(locale, {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: details.timezone || "Europe/Rome"
-  }).format(details.startAt);
+  const when = formatUiDateTime({
+    value: details.startAt,
+    timezone: details.timezone || "Europe/Rome"
+  });
 
   if (input.notificationType === "booking_confirmed_client") {
     return details.clientLocale === "it"
@@ -566,15 +586,10 @@ async function buildAdminApprovalPayload(input: { bookingId: string; recipient: 
   }
 
   const locale = details.tenantLocale === "en" ? "en" : "it";
-  const when = new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: details.timezone || "Europe/Rome"
-  }).format(details.startAt);
+  const when = formatUiDateTime({
+    value: details.startAt,
+    timezone: details.timezone || "Europe/Rome"
+  });
 
   const expiresAtUnix = Math.floor(Date.now() / 1000) + waAdminActionTtlHours * 60 * 60;
   const confirmToken = createBookingActionToken(
