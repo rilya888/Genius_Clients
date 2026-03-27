@@ -180,7 +180,7 @@ export function RevenuePage() {
       ) : null}
 
       {state.items.length > 0 ? (
-        <div className="table-shell">
+        <div className="table-shell revenue-table-shell">
           <table>
             <thead>
               <tr>
@@ -194,10 +194,10 @@ export function RevenuePage() {
             <tbody>
               {state.items.map((item) => (
                 <tr key={item.id}>
-                  <td>{item.clientName}</td>
-                  <td>{item.serviceDisplayName}</td>
-                  <td>{new Date(item.completedAt).toLocaleString()}</td>
-                  <td>
+                  <td data-label={t("public.booking.clientSection")}>{item.clientName}</td>
+                  <td data-label={t("booking.service")}>{item.serviceDisplayName}</td>
+                  <td data-label={t("admin.revenue.completedAt")}>{new Date(item.completedAt).toLocaleString()}</td>
+                  <td data-label={t("admin.revenue.amount")}>
                     {item.completedAmountMinor && item.completedAmountMinor > 0
                       ? new Intl.NumberFormat(undefined, {
                           style: "currency",
@@ -205,7 +205,7 @@ export function RevenuePage() {
                         }).format(item.completedAmountMinor / 100)
                       : "—"}
                   </td>
-                  <td>{item.completedPaymentMethod ?? "—"}</td>
+                  <td data-label={t("admin.revenue.paymentMethod")}>{item.completedPaymentMethod ?? "—"}</td>
                 </tr>
               ))}
             </tbody>

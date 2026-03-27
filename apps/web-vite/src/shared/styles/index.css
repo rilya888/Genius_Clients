@@ -1418,4 +1418,40 @@ th {
     font-weight: 700;
     color: var(--text-muted);
   }
+
+  .revenue-table-shell table,
+  .revenue-table-shell thead,
+  .revenue-table-shell tbody,
+  .revenue-table-shell tr,
+  .revenue-table-shell th,
+  .revenue-table-shell td {
+    display: block;
+    width: 100%;
+  }
+
+  .revenue-table-shell thead {
+    display: none;
+  }
+
+  .revenue-table-shell tbody tr {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.45rem 0.6rem;
+    margin-bottom: 0.55rem;
+    background: var(--bg-elevated);
+  }
+
+  .revenue-table-shell td {
+    border: 0;
+    padding: 0.24rem 0;
+    max-width: 100%;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .revenue-table-shell td::before {
+    content: attr(data-label) ": ";
+    font-weight: 700;
+    color: var(--text-muted);
+  }
 }
