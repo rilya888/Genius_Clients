@@ -142,6 +142,7 @@ export class BookingRepository {
           startAt: bookings.startAt,
           endAt: bookings.endAt,
           cancellationReason: bookings.cancellationReason,
+          cancellationReasonCategory: bookings.cancellationReasonCategory,
           rejectionReason: bookings.rejectionReason,
           completedAt: bookings.completedAt,
           completedAmountMinor: bookings.completedAmountMinor,
@@ -181,6 +182,7 @@ export class BookingRepository {
           startAt: bookings.startAt,
           endAt: bookings.endAt,
           cancellationReason: bookings.cancellationReason,
+          cancellationReasonCategory: bookings.cancellationReasonCategory,
           rejectionReason: bookings.rejectionReason,
           createdAt: bookings.createdAt,
           updatedAt: bookings.updatedAt
@@ -221,6 +223,7 @@ export class BookingRepository {
     expectedCurrentStatuses: BookingStatus[];
     nextStatus: BookingStatus;
     cancellationReason?: string | null;
+    cancellationReasonCategory?: string | null;
     rejectionReason?: string | null;
     completedAt?: Date | null;
     completedAmountMinor?: number | null;
@@ -235,6 +238,7 @@ export class BookingRepository {
       .set({
         status: input.nextStatus,
         cancellationReason: input.cancellationReason,
+        cancellationReasonCategory: input.cancellationReasonCategory,
         rejectionReason: input.rejectionReason,
         completedAt: input.completedAt,
         completedAmountMinor: input.completedAmountMinor,

@@ -191,6 +191,7 @@ export type WhatsAppConversationDeps = {
     terminology?: TenantTerminologyConfig;
     flowConfig?: TenantFlowConfig;
   }>;
+  notifyAdminHandoff?: (input: { phone: string; summary: string; locale: SupportedLocale }) => Promise<boolean>;
 };
 
 const FLOW_VERSION = 1;
@@ -1559,6 +1560,37 @@ export async function processWhatsAppConversation(
     if (!shown) {
       await deps.clearSession(input.from);
     }
+    return { handled: true };
+  }
+
+  if (normalizedToken === "intent:new") {
+    session = createInitialSession(input.locale);
+    session.intent = "new_booking";
+    session.state = "choose_service";
+    session.servicePage = 0;
+    await deps.saveSession(input.from, session);
+    await promptService(input, session, deps);
+    return { handled: true };
+  }
+
+  if (normalizedToken === "intent:human") {
+    const summary =
+      session.locale === "it"
+        ? "Il cliente richiede assistenza dopo l'annullamento della prenotazione."
+        : "Client requested human assistance after booking cancellation.";
+    await deps.notifyAdminHandoff?.({
+      phone: input.from,
+      summary,
+      locale: session.locale
+    });
+    await deps.sendText(
+      input.from,
+      session.locale === "it"
+        ? "Richiesta inviata. Un operatore la ricontattera a breve."
+        : "Request sent. An operator will contact you shortly."
+    );
+    session = createInitialSession(input.locale);
+    await deps.saveSession(input.from, session);
     return { handled: true };
   }
 

@@ -25,6 +25,8 @@ type BookingsEnvelope = {
       clientName: string;
       status: "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | "no_show";
       startAt: string;
+      cancellationReason?: string | null;
+      cancellationReasonCategory?: string | null;
       rejectionReason?: string | null;
     }>;
   };
@@ -565,6 +567,7 @@ export async function updateAdminBookingStatus(input: {
   bookingId: string;
   status: AdminBookingStatus;
   cancellationReason?: string;
+  cancellationReasonCategory?: string;
   rejectionReason?: string;
   completedAmountMinor?: number | null;
   completedCurrency?: string | null;
@@ -582,6 +585,7 @@ export async function updateAdminBookingStatus(input: {
     body: JSON.stringify({
       status: input.status,
       cancellationReason: input.cancellationReason,
+      cancellationReasonCategory: input.cancellationReasonCategory,
       rejectionReason: input.rejectionReason,
       completedAmountMinor: input.completedAmountMinor,
       completedCurrency: input.completedCurrency,

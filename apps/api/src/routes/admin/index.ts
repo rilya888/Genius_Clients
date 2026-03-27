@@ -682,6 +682,7 @@ export const adminRoutes = new Hono<ApiAppEnv>()
     const body = await c.req.json<{
       status?: "pending" | "confirmed" | "completed" | "cancelled" | "rejected" | "no_show";
       cancellationReason?: string;
+      cancellationReasonCategory?: string;
       rejectionReason?: string;
       completedAmountMinor?: number | null;
       completedCurrency?: string | null;
@@ -698,6 +699,7 @@ export const adminRoutes = new Hono<ApiAppEnv>()
       bookingId,
       nextStatus: body.status,
       cancellationReason: body.cancellationReason,
+      cancellationReasonCategory: body.cancellationReasonCategory,
       rejectionReason: body.rejectionReason,
       completedAmountMinor: body.completedAmountMinor,
       completedCurrency: body.completedCurrency,

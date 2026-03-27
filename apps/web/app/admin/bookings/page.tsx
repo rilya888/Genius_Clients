@@ -32,6 +32,26 @@ function formatUiDateTime(value: string) {
   return `${day}.${month}.${year} ${hour}:${minute}`;
 }
 
+function normalizeCancellationReasonCategory(value: string | null | undefined) {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === "1" || normalized === "master_unavailable") {
+    return "master_unavailable";
+  }
+  if (normalized === "2" || normalized === "schedule_conflict") {
+    return "schedule_conflict";
+  }
+  if (normalized === "3" || normalized === "client_request") {
+    return "client_request";
+  }
+  if (normalized === "4" || normalized === "other") {
+    return "other";
+  }
+  return null;
+}
+
 export default function BookingsPage() {
   const [items, setItems] = useState<BookingItem[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>("");
@@ -67,9 +87,22 @@ export default function BookingsPage() {
   }, [statusFilter, fromDate, toDate]);
 
   async function changeStatus(id: string, nextStatus: BookingStatus) {
+    const cancellationReasonCategory =
+      nextStatus === "cancelled"
+        ? normalizeCancellationReasonCategory(
+            window.prompt(
+              "Cancellation category: 1) master_unavailable 2) schedule_conflict 3) client_request 4) other",
+              "1"
+            )
+          )
+        : undefined;
     const cancellationReason =
       nextStatus === "cancelled" ? window.prompt("Cancellation reason", "Client cancelled") : undefined;
     if (nextStatus === "cancelled" && cancellationReason === null) {
+      return;
+    }
+    if (nextStatus === "cancelled" && !cancellationReasonCategory) {
+      setStatus("Cancellation category is required");
       return;
     }
     const { response, payload } = await fetchJsonWithSessionRetry<{ error?: { message?: string } }>(
@@ -79,6 +112,7 @@ export default function BookingsPage() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         status: nextStatus,
+        cancellationReasonCategory,
         cancellationReason: cancellationReason ?? undefined
       })
       }

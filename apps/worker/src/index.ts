@@ -506,6 +506,7 @@ async function buildBookingDetailsText(input: { bookingId: string; notificationT
       startAt: bookings.startAt,
       clientLocale: bookings.clientLocale,
       serviceName: services.displayName,
+      cancellationReason: bookings.cancellationReason,
       rejectionReason: bookings.rejectionReason,
       timezone: tenants.timezone
     })
@@ -533,9 +534,10 @@ async function buildBookingDetailsText(input: { bookingId: string; notificationT
   }
 
   if (input.notificationType === "booking_cancelled") {
+    const reason = details.cancellationReason?.trim();
     return details.clientLocale === "it"
-      ? `Prenotazione annullata: ${details.serviceName}, ${when}.`
-      : `Booking cancelled: ${details.serviceName}, ${when}.`;
+      ? `Prenotazione annullata: ${details.serviceName}, ${when}. Motivo: ${reason || "Motivo non specificato"}.`
+      : `Booking cancelled: ${details.serviceName}, ${when}. Reason: ${reason || "Reason not specified"}.`;
   }
 
   if (input.notificationType === "booking_completed_client") {
@@ -557,6 +559,47 @@ async function buildBookingDetailsText(input: { bookingId: string; notificationT
   }
 
   return null;
+}
+
+async function buildCancelledClientPayload(input: { bookingId: string }) {
+  if (!db) {
+    return null;
+  }
+
+  const row = await db
+    .select({
+      startAt: bookings.startAt,
+      clientLocale: bookings.clientLocale,
+      serviceName: services.displayName,
+      cancellationReason: bookings.cancellationReason,
+      timezone: tenants.timezone
+    })
+    .from(bookings)
+    .innerJoin(services, eq(services.id, bookings.serviceId))
+    .innerJoin(tenants, eq(tenants.id, bookings.tenantId))
+    .where(eq(bookings.id, input.bookingId))
+    .limit(1);
+
+  const details = row[0];
+  if (!details) {
+    return null;
+  }
+
+  const when = formatUiDateTime({
+    value: details.startAt,
+    timezone: details.timezone || "Europe/Rome"
+  });
+  const reason = details.cancellationReason?.trim();
+  const locale = details.clientLocale === "en" ? "en" : "it";
+  const bodyText =
+    locale === "it"
+      ? `Prenotazione annullata: ${details.serviceName}, ${when}.\nMotivo: ${reason || "Motivo non specificato"}`
+      : `Booking cancelled: ${details.serviceName}, ${when}.\nReason: ${reason || "Reason not specified"}`;
+
+  return {
+    locale,
+    bodyText
+  };
 }
 
 async function buildAdminApprovalPayload(input: { bookingId: string; recipient: string }) {
@@ -878,6 +921,68 @@ async function sendByChannel(input: {
         waWindowOpen: windowPolicy?.windowOpen ?? null,
         waPolicyReason: windowPolicy?.reason ?? null
       };
+    }
+
+    if (input.notificationType === "booking_cancelled" && input.bookingId) {
+      const cancelledPayload = await buildCancelledClientPayload({ bookingId: input.bookingId });
+      if (cancelledPayload) {
+        const response = await fetch(`https://graph.facebook.com/v21.0/${credentials.phoneNumberId}/messages`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${credentials.accessToken}`
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: input.recipient,
+            type: "interactive",
+            interactive: {
+              type: "button",
+              body: { text: cancelledPayload.bodyText.slice(0, 1024) },
+              action: {
+                buttons: [
+                  {
+                    type: "reply",
+                    reply: {
+                      id: "intent:new",
+                      title: cancelledPayload.locale === "it" ? "Nuova prenot." : "Book again"
+                    }
+                  },
+                  {
+                    type: "reply",
+                    reply: {
+                      id: "intent:human",
+                      title: cancelledPayload.locale === "it" ? "Contatta admin" : "Contact admin"
+                    }
+                  }
+                ]
+              }
+            }
+          })
+        });
+
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          const code =
+            payload && typeof payload === "object" ? (payload as { error?: { code?: number } }).error?.code : null;
+          const message =
+            payload && typeof payload === "object"
+              ? (payload as { error?: { message?: string } }).error?.message
+              : null;
+          throw new Error(`whatsapp_send_failed:${response.status}${code ? `:${code}` : ""}${message ? `:${message}` : ""}`);
+        }
+
+        const messageId = payload?.messages?.[0]?.id;
+        return {
+          providerMessageId: String(messageId ?? `wa_sent_${Date.now()}`),
+          waDeliveryMode: "session" as const,
+          waTemplateName: null,
+          waTemplateLang: null,
+          waWindowCheckedAt: windowPolicy?.checkedAt ?? null,
+          waWindowOpen: windowPolicy?.windowOpen ?? null,
+          waPolicyReason: windowPolicy?.reason ?? null
+        };
+      }
     }
 
     const response = await fetch(`https://graph.facebook.com/v21.0/${credentials.phoneNumberId}/messages`, {
