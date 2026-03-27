@@ -54,8 +54,31 @@ export function RevenuePage() {
     [range, from, to]
   );
 
+  function formatDateForInput(value: Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function handleRangeChange(nextRange: RevenueRange) {
+    setRange(nextRange);
+    if (nextRange === "custom") {
+      const today = formatDateForInput(new Date());
+      setFrom((current) => current || today);
+      setTo((current) => current || today);
+      return;
+    }
+    setFrom("");
+    setTo("");
+  }
+
   useEffect(() => {
     let cancelled = false;
+    if (range === "custom" && (!from || !to)) {
+      setState((current) => ({ ...current, pending: false, error: null }));
+      return;
+    }
     setState((current) => ({ ...current, pending: true, error: null }));
     Promise.all([
       getRevenueSummary(query),
@@ -119,7 +142,7 @@ export function RevenuePage() {
       <div className="booking-controls booking-controls-compact">
         <label>
           {t("admin.revenue.range.label")}
-          <select value={range} onChange={(event) => setRange(event.target.value as RevenueRange)}>
+          <select value={range} onChange={(event) => handleRangeChange(event.target.value as RevenueRange)}>
             <option value="today">{t("admin.revenue.range.today")}</option>
             <option value="week">{t("admin.revenue.range.week")}</option>
             <option value="month">{t("admin.revenue.range.month")}</option>
