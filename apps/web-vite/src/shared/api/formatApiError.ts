@@ -13,6 +13,9 @@ export function formatApiError(error: unknown, fallbackMessage: string) {
     if (reason === "completed_amount_invalid") {
       return withRequestId(resolveLocalizedMessage("Amount must be a positive number."), error.requestId);
     }
+    if (reason === "cannot_complete_future_booking") {
+      return withRequestId(resolveLocalizedMessage("You can complete a booking only after its start time."), error.requestId);
+    }
     if (reason === "desired_whatsapp_bot_e164_invalid") {
       return withRequestId(resolveLocalizedMessage("Enter a valid WhatsApp bot number in international format."), error.requestId);
     }
@@ -96,6 +99,9 @@ function resolveLocalizedMessage(english: string) {
     }
     if (english === "Amount must be a positive number.") {
       return "L'importo deve essere un numero positivo.";
+    }
+    if (english === "You can complete a booking only after its start time.") {
+      return "Puoi segnare una prenotazione come completata solo dopo l'orario di inizio.";
     }
   }
   return english;

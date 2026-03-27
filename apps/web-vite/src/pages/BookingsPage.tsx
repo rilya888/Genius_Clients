@@ -177,6 +177,8 @@ export function BookingsPage() {
   }
 
   function renderActions(row: BookingRow) {
+    const bookingStartMs = new Date(row.startAt).getTime();
+    const canCompleteNow = Number.isFinite(bookingStartMs) ? bookingStartMs <= Date.now() : true;
     if (row.status === "pending") {
       return (
         <div className="inline-actions booking-row-actions">
@@ -213,7 +215,8 @@ export function BookingsPage() {
           <button
             className="btn btn-ghost"
             type="button"
-            disabled={processingBookingId === row.id}
+            disabled={processingBookingId === row.id || !canCompleteNow}
+            title={!canCompleteNow ? t("admin.bookings.completeFutureHint") : undefined}
             onClick={() => void handleBookingStatusAction(row.id, row.status, "completed")}
           >
             {t("admin.bookings.completeAction")}
