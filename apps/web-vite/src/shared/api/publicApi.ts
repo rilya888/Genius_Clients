@@ -34,6 +34,7 @@ export type PublicSlot = {
 
 type ListEnvelope<T> = {
   data: {
+    timezone?: string;
     items: T[];
   };
 };
@@ -76,7 +77,10 @@ export async function listPublicSlots(input: {
       masterId: input.masterId
     }
   });
-  return payload.data.items;
+  return {
+    timezone: payload.data.timezone ?? null,
+    items: payload.data.items
+  };
 }
 
 export async function createPublicBooking(input: {

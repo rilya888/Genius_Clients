@@ -28,10 +28,60 @@ function parseConfiguredWhatsAppTokenCount() {
   }
 }
 
+function assertRevenueReadAccess(role: string | undefined) {
+  if (role !== "owner" && role !== "admin") {
+    throw appError("AUTH_FORBIDDEN", { reason: "revenue_access_forbidden" });
+  }
+}
+
 export const adminRoutes = new Hono<ApiAppEnv>()
   .get("/dashboard", async (c) => {
     const tenantId = c.get("tenantId");
     return c.json({ data: await adminService.getDashboard({ tenantId }) });
+  })
+  .get("/revenue/summary", async (c) => {
+    const actorRole = c.get("userRole");
+    assertRevenueReadAccess(actorRole);
+    const tenantId = c.get("tenantId");
+    const range = (c.req.query("range") ?? "today").trim();
+    const allowedRanges = new Set(["today", "week", "month", "custom"]);
+    if (!allowedRanges.has(range)) {
+      throw appError("VALIDATION_ERROR", { reason: "revenue_range_invalid" });
+    }
+    const from = c.req.query("from");
+    const to = c.req.query("to");
+    return c.json({
+      data: await adminService.getRevenueSummary({
+        tenantId,
+        range: range as "today" | "week" | "month" | "custom",
+        fromDate: from,
+        toDate: to
+      })
+    });
+  })
+  .get("/revenue/bookings", async (c) => {
+    const actorRole = c.get("userRole");
+    assertRevenueReadAccess(actorRole);
+    const tenantId = c.get("tenantId");
+    const range = (c.req.query("range") ?? "today").trim();
+    const allowedRanges = new Set(["today", "week", "month", "custom"]);
+    if (!allowedRanges.has(range)) {
+      throw appError("VALIDATION_ERROR", { reason: "revenue_range_invalid" });
+    }
+    const from = c.req.query("from");
+    const to = c.req.query("to");
+    const limit = c.req.query("limit");
+    const offset = c.req.query("offset");
+    return c.json({
+      data: await adminService.listRevenueBookings({
+        tenantId,
+        range: range as "today" | "week" | "month" | "custom",
+        fromDate: from,
+        toDate: to,
+        limit: limit ? Number(limit) : undefined,
+        offset: offset ? Number(offset) : undefined
+      })
+    });
   })
   .get("/billing/plans", async (c) => {
     const tenantId = c.get("tenantId");

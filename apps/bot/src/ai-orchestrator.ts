@@ -1513,7 +1513,7 @@ async function renderArtifact(
           .slice(0, BOOKING_SELECTION_BUTTONS_MAX_ITEMS)
           .map((item) => ({
             id: `booking:${item.id}`,
-            title: truncate(formatBookingChoice(item.startAt, input.locale), 24),
+            title: truncate(formatBookingChoice(item.startAt, input.locale, input.tenantConfig.timezone), 24),
             description: item.status
           }));
         choices.push({
@@ -1525,7 +1525,7 @@ async function renderArtifact(
       }
       await deps.sendList(input.from, input.artifact.prompt, input.locale === "it" ? "Prenotazioni" : "Bookings", appendFlowRows(activeItems.map((item) => ({
         id: `booking:${item.id}`,
-        title: truncate(formatBookingChoice(item.startAt, input.locale), 24),
+        title: truncate(formatBookingChoice(item.startAt, input.locale, input.tenantConfig.timezone), 24),
         description: item.status
       })), input.locale));
       return;
@@ -1658,24 +1658,35 @@ function buildNextDays(timezone: string, count: number) {
   return Array.from(new Set(out));
 }
 
-function formatDateLabel(dateIso: string, locale: SupportedLocale, timezone: string) {
-  return new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-GB", {
-    weekday: "short",
+function getDateTimeParts(value: Date | string, timezone: string) {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "2-digit",
-    timeZone: timezone
-  }).format(new Date(`${dateIso}T00:00:00.000Z`));
-}
-
-function formatBookingChoice(startAtIso: string, locale: SupportedLocale) {
-  return new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-GB", {
-    weekday: "short",
-    day: "2-digit",
-    month: "2-digit",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false
-  }).format(new Date(startAtIso));
+    hour12: false,
+    timeZone: timezone
+  }).formatToParts(date);
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+  return {
+    day: map.get("day") ?? "01",
+    month: map.get("month") ?? "01",
+    year: map.get("year") ?? "1970",
+    hour: map.get("hour") ?? "00",
+    minute: map.get("minute") ?? "00"
+  };
+}
+
+function formatDateLabel(dateIso: string, _locale: SupportedLocale, timezone: string) {
+  const parts = getDateTimeParts(`${dateIso}T00:00:00.000Z`, timezone);
+  return `${parts.day}.${parts.month}.${parts.year}`;
+}
+
+function formatBookingChoice(startAtIso: string, _locale: SupportedLocale, timezone: string) {
+  const parts = getDateTimeParts(startAtIso, timezone);
+  return `${parts.day}.${parts.month}.${parts.year} ${parts.hour}:${parts.minute}`;
 }
 
 function rankBookingsForAction(

@@ -28,6 +28,7 @@ import { SuperAdminPage } from "../pages/SuperAdminPage";
 import { resolveCurrentTenantSlug } from "../shared/routing/tenant-host";
 import { ContactPage } from "../pages/ContactPage";
 import { PublicTenantLandingPage } from "../pages/PublicTenantLandingPage";
+import { RevenuePage } from "../pages/RevenuePage";
 
 function RootEntryPage() {
   const tenantSlug = resolveCurrentTenantSlug();
@@ -77,6 +78,7 @@ export function App() {
               <Route path="services" element={<ServicesPage />} />
               <Route path="staff" element={<StaffPage />} />
               <Route path="schedule" element={<SchedulePage />} />
+              <Route path="revenue" element={<RevenuePage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="settings/faq" element={<FaqSettingsPage />} />
               <Route path="settings/privacy" element={<PrivacyPage />} />
@@ -88,6 +90,7 @@ export function App() {
               <Route path="services" element={<ServicesPage />} />
               <Route path="staff" element={<StaffPage />} />
               <Route path="schedule" element={<SchedulePage />} />
+              <Route path="revenue" element={<RevenuePage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="settings/faq" element={<FaqSettingsPage />} />
               <Route path="settings/privacy" element={<PrivacyPage />} />

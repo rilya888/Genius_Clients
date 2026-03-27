@@ -4,9 +4,12 @@ import { confirmAdminBooking, getAdminDashboard, listAdminBookings, updateOperat
 import { formatApiError } from "../shared/api/formatApiError";
 import { useI18n } from "../shared/i18n/I18nProvider";
 import { emitAdminBookingsChanged } from "../shared/admin-events";
+import { useScopeContext } from "../shared/hooks/useScopeContext";
+import { formatUiDateTime, formatUiTime } from "../shared/i18n/dateTime";
 
 export function DashboardPage() {
   const { t } = useI18n();
+  const { tenantTimezone } = useScopeContext();
   const [state, setState] = useState<{
     pending: boolean;
     error: string | null;
@@ -31,6 +34,29 @@ export function DashboardPage() {
       entity: string;
       createdAt: string;
     }>;
+    revenueOverview: {
+      today: {
+        totalRevenueMinor: number;
+        completedCount: number;
+        completedWithAmountCount: number;
+        completedWithoutAmountCount: number;
+        averageTicketMinor: number;
+      };
+      week: {
+        totalRevenueMinor: number;
+        completedCount: number;
+        completedWithAmountCount: number;
+        completedWithoutAmountCount: number;
+        averageTicketMinor: number;
+      };
+      month: {
+        totalRevenueMinor: number;
+        completedCount: number;
+        completedWithAmountCount: number;
+        completedWithoutAmountCount: number;
+        averageTicketMinor: number;
+      };
+    } | null;
     todayBookings: Array<{
       id: string;
       clientName: string;
@@ -74,6 +100,7 @@ export function DashboardPage() {
     kpis: null,
     attention: null,
     recentActivity: [],
+    revenueOverview: null,
     todayBookings: [],
     tomorrowBookings: [],
     quickActionBusyBookingId: null,
@@ -120,6 +147,7 @@ export function DashboardPage() {
             kpis: payload.kpis,
             attention: payload.attention,
             recentActivity: payload.recentActivity,
+            revenueOverview: payload.revenueOverview,
             todayBookings,
             tomorrowBookings,
             quickActionBusyBookingId: null,
@@ -142,6 +170,7 @@ export function DashboardPage() {
             kpis: null,
             attention: null,
             recentActivity: [],
+            revenueOverview: null,
             todayBookings: [],
             tomorrowBookings: [],
             quickActionBusyBookingId: null,
@@ -256,7 +285,7 @@ export function DashboardPage() {
                 <tbody>
                   {state.todayBookings.slice(0, 8).map((row) => (
                     <tr key={row.id}>
-                      <td>{new Date(row.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
+                      <td>{formatUiTime(row.startAt, tenantTimezone)}</td>
                       <td>{row.clientName}</td>
                       <td>{row.serviceDisplayName}</td>
                       <td>
@@ -298,7 +327,7 @@ export function DashboardPage() {
                 <tbody>
                   {state.tomorrowBookings.slice(0, 8).map((row) => (
                     <tr key={row.id}>
-                      <td>{new Date(row.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
+                      <td>{formatUiTime(row.startAt, tenantTimezone)}</td>
                       <td>{row.clientName}</td>
                       <td>{row.serviceDisplayName}</td>
                       <td>
@@ -372,6 +401,46 @@ export function DashboardPage() {
       </div>
       <div className="settings-grid" style={{ marginTop: "1rem" }}>
         <article className="settings-card card-hover">
+          <h3>{t("admin.revenue.overviewTitle")}</h3>
+          {state.pending || !state.revenueOverview ? <p>{t("common.loadingDots")}</p> : null}
+          {!state.pending && state.revenueOverview ? (
+            <div className="revenue-overview-grid">
+              <div>
+                <strong>{t("admin.revenue.range.today")}</strong>
+                <p>
+                  {new Intl.NumberFormat(undefined, { style: "currency", currency: "EUR" }).format(
+                    state.revenueOverview.today.totalRevenueMinor / 100
+                  )}
+                </p>
+                <p className="status-muted">{t("admin.revenue.completedCount")}: {state.revenueOverview.today.completedCount}</p>
+              </div>
+              <div>
+                <strong>{t("admin.revenue.range.week")}</strong>
+                <p>
+                  {new Intl.NumberFormat(undefined, { style: "currency", currency: "EUR" }).format(
+                    state.revenueOverview.week.totalRevenueMinor / 100
+                  )}
+                </p>
+                <p className="status-muted">{t("admin.revenue.completedCount")}: {state.revenueOverview.week.completedCount}</p>
+              </div>
+              <div>
+                <strong>{t("admin.revenue.range.month")}</strong>
+                <p>
+                  {new Intl.NumberFormat(undefined, { style: "currency", currency: "EUR" }).format(
+                    state.revenueOverview.month.totalRevenueMinor / 100
+                  )}
+                </p>
+                <p className="status-muted">{t("admin.revenue.completedCount")}: {state.revenueOverview.month.completedCount}</p>
+              </div>
+            </div>
+          ) : null}
+          <div className="inline-actions">
+            <Link className="btn btn-ghost" to="revenue">
+              {t("admin.revenue.openPage")}
+            </Link>
+          </div>
+        </article>
+        <article className="settings-card card-hover">
           <h3>{t("admin.dashboard.attentionTitle")}</h3>
           <p>
             {t("admin.dashboard.attention.pendingBookings")}:{" "}
@@ -411,24 +480,26 @@ export function DashboardPage() {
             <p className="status-muted">{t("admin.dashboard.activityEmpty")}</p>
           ) : null}
           {!state.pending && state.recentActivity.length > 0 ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>{t("admin.dashboard.activityAction")}</th>
-                  <th>{t("admin.dashboard.activityEntity")}</th>
-                  <th>{t("common.col.date")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {state.recentActivity.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.action}</td>
-                    <td>{item.entity}</td>
-                    <td>{new Date(item.createdAt).toLocaleString()}</td>
+            <div className="table-shell activity-table-shell">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t("admin.dashboard.activityAction")}</th>
+                    <th>{t("admin.dashboard.activityEntity")}</th>
+                    <th>{t("common.col.date")}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {state.recentActivity.map((item) => (
+                    <tr key={item.id}>
+                      <td data-label={t("admin.dashboard.activityAction")}>{item.action}</td>
+                      <td data-label={t("admin.dashboard.activityEntity")}>{item.entity}</td>
+                      <td data-label={t("common.col.date")}>{formatUiDateTime(item.createdAt, tenantTimezone)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : null}
         </article>
         <article className="settings-card card-hover">

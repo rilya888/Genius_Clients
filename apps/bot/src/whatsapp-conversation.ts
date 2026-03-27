@@ -315,25 +315,40 @@ function isCancelCommandToken(normalizedToken: string) {
   );
 }
 
-function formatDateLabel(dateIso: string, locale: SupportedLocale, timezone: string): string {
-  return new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-GB", {
-    weekday: "short",
+function formatDateLabel(dateIso: string, _locale: SupportedLocale, timezone: string): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "2-digit",
-    timeZone: timezone
-  }).format(new Date(`${dateIso}T00:00:00.000Z`));
-}
-
-function formatDateTimeLabel(dateIso: string, locale: SupportedLocale, timezone: string): string {
-  return new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-GB", {
-    weekday: "short",
-    day: "2-digit",
-    month: "2-digit",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
     timeZone: timezone
-  }).format(new Date(dateIso));
+  }).formatToParts(new Date(`${dateIso}T00:00:00.000Z`));
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+  const day = map.get("day") ?? "01";
+  const month = map.get("month") ?? "01";
+  const year = map.get("year") ?? "1970";
+  return `${day}.${month}.${year}`;
+}
+
+function formatDateTimeLabel(dateIso: string, _locale: SupportedLocale, timezone: string): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: timezone
+  }).formatToParts(new Date(dateIso));
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+  const day = map.get("day") ?? "01";
+  const month = map.get("month") ?? "01";
+  const year = map.get("year") ?? "1970";
+  const hour = map.get("hour") ?? "00";
+  const minute = map.get("minute") ?? "00";
+  return `${day}.${month}.${year} ${hour}:${minute}`;
 }
 
 function buildNext7Days(timezone: string): string[] {

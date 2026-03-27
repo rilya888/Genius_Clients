@@ -451,7 +451,28 @@ export class BookingService {
         }
         tenant = matchedTenant;
       } else if (matchedTenants.length > 1) {
-        throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_ambiguous" });
+        const bookingTenantMatches: typeof matchedTenants = [];
+        for (const candidate of matchedTenants) {
+          const booking = await this.bookingRepository.findById(candidate.id, input.bookingId);
+          if (booking) {
+            bookingTenantMatches.push(candidate);
+          }
+        }
+        if (bookingTenantMatches.length === 1) {
+          const [matchedTenant] = bookingTenantMatches;
+          if (!matchedTenant) {
+            throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_not_authorized" });
+          }
+          tenant = matchedTenant;
+        } else if (bookingTenantMatches.length > 1) {
+          throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_ambiguous" });
+        } else {
+          const [preferredTenant] = matchedTenants;
+          if (!preferredTenant) {
+            throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_not_authorized" });
+          }
+          tenant = preferredTenant;
+        }
       } else {
         throw appError("AUTH_FORBIDDEN", { reason: "admin_phone_not_authorized" });
       }

@@ -12,6 +12,8 @@ import {
 import { SubscriptionGovernanceService } from "./subscription-governance-service";
 import { SuperAdminChannelEndpointRepository } from "../repositories/super-admin/channel-endpoint-repository";
 
+type RevenueRange = "today" | "week" | "month" | "custom";
+
 export class AdminService {
   private readonly adminRepository = new AdminRepository();
   private readonly tenantRepository = new TenantRepository();
@@ -54,13 +56,142 @@ export class AdminService {
     return normalized;
   }
 
+  private assertValidTimezone(timezone: string, reason: string) {
+    try {
+      new Intl.DateTimeFormat("en-GB", { timeZone: timezone }).format(new Date());
+    } catch {
+      throw appError("VALIDATION_ERROR", { reason });
+    }
+  }
+
+  private getTimezoneOffsetMs(at: Date, timezone: string): number {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: timezone,
+      timeZoneName: "shortOffset",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    }).formatToParts(at);
+    const timezoneName = parts.find((part) => part.type === "timeZoneName")?.value ?? "";
+    const offsetMatch = /GMT([+-]\d{1,2})(?::?(\d{2}))?/.exec(timezoneName);
+    if (!offsetMatch) {
+      throw appError("INTERNAL_ERROR", { reason: "timezone_offset_parse_failed", timezone, timezoneName });
+    }
+    const hours = Number(offsetMatch[1]);
+    const minutes = Number(offsetMatch[2] ?? "0");
+    const sign = hours >= 0 ? 1 : -1;
+    return sign * (Math.abs(hours) * 60 + minutes) * 60 * 1000;
+  }
+
+  private getTenantDateParts(at: Date, timezone: string): { year: number; month: number; day: number } {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(at);
+    const year = Number(parts.find((part) => part.type === "year")?.value ?? "0");
+    const month = Number(parts.find((part) => part.type === "month")?.value ?? "0");
+    const day = Number(parts.find((part) => part.type === "day")?.value ?? "0");
+    if (!year || !month || !day) {
+      throw appError("INTERNAL_ERROR", { reason: "tenant_date_parts_parse_failed", timezone });
+    }
+    return { year, month, day };
+  }
+
+  private getUtcDateForTenantMidnight(
+    dateParts: { year: number; month: number; day: number },
+    timezone: string
+  ): Date {
+    const utcGuess = Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day, 0, 0, 0, 0);
+    const offsetMs = this.getTimezoneOffsetMs(new Date(utcGuess), timezone);
+    return new Date(utcGuess - offsetMs);
+  }
+
+  private computeRevenueRangeBounds(input: {
+    range: RevenueRange;
+    timezone: string;
+    fromDate?: string;
+    toDate?: string;
+  }) {
+    const now = new Date();
+    const timezone = input.timezone;
+
+    if (input.range === "custom") {
+      if (!input.fromDate || !input.toDate) {
+        throw appError("VALIDATION_ERROR", { reason: "revenue_custom_range_requires_from_to" });
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(input.fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(input.toDate)) {
+        throw appError("VALIDATION_ERROR", { reason: "revenue_custom_range_date_invalid" });
+      }
+      const [fromYearRaw, fromMonthRaw, fromDayRaw] = input.fromDate.split("-");
+      const [toYearRaw, toMonthRaw, toDayRaw] = input.toDate.split("-");
+      const fromYear = Number(fromYearRaw);
+      const fromMonth = Number(fromMonthRaw);
+      const fromDay = Number(fromDayRaw);
+      const toYear = Number(toYearRaw);
+      const toMonth = Number(toMonthRaw);
+      const toDay = Number(toDayRaw);
+      const fromAt = this.getUtcDateForTenantMidnight(
+        { year: fromYear, month: fromMonth, day: fromDay },
+        timezone
+      );
+      const toStartAt = this.getUtcDateForTenantMidnight({ year: toYear, month: toMonth, day: toDay }, timezone);
+      const toAt = new Date(toStartAt.getTime() + 24 * 60 * 60 * 1000 - 1);
+      if (fromAt.getTime() > toAt.getTime()) {
+        throw appError("VALIDATION_ERROR", { reason: "revenue_custom_range_invalid_order" });
+      }
+      const maxRangeMs = 365 * 24 * 60 * 60 * 1000;
+      if (toAt.getTime() - fromAt.getTime() > maxRangeMs) {
+        throw appError("VALIDATION_ERROR", { reason: "revenue_custom_range_too_large" });
+      }
+      return { fromAt, toAt };
+    }
+
+    const tenantDate = this.getTenantDateParts(now, timezone);
+    const dayStartAt = this.getUtcDateForTenantMidnight(tenantDate, timezone);
+    if (input.range === "today") {
+      return {
+        fromAt: dayStartAt,
+        toAt: new Date(dayStartAt.getTime() + 24 * 60 * 60 * 1000 - 1)
+      };
+    }
+    if (input.range === "week") {
+      const localDay = new Date(
+        Date.UTC(tenantDate.year, tenantDate.month - 1, tenantDate.day, 12, 0, 0, 0)
+      ).getUTCDay();
+      const mondayOffset = (localDay + 6) % 7;
+      const weekStartAt = new Date(dayStartAt.getTime() - mondayOffset * 24 * 60 * 60 * 1000);
+      return {
+        fromAt: weekStartAt,
+        toAt: new Date(dayStartAt.getTime() + 24 * 60 * 60 * 1000 - 1)
+      };
+    }
+    const monthStartAt = this.getUtcDateForTenantMidnight(
+      {
+        year: tenantDate.year,
+        month: tenantDate.month,
+        day: 1
+      },
+      timezone
+    );
+    return {
+      fromAt: monthStartAt,
+      toAt: new Date(dayStartAt.getTime() + 24 * 60 * 60 * 1000 - 1)
+    };
+  }
+
   async getDashboard(input: { tenantId: string }) {
     const tenant = await this.tenantRepository.findById(input.tenantId);
     if (!tenant) {
       throw appError("TENANT_NOT_FOUND");
     }
 
-    const [kpis, attention, recentActivity, endpoints] = await Promise.all([
+    const [kpis, attention, recentActivity, endpoints, revenueToday, revenueWeek, revenueMonth] = await Promise.all([
       this.adminRepository.getDashboardKpis({
         tenantId: input.tenantId,
         timezone: tenant.timezone
@@ -72,7 +203,19 @@ export class AdminService {
         tenantId: input.tenantId,
         limit: 10
       }),
-      this.channelEndpointRepository.listWhatsAppEndpointsByTenantIds([input.tenantId])
+      this.channelEndpointRepository.listWhatsAppEndpointsByTenantIds([input.tenantId]),
+      this.getRevenueSummary({
+        tenantId: input.tenantId,
+        range: "today"
+      }),
+      this.getRevenueSummary({
+        tenantId: input.tenantId,
+        range: "week"
+      }),
+      this.getRevenueSummary({
+        tenantId: input.tenantId,
+        range: "month"
+      })
     ]);
 
     const botNumberConflict = tenant.desiredWhatsappBotE164
@@ -105,7 +248,94 @@ export class AdminService {
         pendingBookings: Number(attention.pendingBookings ?? 0)
       },
       recentActivity,
+      revenueOverview: {
+        today: revenueToday,
+        week: revenueWeek,
+        month: revenueMonth
+      },
       whatsappSetup
+    };
+  }
+
+  async getRevenueSummary(input: {
+    tenantId: string;
+    range: RevenueRange;
+    fromDate?: string;
+    toDate?: string;
+  }) {
+    const tenant = await this.tenantRepository.findById(input.tenantId);
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND");
+    }
+    const { fromAt, toAt } = this.computeRevenueRangeBounds({
+      range: input.range,
+      timezone: tenant.timezone,
+      fromDate: input.fromDate,
+      toDate: input.toDate
+    });
+    const row = await this.adminRepository.getRevenueSummary({
+      tenantId: input.tenantId,
+      fromAt,
+      toAt
+    });
+    return {
+      range: input.range,
+      timezone: tenant.timezone,
+      fromAt: fromAt.toISOString(),
+      toAt: toAt.toISOString(),
+      currency: "EUR",
+      completedCount: Number(row.completedCount ?? 0),
+      completedWithAmountCount: Number(row.completedWithAmountCount ?? 0),
+      completedWithoutAmountCount: Number(row.completedWithoutAmountCount ?? 0),
+      totalRevenueMinor: Number(row.totalRevenueMinor ?? 0),
+      averageTicketMinor: Number(row.averageTicketMinor ?? 0)
+    };
+  }
+
+  async listRevenueBookings(input: {
+    tenantId: string;
+    range: RevenueRange;
+    fromDate?: string;
+    toDate?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    const tenant = await this.tenantRepository.findById(input.tenantId);
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND");
+    }
+    const { fromAt, toAt } = this.computeRevenueRangeBounds({
+      range: input.range,
+      timezone: tenant.timezone,
+      fromDate: input.fromDate,
+      toDate: input.toDate
+    });
+    const limit = Math.min(Math.max(Number(input.limit ?? 50) || 50, 1), 200);
+    const offset = Math.max(Number(input.offset ?? 0) || 0, 0);
+    const items = await this.adminRepository.listRevenueBookings({
+      tenantId: input.tenantId,
+      fromAt,
+      toAt,
+      limit,
+      offset
+    });
+    return {
+      range: input.range,
+      timezone: tenant.timezone,
+      fromAt: fromAt.toISOString(),
+      toAt: toAt.toISOString(),
+      items: items.map((item) => ({
+        id: item.id,
+        clientName: item.clientName,
+        serviceId: item.serviceId,
+        serviceDisplayName: item.serviceDisplayName,
+        startAt: item.startAt?.toISOString?.() ?? String(item.startAt),
+        completedAt: item.completedAt?.toISOString?.() ?? String(item.completedAt),
+        completedAmountMinor: item.completedAmountMinor ?? null,
+        completedCurrency: item.completedCurrency ?? null,
+        completedPaymentMethod: item.completedPaymentMethod ?? null,
+        completedPaymentNote: item.completedPaymentNote ?? null
+      }))
     };
   }
 
@@ -712,6 +942,9 @@ export class AdminService {
     humanHandoffEnabled?: boolean;
     requestId?: string;
   }) {
+    if (input.timezone !== undefined) {
+      this.assertValidTimezone(input.timezone, "timezone_invalid");
+    }
     if (input.defaultLocale && input.defaultLocale !== "it" && input.defaultLocale !== "en") {
       throw appError("VALIDATION_ERROR", { reason: "default_locale_invalid" });
     }
@@ -870,6 +1103,9 @@ export class AdminService {
       operatorNumber?: string | null;
     };
   }) {
+    if (input.timezone !== undefined) {
+      this.assertValidTimezone(input.timezone, "timezone_invalid");
+    }
     const tenant = await this.tenantRepository.findById(input.tenantId);
     if (!tenant) {
       throw appError("TENANT_NOT_FOUND");
@@ -1012,7 +1248,8 @@ export class AdminService {
       account: {
         id: tenant.id,
         slug: tenant.slug,
-        name: tenant.name
+        name: tenant.name,
+        timezone: tenant.timezone
       },
       salons: [
         {

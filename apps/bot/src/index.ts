@@ -2035,16 +2035,26 @@ function formatAdminDigestMessage(input: {
       : `${titleMap[input.horizon].en}: no bookings found.`;
   }
 
-  const dateFormat = new Intl.DateTimeFormat(input.locale === "it" ? "it-IT" : "en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: input.timezone
-  });
+  const toDateTimeLabel = (value: string) => {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: input.timezone
+    }).formatToParts(new Date(value));
+    const map = new Map(parts.map((part) => [part.type, part.value]));
+    const day = map.get("day") ?? "01";
+    const month = map.get("month") ?? "01";
+    const year = map.get("year") ?? "1970";
+    const hour = map.get("hour") ?? "00";
+    const minute = map.get("minute") ?? "00";
+    return `${day}.${month}.${year} ${hour}:${minute}`;
+  };
   const rows = input.items.map((item, index) => {
-    const when = dateFormat.format(new Date(item.startAt));
+    const when = toDateTimeLabel(item.startAt);
     return `${index + 1}. ${when} - ${item.clientName} - ${item.serviceDisplayName} (${statusLabel(item.status)})`;
   });
   return `${input.locale === "it" ? titleMap[input.horizon].it : titleMap[input.horizon].en}\n${rows.join("\n")}`;
@@ -2583,13 +2593,21 @@ function getNextDays(timezone: string, count: number) {
   return Array.from(new Set(out));
 }
 
-function formatDateChoiceLabel(dateIso: string, locale: SupportedLocale, timezone: string) {
-  return new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-GB", {
-    weekday: "short",
+function formatDateChoiceLabel(dateIso: string, _locale: SupportedLocale, timezone: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
     timeZone: timezone
-  }).format(new Date(`${dateIso}T00:00:00.000Z`));
+  }).formatToParts(new Date(`${dateIso}T00:00:00.000Z`));
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+  const day = map.get("day") ?? "01";
+  const month = map.get("month") ?? "01";
+  const year = map.get("year") ?? "1970";
+  return `${day}.${month}.${year}`;
 }
 
 async function sendRescheduleDateChoices(input: {

@@ -14,6 +14,24 @@ type BookingItem = {
   status: BookingStatus;
 };
 
+function formatUiDateTime(value: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(new Date(value));
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+  const day = map.get("day") ?? "01";
+  const month = map.get("month") ?? "01";
+  const year = map.get("year") ?? "1970";
+  const hour = map.get("hour") ?? "00";
+  const minute = map.get("minute") ?? "00";
+  return `${day}.${month}.${year} ${hour}:${minute}`;
+}
+
 export default function BookingsPage() {
   const [items, setItems] = useState<BookingItem[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>("");
@@ -128,7 +146,7 @@ export default function BookingsPage() {
               <tr key={item.id}>
                 <td>{item.clientName}</td>
                 <td>{item.clientPhoneE164}</td>
-                <td>{new Date(item.startAt).toLocaleString()}</td>
+                <td>{formatUiDateTime(item.startAt)}</td>
                 <td>{item.status}</td>
                 <td>
                   <div className="gc-inline-actions">

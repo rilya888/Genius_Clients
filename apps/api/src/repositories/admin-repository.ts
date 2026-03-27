@@ -13,6 +13,14 @@ import {
 } from "@genius/db";
 import { getDb } from "../lib/db";
 
+type RevenueSummaryRow = {
+  completedCount: number;
+  completedWithAmountCount: number;
+  completedWithoutAmountCount: number;
+  totalRevenueMinor: number;
+  averageTicketMinor: number;
+};
+
 export class AdminRepository {
   async getNotificationDeliverySummary(tenantId: string) {
     const db = getDb();
@@ -136,6 +144,78 @@ export class AdminRepository {
       LEFT JOIN bookings b ON b.tenant_id = ${input.tenantId}
     `);
     return result.rows[0] ?? null;
+  }
+
+  async getRevenueSummary(input: {
+    tenantId: string;
+    fromAt: Date;
+    toAt: Date;
+  }) {
+    const db = getDb();
+    const result = await db.execute<RevenueSummaryRow>(sql`
+      SELECT
+        COUNT(*)::int AS "completedCount",
+        COUNT(*) FILTER (WHERE b.completed_amount_minor IS NOT NULL AND b.completed_amount_minor > 0)::int AS "completedWithAmountCount",
+        COUNT(*) FILTER (WHERE b.completed_amount_minor IS NULL OR b.completed_amount_minor <= 0)::int AS "completedWithoutAmountCount",
+        COALESCE(SUM(CASE WHEN b.completed_amount_minor IS NOT NULL AND b.completed_amount_minor > 0 THEN b.completed_amount_minor ELSE 0 END), 0)::int AS "totalRevenueMinor",
+        COALESCE(AVG(CASE WHEN b.completed_amount_minor IS NOT NULL AND b.completed_amount_minor > 0 THEN b.completed_amount_minor END), 0)::int AS "averageTicketMinor"
+      FROM bookings b
+      WHERE
+        b.tenant_id = ${input.tenantId}
+        AND b.status = 'completed'
+        AND b.completed_at IS NOT NULL
+        AND b.completed_at >= ${input.fromAt}
+        AND b.completed_at <= ${input.toAt}
+    `);
+
+    return (
+      result.rows[0] ?? {
+        completedCount: 0,
+        completedWithAmountCount: 0,
+        completedWithoutAmountCount: 0,
+        totalRevenueMinor: 0,
+        averageTicketMinor: 0
+      }
+    );
+  }
+
+  async listRevenueBookings(input: {
+    tenantId: string;
+    fromAt: Date;
+    toAt: Date;
+    limit: number;
+    offset: number;
+  }) {
+    const db = getDb();
+    const rows = await db
+      .select({
+        id: bookings.id,
+        clientName: bookings.clientName,
+        serviceId: bookings.serviceId,
+        serviceDisplayName: services.displayName,
+        startAt: bookings.startAt,
+        completedAt: bookings.completedAt,
+        completedAmountMinor: bookings.completedAmountMinor,
+        completedCurrency: bookings.completedCurrency,
+        completedPaymentMethod: bookings.completedPaymentMethod,
+        completedPaymentNote: bookings.completedPaymentNote
+      })
+      .from(bookings)
+      .innerJoin(services, eq(services.id, bookings.serviceId))
+      .where(
+        and(
+          eq(bookings.tenantId, input.tenantId),
+          eq(bookings.status, "completed"),
+          sql`${bookings.completedAt} IS NOT NULL`,
+          sql`${bookings.completedAt} >= ${input.fromAt}`,
+          sql`${bookings.completedAt} <= ${input.toAt}`
+        )
+      )
+      .orderBy(desc(bookings.completedAt), desc(bookings.updatedAt))
+      .limit(input.limit)
+      .offset(input.offset);
+
+    return rows;
   }
 
   async getDashboardAttention(input: { tenantId: string }) {
