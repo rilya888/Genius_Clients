@@ -11,6 +11,7 @@
     "build": "pnpm -r --filter \"./packages/*\" run build && pnpm -r --filter \"./apps/*\" run build",
     "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",
+    "ci:date-format-guard": "bash scripts/ci/check-no-locale-formatters.sh",
     "dev:web": "pnpm --filter @genius/web run dev",
     "dev:web-vite": "pnpm --filter @genius/web-vite run dev",
     "build:web-vite": "pnpm --filter @genius/web-vite run build",
