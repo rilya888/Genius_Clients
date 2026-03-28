@@ -21,6 +21,7 @@ export type ApiEnv = {
   appBaseUrl: string;
   resendApiKey: string;
   resendFromEmail: string;
+  waAutoProvisionEnabled: boolean;
 };
 
 function asBoolean(value: string | undefined, fallback: boolean) {
@@ -81,6 +82,7 @@ export function getApiEnv(): ApiEnv {
     trialDefaultPlanCode: process.env.TRIAL_DEFAULT_PLAN_CODE?.trim().toLowerCase() || "business",
     appBaseUrl: process.env.WEB_URL?.trim() || process.env.APP_URL?.trim() || "",
     resendApiKey: process.env.RESEND_API_KEY?.trim() ?? "",
-    resendFromEmail: process.env.RESEND_FROM_EMAIL?.trim() || process.env.EMAIL_FROM?.trim() || ""
+    resendFromEmail: process.env.RESEND_FROM_EMAIL?.trim() || process.env.EMAIL_FROM?.trim() || "",
+    waAutoProvisionEnabled: asBoolean(process.env.WA_AUTO_PROVISION_ENABLED, true)
   };
 }

@@ -188,6 +188,9 @@ class MetaWhatsAppProvisionAdapter {
   }
 }
 
+const OTP_REQUEST_COOLDOWN_SECONDS = Math.max(30, Number(process.env.WA_OTP_REQUEST_COOLDOWN_SECONDS ?? "60"));
+const JOB_RETRY_MAX_ATTEMPTS = Math.max(3, Number(process.env.WA_PROVISIONING_JOB_MAX_ATTEMPTS ?? "10"));
+
 function resolveTokenSourceForPhone(phoneNumberId: string): "unknown" | "map" | "fallback" {
   const tokenMap = parseStringMap(process.env.WA_ACCESS_TOKEN_BY_PHONE_JSON);
   if (tokenMap.has(phoneNumberId)) {
@@ -499,6 +502,18 @@ export class SuperAdminWhatsAppProvisioningService {
       throw appError("VALIDATION_ERROR", { reason: "verification_method_invalid" });
     }
 
+    const latestSession = await this.provisioningRepository.getLatestOtpSessionByJob(job.id);
+    if (latestSession && latestSession.createdAt) {
+      const cooldownMs = OTP_REQUEST_COOLDOWN_SECONDS * 1000;
+      const elapsedMs = Date.now() - new Date(latestSession.createdAt).getTime();
+      if (elapsedMs < cooldownMs) {
+        throw appError("AUTH_FORBIDDEN", {
+          reason: "otp_request_cooldown_active",
+          retryAfterSeconds: Math.ceil((cooldownMs - elapsedMs) / 1000)
+        });
+      }
+    }
+
     const result = await this.metaAdapter.requestOtp({ phoneNumberId, method });
     if (!result.ok) {
       const failure = classifyMetaFailure(result);
@@ -730,6 +745,19 @@ export class SuperAdminWhatsAppProvisioningService {
       throw appError("VALIDATION_ERROR", { reason: "whatsapp_provisioning_job_not_retryable" });
     }
 
+    if (job.attempts >= JOB_RETRY_MAX_ATTEMPTS) {
+      await this.provisioningRepository.updateJob({
+        id: job.id,
+        tenantId: input.tenantId,
+        status: "failed_final",
+        step: job.step,
+        errorCode: "job_retry_attempts_exceeded",
+        errorMessage: "Maximum provisioning retry attempts exceeded",
+        actor
+      });
+      throw appError("AUTH_FORBIDDEN", { reason: "job_retry_attempts_exceeded" });
+    }
+
     if (job.step === "otp_request" || job.step === "otp_verify") {
       const updated = await this.provisioningRepository.updateJob({
         id: job.id,
@@ -767,5 +795,53 @@ export class SuperAdminWhatsAppProvisioningService {
     });
 
     return { job: updated ?? job, nextAction: "confirm_otp" };
+  }
+
+  async rollback(input: { tenantId: string; jobId?: string; actor?: string }) {
+    const actor = sanitizeActor(input.actor);
+    const bindings = await this.provisioningRepository.listBindingsByTenant(input.tenantId, 50);
+    const active = bindings.find((item) => item.isActive);
+    if (!active) {
+      throw appError("VALIDATION_ERROR", { reason: "whatsapp_binding_active_not_found" });
+    }
+
+    const previous = bindings.find((item) => !item.isActive && item.bindingVersion < active.bindingVersion);
+    if (!previous) {
+      throw appError("VALIDATION_ERROR", { reason: "whatsapp_binding_rollback_target_not_found" });
+    }
+
+    const activated = await this.provisioningRepository.activateBinding({
+      tenantId: input.tenantId,
+      bindingId: previous.id,
+      actor
+    });
+    if (!activated) {
+      throw appError("INTERNAL_ERROR", { reason: "whatsapp_binding_rollback_failed" });
+    }
+
+    await this.tenantRepository.updateSettings({
+      tenantId: input.tenantId,
+      desiredWhatsappBotE164: activated.botNumberE164,
+      operatorWhatsappE164: activated.operatorNumberE164,
+      adminNotificationWhatsappE164: activated.operatorNumberE164
+    });
+
+    if (input.jobId?.trim()) {
+      await this.provisioningRepository.updateJob({
+        id: input.jobId.trim(),
+        tenantId: input.tenantId,
+        status: "rolled_back",
+        step: "done",
+        errorCode: null,
+        errorMessage: null,
+        actor,
+        metaPayloadJson: {
+          rolledBackToBindingId: activated.id,
+          rolledBackAt: new Date().toISOString()
+        }
+      });
+    }
+
+    return { binding: activated };
   }
 }

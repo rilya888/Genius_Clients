@@ -158,3 +158,11 @@
 - Единственный ручной шаг — ввод OTP.
 - После `READY` бот и admin-notifications работают на новых номерах.
 - При провале сохраняется/восстанавливается предыдущий рабочий routing.
+
+## Статус реализации (на сейчас)
+- Готово: Фаза A (backend foundation) + базовая orchestration и OTP flow.
+- Готово: Super Admin UI блок для `start/request otp/confirm/retry/status/rollback`.
+- Готово: feature-flag `WA_AUTO_PROVISION_ENABLED`.
+- Готово: OTP cooldown и лимит retry для provisioning job.
+- Готово: rollback endpoint с переключением на предыдущий binding.
+- Частично: продвинутая диагностическая панель/метрики/алерты (Phase D) — остается.

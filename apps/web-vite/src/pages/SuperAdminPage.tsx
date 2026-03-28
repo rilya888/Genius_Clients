@@ -1080,6 +1080,35 @@ export function SuperAdminPage() {
           >
             Retry
           </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => {
+              if (!provisionTenantId.trim()) {
+                setStatus("Tenant is required");
+                return;
+              }
+              void superAdminRequest<{ binding: { id: string } }>(
+                `/api/v1/super-admin/tenants/${provisionTenantId.trim()}/whatsapp/provision/rollback`,
+                {
+                  method: "POST",
+                  body: JSON.stringify({
+                    jobId: provisionJobId.trim() || undefined,
+                    actor
+                  })
+                }
+              ).then(async (result) => {
+                if (!result.ok) {
+                  setStatus(result.error?.message ?? "Rollback failed");
+                  return;
+                }
+                setStatus("Rollback applied");
+                await loadAll();
+                await loadProvisionStatus(provisionTenantId.trim());
+              });
+            }}
+          >
+            Rollback
+          </button>
         </div>
         {provisionStatus ? (
           <div

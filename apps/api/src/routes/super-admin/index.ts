@@ -157,6 +157,12 @@ function parseOtpVerificationMethod(value: unknown): "sms" | "voice" {
   return parseChannelEnum(value, OTP_VERIFICATION_METHODS as Set<"sms" | "voice">, "verification_method_invalid");
 }
 
+function assertWhatsAppAutoProvisionEnabled() {
+  if (!getApiEnv().waAutoProvisionEnabled) {
+    throw appError("AUTH_FORBIDDEN", { reason: "whatsapp_auto_provisioning_disabled" });
+  }
+}
+
 function normalizeOptionalString(value: unknown, maxLength: number): string | null {
   if (typeof value !== "string") {
     return null;
@@ -912,6 +918,7 @@ export const superAdminRoutes = new Hono()
     });
   })
   .get("/tenants/:tenantId/whatsapp/provision/status", async (c) => {
+    assertWhatsAppAutoProvisionEnabled();
     const tenantId = c.req.param("tenantId");
     const tenant = await tenantRepository.findById(tenantId);
     if (!tenant) {
@@ -922,6 +929,7 @@ export const superAdminRoutes = new Hono()
     return c.json({ data });
   })
   .post("/tenants/:tenantId/whatsapp/provision/start", async (c) => {
+    assertWhatsAppAutoProvisionEnabled();
     const tenantId = c.req.param("tenantId");
     const tenant = await tenantRepository.findById(tenantId);
     if (!tenant) {
@@ -964,6 +972,7 @@ export const superAdminRoutes = new Hono()
     return c.json({ data: result }, 201);
   })
   .post("/tenants/:tenantId/whatsapp/provision/request-otp", async (c) => {
+    assertWhatsAppAutoProvisionEnabled();
     const tenantId = c.req.param("tenantId");
     const tenant = await tenantRepository.findById(tenantId);
     if (!tenant) {
@@ -1002,6 +1011,7 @@ export const superAdminRoutes = new Hono()
     return c.json({ data: result });
   })
   .post("/tenants/:tenantId/whatsapp/provision/confirm-otp", async (c) => {
+    assertWhatsAppAutoProvisionEnabled();
     const tenantId = c.req.param("tenantId");
     const tenant = await tenantRepository.findById(tenantId);
     if (!tenant) {
@@ -1037,6 +1047,7 @@ export const superAdminRoutes = new Hono()
     return c.json({ data: result });
   })
   .post("/tenants/:tenantId/whatsapp/provision/retry", async (c) => {
+    assertWhatsAppAutoProvisionEnabled();
     const tenantId = c.req.param("tenantId");
     const tenant = await tenantRepository.findById(tenantId);
     if (!tenant) {
@@ -1063,6 +1074,36 @@ export const superAdminRoutes = new Hono()
       action: "super_admin.whatsapp_provisioning.retry",
       entity: "whatsapp_number_provisioning_jobs",
       entityId: body.jobId.trim(),
+      afterJson: result,
+      requestId: undefined
+    });
+
+    return c.json({ data: result });
+  })
+  .post("/tenants/:tenantId/whatsapp/provision/rollback", async (c) => {
+    assertWhatsAppAutoProvisionEnabled();
+    const tenantId = c.req.param("tenantId");
+    const tenant = await tenantRepository.findById(tenantId);
+    if (!tenant) {
+      throw appError("TENANT_NOT_FOUND", { reason: "tenant_not_found" });
+    }
+
+    const body = await c.req.json<{
+      jobId?: string;
+      actor?: string;
+    }>();
+
+    const result = await whatsappProvisioningService.rollback({
+      tenantId,
+      jobId: body.jobId?.trim() || undefined,
+      actor: normalizeActor(body.actor)
+    });
+
+    await auditRepository.createLog({
+      actor: normalizeActor(body.actor),
+      action: "super_admin.whatsapp_provisioning.rollback",
+      entity: "whatsapp_tenant_bindings",
+      entityId: result.binding.id,
       afterJson: result,
       requestId: undefined
     });
