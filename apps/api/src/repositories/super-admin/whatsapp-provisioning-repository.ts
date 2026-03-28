@@ -313,6 +313,16 @@ export class SuperAdminWhatsAppProvisioningRepository {
     return items[0] ?? null;
   }
 
+  async listBindingsByTenant(tenantId: string, limit = 20): Promise<TenantBindingRow[]> {
+    const db = getDb();
+    return db
+      .select()
+      .from(whatsappTenantBindings)
+      .where(eq(whatsappTenantBindings.tenantId, tenantId))
+      .orderBy(desc(whatsappTenantBindings.bindingVersion), desc(whatsappTenantBindings.createdAt))
+      .limit(limit);
+  }
+
   async createBindingCandidate(input: {
     tenantId: string;
     botNumberE164: string;
